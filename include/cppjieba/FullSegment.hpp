@@ -65,6 +65,7 @@ public:
                 assert(nextoffset < dags.size());
                 const DictUnit *du = dags[i].nexts[j].second;
                 if (du == NULL) {
+                    wordLen = 1;
                     if (dags[i].nexts.size() == 1 && maxIdx <= uIdx) {
                         WordRange wr(begin + i, begin + nextoffset);
                         res.push_back(wr);
