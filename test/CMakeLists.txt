@@ -10,3 +10,4 @@ INCLUDE_DIRECTORIES(
 
 ADD_EXECUTABLE(load_test load_test.cpp)
 ADD_SUBDIRECTORY(unittest)
+ADD_SUBDIRECTORY(unittest_neo)
