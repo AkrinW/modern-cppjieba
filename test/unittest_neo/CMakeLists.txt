@@ -19,6 +19,7 @@ INCLUDE_DIRECTORIES(
 ADD_EXECUTABLE(test_neo.run
     ${CMAKE_SOURCE_DIR}/test/unittest/gtest_main.cpp
     unicode_test.cpp
+    logging_test.cpp
 )
 
 TARGET_LINK_LIBRARIES(test_neo.run gtest)
