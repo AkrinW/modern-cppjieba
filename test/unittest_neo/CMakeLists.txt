@@ -23,6 +23,7 @@ ADD_EXECUTABLE(test_neo.run
     fileio_test.cpp
     postag_test.cpp
     trie_stats_test.cpp
+    dicttrie_test.cpp
 )
 
 TARGET_LINK_LIBRARIES(test_neo.run gtest)
