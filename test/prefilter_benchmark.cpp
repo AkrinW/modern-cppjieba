@@ -43,7 +43,7 @@ struct BenchResult {
     double total_ms;
     size_t rounds;
     size_t total_runes;
-    size_t total_segments;
+    uint64_t checksum;
 };
 
 static auto print_report(const BenchResult &r) -> void {
@@ -51,8 +51,29 @@ static auto print_report(const BenchResult &r) -> void {
     auto ns_per_rune = r.total_ms * 1e6 / total_runes_all;
     auto runes_per_sec = total_runes_all / (r.total_ms / 1000.0);
 
-    std::printf("│ %-40s │ %10.2f ms │ %8.2f ns/rune │ %8.2f Mr/s │\n", r.label, r.total_ms, ns_per_rune,
-                runes_per_sec / 1e6);
+    std::printf("│ %-40s │ %10.2f ms │ %8.2f ns/rune │ %8.2f Mr/s │\n",
+                r.label, r.total_ms, ns_per_rune, runes_per_sec / 1e6);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Simulated workload for each segment type
+// ─────────────────────────────────────────────────────────────────────────────
+// on_separator:    lightweight operation for a single separator rune.
+// on_text_segment: O(n) work proportional to segment length (simulates
+//                  dictionary / DAG lookup).  Accepts empty spans (no-op).
+
+struct SegmentStats {
+    uint64_t checksum;
+};
+
+static inline auto on_separator(char32_t r, uint64_t &acc) -> void {
+    acc ^= static_cast<uint64_t>(r);
+}
+
+static inline auto on_text_segment(std::span<const char32_t> seg, uint64_t &acc) -> void {
+    for (auto r : seg) {
+        acc = acc * 131 + static_cast<uint64_t>(r);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -264,38 +285,6 @@ bench_pre_filter_view(std::span<const char32_t>, const SymbolSet &) -> bench_pre
 // Benchmark drivers
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Benchmark an alternative strategy using bench_pre_filter_view<SymbolSet>.
-template <SymbolSetLike SymbolSet>
-static auto bench_alternative(const char *label, const std::vector<LineData> &lines, size_t total_runes, size_t rounds)
-    -> BenchResult {
-    // Warm up
-    {
-        auto count = size_t{0};
-        for (auto &&line : lines) {
-            auto x = bench_pre_filter_view<SymbolSet>{std::span<const char32_t>{line.runes}};
-            for (auto seg : x) {
-                DoNotOptimize(seg);
-                ++count;
-            }
-        }
-        DoNotOptimize(count);
-    }
-
-    auto total_segments = size_t{0};
-    auto t0 = Clock::now();
-    for (auto round = size_t{0}; round < rounds; ++round) {
-        for (auto &&line : lines) {
-            for (auto seg : bench_pre_filter_view<SymbolSet>{std::span<const char32_t>{line.runes}}) {
-                DoNotOptimize(seg);
-                ++total_segments;
-            }
-        }
-    }
-    auto t1 = Clock::now();
-
-    return BenchResult{label, Ms(t1 - t0).count(), rounds, total_runes, total_segments};
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Segment counting helpers for correctness verification
 // ─────────────────────────────────────────────────────────────────────────────
@@ -307,106 +296,48 @@ static auto bench_alternative(const char *label, const std::vector<LineData> &li
 //   Pass 1: scan the entire rune array and collect indices of all separators.
 //   Pass 2: iterate the indices to emit segments (non-separator spans + separator spans).
 // Pass 1 is a simple branchless-friendly loop that the compiler may auto-vectorize.
-static auto count_segments_production(const std::vector<LineData> &lines) -> size_t {
-    auto count = size_t{0};
+static auto count_segments_production(const std::vector<LineData> &lines) -> SegmentStats {
+    auto checksum = uint64_t{0};
     for (auto &&line : lines) {
-        const auto &unicode = line.runes;
-        auto seps = neo_cppjieba::get_pre_filter_separators(unicode);
-        auto one_count = seps.size();
-        if (seps[0] != 0) {
-            ++one_count;
+        auto runes = std::span<const char32_t>{line.runes};
+        if (runes.empty()) {
+            continue;
         }
-        for (auto i = size_t{1}; i < seps.size(); ++i) {
-            if (seps[i] > seps[i - 1] + 1) {
-                ++one_count;
-            }
+        auto seps = neo_cppjieba::get_pre_filter_separators(runes);
+        auto pos = uint32_t{0};
+        for (auto i = size_t{0}; i < seps.size(); ++i) {
+            on_text_segment(runes.subspan(pos, seps[i] - pos), checksum);
+            on_separator(runes[seps[i]], checksum);
+            pos = seps[i] + 1;
         }
-        if (seps.back() < unicode.size() - 1) {
-            ++one_count;
+        if (pos < runes.size()) {
+            on_text_segment(runes.subspan(pos), checksum);
         }
-        count += one_count;
     }
-    return count;
+    return SegmentStats{checksum};
 }
 
 template <SymbolSetLike SymbolSet>
-static auto count_segments_alt(const std::vector<LineData> &lines) -> size_t {
-    auto count = size_t{0};
+static auto count_segments_alt(const std::vector<LineData> &lines) -> SegmentStats {
+    auto checksum = uint64_t{0};
     for (auto &&line : lines) {
         for (auto seg : bench_pre_filter_view<SymbolSet>{std::span<const char32_t>{line.runes}}) {
-            (void)seg;
-            ++count;
+            if (seg.size() == 1 && SymbolSet::contains(seg[0])) {
+                on_separator(seg[0], checksum);
+            } else {
+                on_text_segment(seg, checksum);
+            }
         }
     }
-    return count;
+    return SegmentStats{checksum};
 }
-
-static auto bench_index_scan(const char *label, const std::vector<LineData> &lines, size_t total_runes, size_t rounds)
-    -> BenchResult {
-    // Warm up
-    {
-        auto count = size_t{0};
-        for (auto &&line : lines) {
-            auto runes = std::span<const char32_t>{line.runes};
-            auto sep_indices = neo_cppjieba::get_pre_filter_separators(runes);
-
-            auto one_count = sep_indices.size();
-            if (sep_indices[0] != 0) {
-                ++one_count;
-            }
-            for (auto i = size_t{1}; i < sep_indices.size(); ++i) {
-                if (sep_indices[i] > sep_indices[i - 1] + 1) {
-                    ++one_count;
-                }
-            }
-            if (sep_indices.back() < runes.size() - 1) {
-                ++one_count;
-            }
-            count += one_count;
-        }
-        DoNotOptimize(count);
-    }
-
-    auto total_segments = size_t{0};
-    auto t0 = Clock::now();
-    for (auto round = size_t{0}; round < rounds; ++round) {
-        for (auto &&line : lines) {
-            auto runes = std::span<const char32_t>{line.runes};
-            auto sep_indices = neo_cppjieba::get_pre_filter_separators(runes);
-
-            auto one_count = sep_indices.size();
-            if (sep_indices[0] != 0) {
-                ++one_count;
-            }
-            for (auto i = size_t{1}; i < sep_indices.size(); ++i) {
-                if (sep_indices[i] > sep_indices[i - 1] + 1) {
-                    ++one_count;
-                }
-            }
-            if (sep_indices.back() < runes.size() - 1) {
-                ++one_count;
-            }
-            total_segments += one_count;
-        }
-    }
-    auto t1 = Clock::now();
-
-    return BenchResult{label, Ms(t1 - t0).count(), rounds, total_runes, total_segments};
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Bool-mask strategies: generate a flat bool array first (vectorizable pass),
-// then derive segments from the mask. The mask-generation loop has no branches
-// or side-effects, allowing the compiler to auto-vectorize with AVX2.
-// ─────────────────────────────────────────────────────────────────────────────
 
 // ── Strategy: bitmask + bool mask (iterator-style) ──────────────────────────
 // Pass 1: fill bool mask (vectorizable).
 // Pass 2: iterate runes using the mask to emit segments.
-
 template <SymbolSetLike SymbolSet>
-static auto count_segments_mask_iter(const std::vector<LineData> &lines) -> size_t {
-    auto count = size_t{0};
+static auto count_segments_mask_iter(const std::vector<LineData> &lines) -> SegmentStats {
+    auto checksum = uint64_t{0};
     auto mask = std::vector<uint8_t>{};
     for (auto &&line : lines) {
         auto runes = std::span<const char32_t>{line.runes};
@@ -418,87 +349,18 @@ static auto count_segments_mask_iter(const std::vector<LineData> &lines) -> size
         auto i = size_t{0};
         while (i < n) {
             if (mask[i]) {
-                ++count; // separator segment
+                on_separator(runes[i], checksum);
                 ++i;
             } else {
-                ++count; // non-separator segment
+                auto begin = i;
                 while (i < n && !mask[i]) {
                     ++i;
                 }
+                on_text_segment(runes.subspan(begin, i - begin), checksum);
             }
         }
     }
-    return count;
-}
-
-template <SymbolSetLike SymbolSet>
-static auto bench_mask_iter(const char *label, const std::vector<LineData> &lines, size_t total_runes, size_t rounds)
-    -> BenchResult {
-    auto mask = std::vector<uint8_t>{};
-    // Warm up
-    {
-        auto count = size_t{0};
-        for (auto &&line : lines) {
-            auto runes = std::span<const char32_t>{line.runes};
-            auto n = runes.size();
-            mask.resize(n);
-            for (auto i = size_t{0}; i < n; ++i) {
-                mask[i] = SymbolSet::contains(runes[i]);
-            }
-            auto i = size_t{0};
-            while (i < n) {
-                if (mask[i]) {
-                    auto seg = runes.subspan(i, 1);
-                    DoNotOptimize(seg);
-                    ++count;
-                    ++i;
-                } else {
-                    auto begin = i;
-                    while (i < n && !mask[i]) {
-                        ++i;
-                    }
-                    auto seg = runes.subspan(begin, i - begin);
-                    DoNotOptimize(seg);
-                    ++count;
-                }
-            }
-        }
-        DoNotOptimize(count);
-    }
-
-    auto total_segments = size_t{0};
-    auto t0 = Clock::now();
-    for (auto round = size_t{0}; round < rounds; ++round) {
-        for (auto &&line : lines) {
-            auto runes = std::span<const char32_t>{line.runes};
-            auto n = runes.size();
-            mask.resize(n);
-            // Pass 1: fill mask (vectorizable, no branches)
-            for (auto i = size_t{0}; i < n; ++i) {
-                mask[i] = SymbolSet::contains(runes[i]);
-            }
-            // Pass 2: emit segments from mask
-            auto i = size_t{0};
-            while (i < n) {
-                if (mask[i]) {
-                    auto seg = runes.subspan(i, 1);
-                    DoNotOptimize(seg);
-                    ++total_segments;
-                    ++i;
-                } else {
-                    auto begin = i;
-                    while (i < n && !mask[i]) {
-                        ++i;
-                    }
-                    auto seg = runes.subspan(begin, i - begin);
-                    DoNotOptimize(seg);
-                    ++total_segments;
-                }
-            }
-        }
-    }
-    auto t1 = Clock::now();
-    return BenchResult{label, Ms(t1 - t0).count(), rounds, total_runes, total_segments};
+    return SegmentStats{checksum};
 }
 
 // ── Strategy: index pre-scan + bool mask ────────────────────────────────────
@@ -506,8 +368,8 @@ static auto bench_mask_iter(const char *label, const std::vector<LineData> &line
 // Pass 1.5: extract separator indices from mask.
 // Pass 2: emit segments from indices.
 template <SymbolSetLike SymbolSet>
-static auto count_segments_mask_index(const std::vector<LineData> &lines) -> size_t {
-    auto count = size_t{0};
+static auto count_segments_mask_index(const std::vector<LineData> &lines) -> SegmentStats {
+    auto checksum = uint64_t{0};
     auto mask = std::vector<uint8_t>{};
     auto sep_indices = std::vector<size_t>{};
     for (auto &&line : lines) {
@@ -526,16 +388,176 @@ static auto count_segments_mask_index(const std::vector<LineData> &lines) -> siz
         auto pos = size_t{0};
         for (auto idx : sep_indices) {
             if (idx > pos) {
-                ++count;
+                on_text_segment(runes.subspan(pos, idx - pos), checksum);
             }
-            ++count;
+            on_separator(runes[idx], checksum);
             pos = idx + 1;
         }
         if (pos < n) {
-            ++count;
+            on_text_segment(runes.subspan(pos, n - pos), checksum);
         }
     }
-    return count;
+    return SegmentStats{checksum};
+}
+
+// Benchmark an alternative strategy using bench_pre_filter_view<SymbolSet>.
+template <SymbolSetLike SymbolSet>
+static auto bench_alternative(const char *label, const std::vector<LineData> &lines, size_t total_runes, size_t rounds)
+    -> BenchResult {
+    // Warm up
+    {
+        auto checksum = uint64_t{0};
+        for (auto &&line : lines) {
+            for (auto seg : bench_pre_filter_view<SymbolSet>{std::span<const char32_t>{line.runes}}) {
+                if (seg.size() == 1 && SymbolSet::contains(seg[0])) {
+                    on_separator(seg[0], checksum);
+                } else {
+                    on_text_segment(seg, checksum);
+                }
+            }
+        }
+        DoNotOptimize(checksum);
+    }
+
+    auto checksum = uint64_t{0};
+    auto t0 = Clock::now();
+    for (auto round = size_t{0}; round < rounds; ++round) {
+        for (auto &&line : lines) {
+            for (auto seg : bench_pre_filter_view<SymbolSet>{std::span<const char32_t>{line.runes}}) {
+                if (seg.size() == 1 && SymbolSet::contains(seg[0])) {
+                    on_separator(seg[0], checksum);
+                } else {
+                    on_text_segment(seg, checksum);
+                }
+            }
+        }
+    }
+    auto t1 = Clock::now();
+    DoNotOptimize(checksum);
+
+    return BenchResult{label, Ms(t1 - t0).count(), rounds, total_runes, checksum};
+}
+
+static auto bench_index_scan(const char *label, const std::vector<LineData> &lines, size_t total_runes, size_t rounds)
+    -> BenchResult {
+    // Warm up
+    auto seps = std::vector<uint32_t>{};
+    {
+        auto checksum = uint64_t{0};
+        for (auto &&line : lines) {
+            auto runes = std::span<const char32_t>{line.runes};
+            if (runes.empty()) {
+                continue;
+            }
+            // auto seps = neo_cppjieba::get_pre_filter_separators(runes);
+            neo_cppjieba::get_pre_filter_separators(runes, seps);
+            auto pos = size_t{0};
+            for (auto i = size_t{0}; i < seps.size(); ++i) {
+                on_text_segment(runes.subspan(pos, seps[i] - pos), checksum);
+                on_separator(runes[seps[i]], checksum);
+                pos = seps[i] + 1;
+            }
+            if (pos < runes.size()) {
+                on_text_segment(runes.subspan(pos), checksum);
+            }
+        }
+        DoNotOptimize(checksum);
+    }
+
+    auto checksum = uint64_t{0};
+    auto t0 = Clock::now();
+    for (auto round = size_t{0}; round < rounds; ++round) {
+        for (auto &&line : lines) {
+            auto runes = std::span<const char32_t>{line.runes};
+            if (runes.empty()) {
+                continue;
+            }
+            // auto sep_indices = neo_cppjieba::get_pre_filter_separators(runes);
+            neo_cppjieba::get_pre_filter_separators(runes, seps);
+            auto pos = size_t{0};
+            for (auto i = size_t{0}; i < seps.size(); ++i) {
+                on_text_segment(runes.subspan(pos, seps[i] - pos), checksum);
+                on_separator(runes[seps[i]], checksum);
+                pos = seps[i] + 1;
+            }
+            if (pos < runes.size()) {
+                on_text_segment(runes.subspan(pos), checksum);
+            }
+        }
+    }
+    auto t1 = Clock::now();
+    DoNotOptimize(checksum);
+
+    return BenchResult{label, Ms(t1 - t0).count(), rounds, total_runes, checksum};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bool-mask strategies: generate a flat bool array first (vectorizable pass),
+// then derive segments from the mask. The mask-generation loop has no branches
+// or side-effects, allowing the compiler to auto-vectorize with AVX2.
+// ─────────────────────────────────────────────────────────────────────────────
+
+template <SymbolSetLike SymbolSet>
+static auto bench_mask_iter(const char *label, const std::vector<LineData> &lines, size_t total_runes, size_t rounds)
+    -> BenchResult {
+    auto mask = std::vector<uint8_t>{};
+    // Warm up
+    {
+        auto checksum = uint64_t{0};
+        for (auto &&line : lines) {
+            auto runes = std::span<const char32_t>{line.runes};
+            auto n = runes.size();
+            mask.resize(n);
+            for (auto i = size_t{0}; i < n; ++i) {
+                mask[i] = SymbolSet::contains(runes[i]);
+            }
+            auto i = size_t{0};
+            while (i < n) {
+                if (mask[i]) {
+                    on_separator(runes[i], checksum);
+                    ++i;
+                } else {
+                    auto begin = i;
+                    while (i < n && !mask[i]) {
+                        ++i;
+                    }
+                    on_text_segment(runes.subspan(begin, i - begin), checksum);
+                }
+            }
+        }
+        DoNotOptimize(checksum);
+    }
+
+    auto checksum = uint64_t{0};
+    auto t0 = Clock::now();
+    for (auto round = size_t{0}; round < rounds; ++round) {
+        for (auto &&line : lines) {
+            auto runes = std::span<const char32_t>{line.runes};
+            auto n = runes.size();
+            mask.resize(n);
+            // Pass 1: fill mask (vectorizable, no branches)
+            for (auto i = size_t{0}; i < n; ++i) {
+                mask[i] = SymbolSet::contains(runes[i]);
+            }
+            // Pass 2: emit segments from mask
+            auto i = size_t{0};
+            while (i < n) {
+                if (mask[i]) {
+                    on_separator(runes[i], checksum);
+                    ++i;
+                } else {
+                    auto begin = i;
+                    while (i < n && !mask[i]) {
+                        ++i;
+                    }
+                    on_text_segment(runes.subspan(begin, i - begin), checksum);
+                }
+            }
+        }
+    }
+    auto t1 = Clock::now();
+    DoNotOptimize(checksum);
+    return BenchResult{label, Ms(t1 - t0).count(), rounds, total_runes, checksum};
 }
 
 template <SymbolSetLike SymbolSet>
@@ -545,7 +567,7 @@ static auto bench_mask_index(const char *label, const std::vector<LineData> &lin
     auto sep_indices = std::vector<size_t>{};
     // Warm up
     {
-        auto count = size_t{0};
+        auto checksum = uint64_t{0};
         for (auto &&line : lines) {
             auto runes = std::span<const char32_t>{line.runes};
             auto n = runes.size();
@@ -562,25 +584,19 @@ static auto bench_mask_index(const char *label, const std::vector<LineData> &lin
             auto pos = size_t{0};
             for (auto idx : sep_indices) {
                 if (idx > pos) {
-                    auto seg = runes.subspan(pos, idx - pos);
-                    DoNotOptimize(seg);
-                    ++count;
+                    on_text_segment(runes.subspan(pos, idx - pos), checksum);
                 }
-                auto seg = runes.subspan(idx, 1);
-                DoNotOptimize(seg);
-                ++count;
+                on_separator(runes[idx], checksum);
                 pos = idx + 1;
             }
             if (pos < n) {
-                auto seg = runes.subspan(pos, n - pos);
-                DoNotOptimize(seg);
-                ++count;
+                on_text_segment(runes.subspan(pos, n - pos), checksum);
             }
         }
-        DoNotOptimize(count);
+        DoNotOptimize(checksum);
     }
 
-    auto total_segments = size_t{0};
+    auto checksum = uint64_t{0};
     auto t0 = Clock::now();
     for (auto round = size_t{0}; round < rounds; ++round) {
         for (auto &&line : lines) {
@@ -602,24 +618,19 @@ static auto bench_mask_index(const char *label, const std::vector<LineData> &lin
             auto pos = size_t{0};
             for (auto idx : sep_indices) {
                 if (idx > pos) {
-                    auto seg = runes.subspan(pos, idx - pos);
-                    DoNotOptimize(seg);
-                    ++total_segments;
+                    on_text_segment(runes.subspan(pos, idx - pos), checksum);
                 }
-                auto seg = runes.subspan(idx, 1);
-                DoNotOptimize(seg);
-                ++total_segments;
+                on_separator(runes[idx], checksum);
                 pos = idx + 1;
             }
             if (pos < runes.size()) {
-                auto seg = runes.subspan(pos, runes.size() - pos);
-                DoNotOptimize(seg);
-                ++total_segments;
+                on_text_segment(runes.subspan(pos, runes.size() - pos), checksum);
             }
         }
     }
     auto t1 = Clock::now();
-    return BenchResult{label, Ms(t1 - t0).count(), rounds, total_runes, total_segments};
+    DoNotOptimize(checksum);
+    return BenchResult{label, Ms(t1 - t0).count(), rounds, total_runes, checksum};
 }
 
 } // namespace
@@ -646,45 +657,40 @@ auto main(int, char *[]) -> int {
     }
     std::printf("Loaded %zu lines (%zu runes total)\n\n", lines.size(), total_runes);
 
-    // ── Build alternative symbol sets ────────────────────────────────────
-    // auto hash_default = hash_symbol_set{neo::DEFAULT_SEPARATORS, 1.0f};
-    // auto hash_low_lf = hash_symbol_set{neo::DEFAULT_SEPARATORS, 0.25f};
-    // auto hash_high_lf = hash_symbol_set{neo::DEFAULT_SEPARATORS, 4.0f};
-    // auto sorted = sorted_symbol_set{};
-    // auto bitmask = bitmask_symbol_set{};
-
     // ── Verify correctness ───────────────────────────────────────────────
-    auto ref_count = count_segments_production(lines);
-    std::printf("Verifying all strategies produce identical segment counts ...\n");
+    auto ref = count_segments_production(lines);
+    std::printf("Verifying all strategies produce identical segment counts and checksums ...\n");
 
     auto ok = true;
-    auto check_count = [&](const char *name, size_t got) {
-        if (got != ref_count) {
-            std::printf("  ✗ %s: got %zu, expected %zu\n", name, got, ref_count);
+    auto check = [&](const char *name, SegmentStats got) {
+        if (got.checksum != ref.checksum) {
+            std::printf("  ✗ %s: checksum %llu (exp %llu)\n", name, static_cast<unsigned long long>(got.checksum),
+                        static_cast<unsigned long long>(ref.checksum));
             ok = false;
         }
     };
-    check_count("linear", count_segments_alt<linear_symbol_set>(lines));
-    check_count("sorted (binary)", count_segments_alt<sorted_symbol_set>(lines));
-    check_count("hash (lf=1.0)", count_segments_alt<hash_symbol_set<1.0f>>(lines));
-    check_count("hash (lf=0.25)", count_segments_alt<hash_symbol_set<0.25f>>(lines));
-    check_count("hash (lf=4.0)", count_segments_alt<hash_symbol_set<4.0f>>(lines));
-    check_count("bitmask", count_segments_alt<bitmask_symbol_set>(lines));
-    check_count("bitmask_branchless", count_segments_alt<bitmask_symbol_set_branchless>(lines));
-    check_count("bitmask_unlikely", count_segments_alt<bitmask_symbol_set_unlikely>(lines));
-    check_count("index pre-scan", count_segments_production(lines));
-    check_count("mask + iter", count_segments_mask_iter<bitmask_symbol_set>(lines));
-    check_count("mask + index", count_segments_mask_index<bitmask_symbol_set>(lines));
+    check("linear", count_segments_alt<linear_symbol_set>(lines));
+    check("sorted (binary)", count_segments_alt<sorted_symbol_set>(lines));
+    check("hash (lf=1.0)", count_segments_alt<hash_symbol_set<1.0f>>(lines));
+    check("hash (lf=0.25)", count_segments_alt<hash_symbol_set<0.25f>>(lines));
+    check("hash (lf=4.0)", count_segments_alt<hash_symbol_set<4.0f>>(lines));
+    check("bitmask", count_segments_alt<bitmask_symbol_set>(lines));
+    check("bitmask_branchless", count_segments_alt<bitmask_symbol_set_branchless>(lines));
+    check("bitmask_unlikely", count_segments_alt<bitmask_symbol_set_unlikely>(lines));
+    check("index pre-scan", count_segments_production(lines));
+    check("mask + iter", count_segments_mask_iter<bitmask_symbol_set_unlikely>(lines));
+    check("mask + index", count_segments_mask_index<bitmask_symbol_set_unlikely>(lines));
 
     if (!ok) {
-        std::printf("  ✗ Segment counts differ — aborting.\n");
+        std::printf("  ✗ Segment counts or checksums differ — aborting.\n");
         return 1;
     }
-    std::printf("  ✓ All strategies: %zu segments per pass.\n\n", ref_count);
+    std::printf("  ✓ All strategies: checksum %llu.\n\n", static_cast<unsigned long long>(ref.checksum));
 
     // ── Benchmark ────────────────────────────────────────────────────────
     std::printf("┌──────────────────────────────────────────┬───────────────┬─────────────────┬──────────────┐\n");
-    std::printf("│ Strategy                                 │ Total time    │ Latency         │ Throughput   │\n");
+    std::printf("│ %-40s │ %-13s │ %-15s │ %-12s │\n",
+                "Strategy", "Total time", "Latency", "Throughput");
     std::printf("├──────────────────────────────────────────┼───────────────┼─────────────────┼──────────────┤\n");
 
     auto r1 = bench_alternative<linear_symbol_set>("linear scan (production)", lines, total_runes, ROUNDS);
@@ -714,10 +720,10 @@ auto main(int, char *[]) -> int {
     auto r9 = bench_index_scan("index pre-scan (vectorizable)", lines, total_runes, ROUNDS);
     print_report(r9);
 
-    auto r10 = bench_mask_iter<bitmask_symbol_set>("bool-mask + iterator", lines, total_runes, ROUNDS);
+    auto r10 = bench_mask_iter<bitmask_symbol_set_unlikely>("bool-mask + iterator", lines, total_runes, ROUNDS);
     print_report(r10);
 
-    auto r11 = bench_mask_index<bitmask_symbol_set>("bool-mask + index extract", lines, total_runes, ROUNDS);
+    auto r11 = bench_mask_index<bitmask_symbol_set_unlikely>("bool-mask + index extract", lines, total_runes, ROUNDS);
     print_report(r11);
 
     std::printf("└──────────────────────────────────────────┴───────────────┴─────────────────┴──────────────┘\n\n");

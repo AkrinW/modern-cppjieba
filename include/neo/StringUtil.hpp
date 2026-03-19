@@ -267,17 +267,30 @@ inline constexpr auto DEFAULT_SEPARATORS = std::array<char32_t, 5>{
 // get_pre_filter_separators scans the input runes and returns a vector of indices where DEFAULT_SEPARATORS occur.
 // it is tested to be a speedup for pre-filtering when compared with iterator method, avoids repeated boundary searches
 // and improves cache locality. produces reusable indices for downstream slicing without re-scanning.
-auto get_pre_filter_separators(std::span<const char32_t> runes) -> std::vector<uint32_t> {
+auto get_pre_filter_separators(std::span<const char32_t> runes, std::vector<uint32_t> &out) -> void {
     auto n = static_cast<uint32_t>(runes.size());
-    // scan and collect separator indices
-    auto sep_indices = std::vector<uint32_t>{};
-    sep_indices.reserve(n / 8); // heuristic: ~12.5% separators
+    out.clear();
+    out.reserve(n / 8); // heuristic: ~12.5% separators
     for (auto i = uint32_t{0}; i < n; ++i) {
-        if (is_default_separator_branchless(runes[i])) {
-            sep_indices.push_back(i);
+        if (is_default_separator_unlikely(runes[i])) {
+            out.push_back(i);
         }
     }
-    return sep_indices;
+}
+
+// overload that returns a new vector instead of taking an output parameter.
+// so I think as a parameter input is more efficient because it maybe reuse same memory avoiding allocations when call
+// many time. but in some case maybe more convenient to return a new vector directly, so provide both interface anyway.
+auto get_pre_filter_separators(std::span<const char32_t> runes) -> std::vector<uint32_t> {
+    auto out = std::vector<uint32_t>{};
+    auto n = static_cast<uint32_t>(runes.size());
+    out.reserve(n / 8); // heuristic: ~12.5% separators
+    for (auto i = uint32_t{0}; i < n; ++i) {
+        if (is_default_separator_unlikely(runes[i])) {
+            out.push_back(i);
+        }
+    }
+    return out;
 }
 
 // trim is a helper function that removes leading and trailing whitespace from a string_view.
