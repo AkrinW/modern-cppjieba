@@ -9,6 +9,7 @@ INCLUDE_DIRECTORIES(
 )
 
 ADD_EXECUTABLE(load_test load_test.cpp)
+ADD_EXECUTABLE(jieba_benchmark jieba_benchmark.cpp)
 ADD_SUBDIRECTORY(unittest)
 ADD_SUBDIRECTORY(unittest_neo)
 ADD_EXECUTABLE(unicode_benchmark unicode_benchmark.cpp)

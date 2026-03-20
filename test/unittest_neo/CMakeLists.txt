@@ -29,6 +29,7 @@ ADD_EXECUTABLE(test_neo.run
     mpseg_test.cpp
     mixseg_test.cpp
     queryseg_test.cpp
+    jieba_test.cpp
 )
 
 TARGET_LINK_LIBRARIES(test_neo.run gtest)
