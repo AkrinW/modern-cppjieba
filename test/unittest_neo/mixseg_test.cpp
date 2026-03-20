@@ -39,6 +39,20 @@ TEST(MixSegmentNeoTest, SingleChar) {
     EXPECT_EQ(words[0], "我");
 }
 
+TEST(MixSegmentNeoTest, SpanSubrangeUsesLocalOffsets) {
+    auto dict = DictTrie{DICT_FILE};
+    auto model = HMModel{HMM_MODEL_FILE};
+    auto runes = decode(std::string_view{"甲我来自北京邮电大学乙"});
+    auto span = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
+    auto result = MixSegment<>::cut(dict, model, span);
+    auto words = to_strings(span, result);
+
+    EXPECT_EQ(words, std::vector<std::string>({"我", "来自", "北京邮电大学"}));
+    ASSERT_FALSE(result.empty());
+    EXPECT_EQ(result.front().begin, 0u);
+    EXPECT_EQ(result.back().end, static_cast<uint32_t>(span.size()));
+}
+
 TEST(MixSegmentNeoTest, ClassicSentence) {
     // The canonical Mix test case from jieba
     auto dict = DictTrie{DICT_FILE};

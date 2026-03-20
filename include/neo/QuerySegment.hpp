@@ -28,20 +28,19 @@ namespace neo_cppjieba {
 /// reference parameters.
 template <bool hmm = true>
 struct QuerySegment {
-    [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, const Unicode &unicodes)
+    [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes)
         -> std::vector<WordRange> {
-        auto mix_words = MixSegment<hmm>::cut(dict, model, unicodes);
+        auto mix_words = MixSegment<hmm>::cut(dict, model, runes);
 
         auto result = std::vector<WordRange>{};
         result.reserve(mix_words.size() * 2);
 
-        auto span = std::span<const Rune>{unicodes.data(), unicodes.size()};
         for (auto &word : mix_words) {
             auto len = word.size();
 
             if (len > 2) {
                 for (auto i = uint32_t{0}; i + 2 <= len; ++i) {
-                    auto sub = span.subspan(word.begin + i, 2);
+                    auto sub = runes.subspan(word.begin + i, 2);
                     if (dict.find(sub).has_value()) {
                         result.push_back(WordRange{word.begin + i, word.begin + i + 2});
                     }
@@ -50,7 +49,7 @@ struct QuerySegment {
 
             if (len > 3) {
                 for (auto i = uint32_t{0}; i + 3 <= len; ++i) {
-                    auto sub = span.subspan(word.begin + i, 3);
+                    auto sub = runes.subspan(word.begin + i, 3);
                     if (dict.find(sub).has_value()) {
                         result.push_back(WordRange{word.begin + i, word.begin + i + 3});
                     }
@@ -61,6 +60,11 @@ struct QuerySegment {
         }
 
         return result;
+    }
+
+    [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, const Unicode &unicodes)
+        -> std::vector<WordRange> {
+        return cut(dict, model, std::span<const Rune>{unicodes.data(), unicodes.size()});
     }
 
     /// Perform query-mode segmentation on an input string.

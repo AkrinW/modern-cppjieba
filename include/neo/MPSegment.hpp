@@ -31,22 +31,25 @@ struct MPSegment {
     /// The input is split by default separators first. Each non-separator
     /// segment is segmented independently, while separator characters are
     /// emitted as individual tokens.
-    [[nodiscard]] static auto cut(const DictTrie &dict, const Unicode &unicodes) -> std::vector<WordRange> {
+    [[nodiscard]] static auto cut(const DictTrie &dict, std::span<const Rune> runes) -> std::vector<WordRange> {
         auto range = std::vector<WordRange>{};
-        range.reserve(unicodes.size() / 2);
-        auto segments = get_pre_filter_separators(unicodes);
-        auto span = std::span<const Rune>{unicodes.data(), unicodes.size()};
+        range.reserve(runes.size() / 2);
+        auto segments = get_pre_filter_separators(runes);
         auto pos = uint32_t{0};
         // first segment.
-        cut_one_segment(dict, range, span.subspan(pos, segments[0] - pos), pos);
+        cut_one_segment(dict, range, runes.subspan(pos, segments[0] - pos), pos);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // separator segment.
             range.push_back(WordRange{segments[i], segments[i] + 1});
             pos = segments[i] + 1;
             // next text segment.
-            cut_one_segment(dict, range, span.subspan(pos, segments[i + 1] - pos), pos);
+            cut_one_segment(dict, range, runes.subspan(pos, segments[i + 1] - pos), pos);
         }
         return range;
+    }
+
+    [[nodiscard]] static auto cut(const DictTrie &dict, const Unicode &unicodes) -> std::vector<WordRange> {
+        return cut(dict, std::span<const Rune>{unicodes.data(), unicodes.size()});
     }
 
     /// Perform MP segmentation on an input string.

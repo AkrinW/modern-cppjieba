@@ -32,23 +32,27 @@ namespace neo_cppjieba {
 /// reference parameters.
 template <bool hmm = true>
 struct MixSegment {
-    [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, const Unicode &unicodes)
+    [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes)
         -> std::vector<WordRange> {
         auto range = std::vector<WordRange>{};
-        range.reserve(unicodes.size() / 2);
-        auto segments = get_pre_filter_separators(unicodes);
-        auto span = std::span<const Rune>{unicodes.data(), unicodes.size()};
+        range.reserve(runes.size() / 2);
+        auto segments = get_pre_filter_separators(runes);
         auto pos = uint32_t{0};
         // first segment.
-        cut_one_segment(dict, model, range, span.subspan(pos, segments[0] - pos), pos);
+        cut_one_segment(dict, model, range, runes.subspan(pos, segments[0] - pos), pos);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // separator segment.
             range.push_back(WordRange{segments[i], segments[i] + 1});
             pos = segments[i] + 1;
             // next text segment.
-            cut_one_segment(dict, model, range, span.subspan(pos, segments[i + 1] - pos), pos);
+            cut_one_segment(dict, model, range, runes.subspan(pos, segments[i + 1] - pos), pos);
         }
         return range;
+    }
+
+    [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, const Unicode &unicodes)
+        -> std::vector<WordRange> {
+        return cut(dict, model, std::span<const Rune>{unicodes.data(), unicodes.size()});
     }
 
     /// Perform mix-mode segmentation on an input string.
@@ -88,8 +92,7 @@ private:
             return;
         }
 
-        auto segment = Unicode{runes.begin(), runes.end()};
-        auto mp_words = MPSegment::cut(dict, segment);
+        auto mp_words = MPSegment::cut(dict, runes);
 
         if constexpr (!hmm) {
             for (auto &word : mp_words) {
@@ -118,8 +121,7 @@ private:
 
             auto run_begin = mp_words[i].begin;
             auto run_end = mp_words[j - 1].end;
-            auto hmm_segment = Unicode{runes.begin() + run_begin, runes.begin() + run_end};
-            auto hmm_words = HMMSegment::cut(model, hmm_segment);
+            auto hmm_words = HMMSegment::cut(model, runes.subspan(run_begin, run_end - run_begin));
             for (auto &hmm_word : hmm_words) {
                 result.push_back(WordRange{pos + run_begin + hmm_word.begin, pos + run_begin + hmm_word.end});
             }

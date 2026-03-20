@@ -26,22 +26,25 @@ namespace neo_cppjieba {
 /// This is a purely static utility — no instance state, no ownership of the
 /// model. The HMModel is taken as a const reference parameter.
 struct HMMSegment {
-    [[nodiscard]] static auto cut(const HMModel &model, const Unicode &unicodes) -> std::vector<WordRange> {
+    [[nodiscard]] static auto cut(const HMModel &model, std::span<const Rune> runes) -> std::vector<WordRange> {
         auto range = std::vector<WordRange>{};
-        range.reserve(unicodes.size() / 2);
-        auto segments = get_pre_filter_separators(unicodes);
-        auto span = std::span<const Rune>{unicodes.data(), unicodes.size()};
+        range.reserve(runes.size() / 2);
+        auto segments = get_pre_filter_separators(runes);
         auto pos = uint32_t{0};
         // first segment.
-        cut_one_segment(model, range, span.subspan(pos, segments[0] - pos), pos);
+        cut_one_segment(model, range, runes.subspan(pos, segments[0] - pos), pos);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // separator segment.
             range.push_back(WordRange{segments[i], segments[i] + 1});
             pos = segments[i] + 1;
             // next text segment.
-            cut_one_segment(model, range, span.subspan(pos, segments[i + 1] - pos), pos);
+            cut_one_segment(model, range, runes.subspan(pos, segments[i + 1] - pos), pos);
         }
         return range;
+    }
+
+    [[nodiscard]] static auto cut(const HMModel &model, const Unicode &unicodes) -> std::vector<WordRange> {
+        return cut(model, std::span<const Rune>{unicodes.data(), unicodes.size()});
     }
 
     /// Perform HMM segmentation on a UTF-8 string, with pre-filtering.

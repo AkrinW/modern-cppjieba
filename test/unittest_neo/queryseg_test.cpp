@@ -37,6 +37,20 @@ TEST(QuerySegmentNeoTest, SingleChar) {
     EXPECT_EQ(words[0], "我");
 }
 
+TEST(QuerySegmentNeoTest, SpanSubrangeUsesLocalOffsets) {
+    auto dict = DictTrie{DICT_FILE};
+    auto model = HMModel{HMM_MODEL_FILE};
+    auto runes = decode(std::string_view{"甲中国科学院乙"});
+    auto span = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
+    auto result = QuerySegment<>::cut(dict, model, span);
+    auto words = to_strings(span, result);
+
+    EXPECT_EQ(words, std::vector<std::string>({"中国", "科学", "学院", "科学院", "中国科学院"}));
+    ASSERT_FALSE(result.empty());
+    EXPECT_EQ(result.front().begin, 0u);
+    EXPECT_EQ(result.back().end, static_cast<uint32_t>(span.size()));
+}
+
 TEST(QuerySegmentNeoTest, TwoCharWord) {
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
