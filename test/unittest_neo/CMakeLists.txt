@@ -26,6 +26,7 @@ ADD_EXECUTABLE(test_neo.run
     dicttrie_test.cpp
     hmmseg_test.cpp
     fullseg_test.cpp
+    mpseg_test.cpp
 )
 
 TARGET_LINK_LIBRARIES(test_neo.run gtest)
