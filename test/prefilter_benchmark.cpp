@@ -305,13 +305,11 @@ static auto count_segments_production(const std::vector<LineData> &lines) -> Seg
         }
         auto seps = neo_cppjieba::get_pre_filter_separators(runes);
         auto pos = uint32_t{0};
-        for (auto i = size_t{0}; i < seps.size(); ++i) {
-            on_text_segment(runes.subspan(pos, seps[i] - pos), checksum);
+        on_text_segment(runes.subspan(pos, seps[0] - pos), checksum);
+        for (auto i = size_t{0}; i < seps.size() - 1; ++i) {
             on_separator(runes[seps[i]], checksum);
             pos = seps[i] + 1;
-        }
-        if (pos < runes.size()) {
-            on_text_segment(runes.subspan(pos), checksum);
+            on_text_segment(runes.subspan(pos, seps[i + 1] - pos), checksum);
         }
     }
     return SegmentStats{checksum};
@@ -452,13 +450,11 @@ static auto bench_index_scan(const char *label, const std::vector<LineData> &lin
             // auto seps = neo_cppjieba::get_pre_filter_separators(runes);
             neo_cppjieba::get_pre_filter_separators(runes, seps);
             auto pos = size_t{0};
-            for (auto i = size_t{0}; i < seps.size(); ++i) {
-                on_text_segment(runes.subspan(pos, seps[i] - pos), checksum);
+            on_text_segment(runes.subspan(pos, seps[0] - pos), checksum);
+            for (auto i = size_t{0}; i < seps.size() - 1; ++i) {
                 on_separator(runes[seps[i]], checksum);
                 pos = seps[i] + 1;
-            }
-            if (pos < runes.size()) {
-                on_text_segment(runes.subspan(pos), checksum);
+                on_text_segment(runes.subspan(pos, seps[i + 1] - pos), checksum);
             }
         }
         DoNotOptimize(checksum);
@@ -475,13 +471,11 @@ static auto bench_index_scan(const char *label, const std::vector<LineData> &lin
             // auto sep_indices = neo_cppjieba::get_pre_filter_separators(runes);
             neo_cppjieba::get_pre_filter_separators(runes, seps);
             auto pos = size_t{0};
-            for (auto i = size_t{0}; i < seps.size(); ++i) {
-                on_text_segment(runes.subspan(pos, seps[i] - pos), checksum);
+            on_text_segment(runes.subspan(pos, seps[0] - pos), checksum);
+            for (auto i = size_t{0}; i < seps.size() - 1; ++i) {
                 on_separator(runes[seps[i]], checksum);
                 pos = seps[i] + 1;
-            }
-            if (pos < runes.size()) {
-                on_text_segment(runes.subspan(pos), checksum);
+                on_text_segment(runes.subspan(pos, seps[i + 1] - pos), checksum);
             }
         }
     }

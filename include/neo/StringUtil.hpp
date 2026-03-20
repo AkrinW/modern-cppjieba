@@ -276,6 +276,8 @@ inline auto get_pre_filter_separators(std::span<const char32_t> runes, std::vect
             out.push_back(i);
         }
     }
+    // add a sentinel index for the end of data, so downstream slicing can use [prev_index, next_index) without special handling for the last segment. maybe helperful for some algorithms that process segments between separators.
+    out.push_back(n); // sentinel index for end of data
 }
 
 // overload that returns a new vector instead of taking an output parameter.
@@ -290,6 +292,7 @@ inline auto get_pre_filter_separators(std::span<const char32_t> runes) -> std::v
             out.push_back(i);
         }
     }
+    out.push_back(n); // sentinel index for end of data
     return out;
 }
 
