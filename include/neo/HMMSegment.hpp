@@ -2,13 +2,11 @@
 
 #include "HMModel.hpp"
 #include "StringUtil.hpp"
-#include "Traits.hpp"
 #include "Unicode.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <string>
 #include <vector>
 
 namespace neo_cppjieba {
@@ -41,38 +39,6 @@ struct HMMSegment {
             cut_one_segment(model, range, runes.subspan(pos, segments[i + 1] - pos), pos);
         }
         return range;
-    }
-
-    [[nodiscard]] static auto cut(const HMModel &model, const Unicode &unicodes) -> std::vector<WordRange> {
-        return cut(model, std::span<const Rune>{unicodes.data(), unicodes.size()});
-    }
-
-    /// Perform HMM segmentation on a UTF-8 string, with pre-filtering.
-    ///
-    /// The sentence is first decoded to Unicode, then split by default separators.
-    /// Each non-separator segment is segmented using the HMM, while separator
-    /// characters are emitted as individual tokens.
-    ///
-    /// @param model    the HMM model
-    /// @param sentence the input UTF-8 string
-    /// @return         a vector of UTF-8 strings, each representing a segmented word
-    template <StringLike T>
-    [[nodiscard]] static auto cut(const HMModel &model, const T &sentence)
-        -> std::vector<std::basic_string<resolve_char_type_t<T>>> {
-        using CharT = resolve_char_type_t<T>;
-        auto unicode_with_offset = decode_with_offset(sentence);
-        const auto &unicode = unicode_with_offset.runes;
-        const auto &offsets = unicode_with_offset.offsets;
-        auto result = std::vector<std::basic_string<CharT>>{};
-        result.reserve(unicode.size() / 2);
-
-        auto range = cut(model, unicode);
-        auto view = as_view(sentence);
-        for (auto &r : range) {
-            result.push_back(encode(view, offsets, r));
-        }
-
-        return result;
     }
 
 private:

@@ -82,19 +82,24 @@ public:
     }
 
     template <CutMethod M = CutMethod::MIX, bool hmm = true>
+    [[nodiscard]] auto cut(std::span<const Rune> runes) const -> std::vector<WordRange> {
+        return cut_impl<M, hmm>(runes);
+    }
+
+    template <CutMethod M = CutMethod::MIX, bool hmm = true>
     [[nodiscard]] auto cut(const Unicode &unicodes) const -> std::vector<WordRange> {
-        return cut_impl<M, hmm>(unicodes);
+        return cut<M, hmm>(std::span<const Rune>{unicodes.data(), unicodes.size()});
     }
 
     template <CutMethod M = CutMethod::MIX, bool hmm = true>
     [[nodiscard]] auto cut(const UnicodeWithOffset &decoded) const -> std::vector<WordRange> {
-        return cut_impl<M, hmm>(decoded.runes);
+        return cut<M, hmm>(std::span<const Rune>{decoded.runes.data(), decoded.runes.size()});
     }
 
     template <CutMethod M = CutMethod::MIX, bool hmm = true, StringLike Input>
     [[nodiscard]] auto cut(const Input &input) const -> std::vector<std::basic_string<resolve_char_type_t<Input>>> {
         auto decoded = neo_cppjieba::decode_with_offset(input);
-        auto ranges = cut_impl<M, hmm>(decoded.runes);
+        auto ranges = cut<M, hmm>(std::span<const Rune>{decoded.runes.data(), decoded.runes.size()});
         return encode_words(as_view(input), decoded.offsets, ranges);
     }
 
@@ -108,17 +113,17 @@ public:
 
 private:
     template <CutMethod M, bool hmm>
-    [[nodiscard]] auto cut_impl(const Unicode &unicodes) const -> std::vector<WordRange> {
+    [[nodiscard]] auto cut_impl(std::span<const Rune> runes) const -> std::vector<WordRange> {
         if constexpr (M == CutMethod::MIX) {
-            return MixSegment<hmm>::cut(dict_, model_, unicodes);
+            return MixSegment<hmm>::cut(dict_, model_, runes);
         } else if constexpr (M == CutMethod::FULL) {
-            return FullSegment::cut(dict_, unicodes);
+            return FullSegment::cut(dict_, runes);
         } else if constexpr (M == CutMethod::SEARCH) {
-            return QuerySegment<hmm>::cut(dict_, model_, unicodes);
+            return QuerySegment<hmm>::cut(dict_, model_, runes);
         } else if constexpr (M == CutMethod::HMM) {
-            return HMMSegment::cut(model_, unicodes);
+            return HMMSegment::cut(model_, runes);
         } else {
-            return MPSegment::cut(dict_, unicodes);
+            return MPSegment::cut(dict_, runes);
         }
     }
 

@@ -24,6 +24,7 @@ ADD_EXECUTABLE(test_neo.run
     postag_test.cpp
     trie_stats_test.cpp
     dicttrie_test.cpp
+    segment_api_test.cpp
     hmmseg_test.cpp
     fullseg_test.cpp
     mpseg_test.cpp

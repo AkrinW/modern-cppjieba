@@ -4,6 +4,7 @@
 
 #include "test_paths.h"
 
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,6 +28,16 @@ TEST(JiebaNeoTest, DirectUtf16CutReturnsUtf16Words) {
 
     auto expected = std::vector<std::u16string>{u"我", u"来自", u"北京邮电大学"};
     EXPECT_EQ(words, expected);
+}
+
+TEST(JiebaNeoTest, DirectSpanCutReturnsWordRanges) {
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    auto runes = jieba.decode(std::string_view{"甲中国科学院乙"});
+    auto span = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
+    auto ranges = jieba.cut<CutMethod::SEARCH>(span);
+    auto words = Jieba::encode_words(span, ranges);
+
+    EXPECT_EQ(words, std::vector<std::string>({"中国", "科学", "学院", "科学院", "中国科学院"}));
 }
 
 TEST(JiebaNeoTest, ManualUnicodePipelineReturnsWordRanges) {

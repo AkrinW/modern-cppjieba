@@ -19,8 +19,6 @@ using namespace neo_cppjieba;
 inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
 inline constexpr auto HMM_MODEL_FILE = std::string_view{DICT_DIR "/hmm_model.utf8"};
 
-// ─── Basic segmentation ─────────────────────────────────────────────────────
-
 TEST(MixSegmentNeoTest, EmptyInput) {
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
@@ -54,44 +52,35 @@ TEST(MixSegmentNeoTest, SpanSubrangeUsesLocalOffsets) {
 }
 
 TEST(MixSegmentNeoTest, ClassicSentence) {
-    // The canonical Mix test case from jieba
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto sentence = std::string_view{"我来自北京邮电大学"};
-    auto runes = decode(sentence);
+    auto runes = decode(std::string_view{"我来自北京邮电大学"});
     auto result = MixSegment<>::cut(dict, model, runes);
     auto words = to_strings(runes, result);
 
-    // Mix mode: MP finds "我" / "来自" / "北京邮电大学"
-    // "我" is single char, but "来自" and "北京邮电大学" are multi-char from MP.
-    // The single char "我" goes through HMM, but HMM should also produce "我".
     auto expected = std::vector<std::string>{"我", "来自", "北京邮电大学"};
     EXPECT_EQ(words, expected) << "actual: " << join(words);
 }
 
 TEST(MixSegmentNeoTest, HangyanBuilding) {
-    // "他来到了网易杭研大厦" — with HMM, "杭研" should be grouped
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto sentence = std::string_view{"他来到了网易杭研大厦"};
-    auto result = MixSegment<>::cut(dict, model, sentence);
-    auto s = join(result);
+    auto runes = decode(std::string_view{"他来到了网易杭研大厦"});
+    auto result = MixSegment<>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
 
-    EXPECT_EQ(s, "他/来到/了/网易/杭研/大厦") << "actual: " << s;
+    EXPECT_EQ(join(words), "他/来到/了/网易/杭研/大厦") << "actual: " << join(words);
 }
 
 TEST(MixSegmentNeoTest, HangyanBuildingNoHMM) {
-    // Without HMM, "杭" and "研" stay as singles
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto sentence = std::string_view{"他来到了网易杭研大厦"};
-    auto result = MixSegment<false>::cut(dict, model, sentence);
-    auto s = join(result);
+    auto runes = decode(std::string_view{"他来到了网易杭研大厦"});
+    auto result = MixSegment<false>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
 
-    EXPECT_EQ(s, "他/来到/了/网易/杭/研/大厦") << "actual: " << s;
+    EXPECT_EQ(join(words), "他/来到/了/网易/杭/研/大厦") << "actual: " << join(words);
 }
-
-// ─── String overload with pre-filter ─────────────────────────────────────────
 
 TEST(MixSegmentNeoTest, UnicodeOverloadWithSeparators) {
     auto dict = DictTrie{DICT_FILE};
@@ -104,48 +93,27 @@ TEST(MixSegmentNeoTest, UnicodeOverloadWithSeparators) {
     EXPECT_EQ(words, expected) << "actual: " << join(words);
 }
 
-TEST(MixSegmentNeoTest, SentenceWithPunctuation) {
-    auto dict = DictTrie{DICT_FILE};
-    auto model = HMModel{HMM_MODEL_FILE};
-    auto sentence = std::string_view{"我来自北京邮电大学。。。学号123456，用AK47"};
-    auto result = MixSegment<>::cut(dict, model, sentence);
-    auto s = join(result);
-
-    EXPECT_EQ(s, "我/来自/北京邮电大学/。/。/。/学号/123456/，/用/AK47") << "actual: " << s;
-}
-
-TEST(MixSegmentNeoTest, StringOverloadUtf16) {
-    auto dict = DictTrie{DICT_FILE};
-    auto model = HMModel{HMM_MODEL_FILE};
-    auto words = MixSegment<>::cut(dict, model, std::u16string_view{u"我来自北京邮电大学"});
-
-    auto expected = std::vector<std::u16string>{u"我", u"来自", u"北京邮电大学"};
-    EXPECT_EQ(words, expected);
-}
-
 TEST(MixSegmentNeoTest, BChaoTShirt) {
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto result = MixSegment<>::cut(dict, model, std::string_view{"B超 T恤"});
-    auto s = join(result);
+    auto runes = decode(std::string_view{"B超 T恤"});
+    auto result = MixSegment<>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
 
-    EXPECT_EQ(s, "B超/ /T恤") << "actual: " << s;
+    EXPECT_EQ(join(words), "B超/ /T恤") << "actual: " << join(words);
 }
 
 TEST(MixSegmentNeoTest, Unicode32Emoji) {
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto result = MixSegment<>::cut(dict, model, std::string_view{"天气很好，🙋 我们去郊游。"});
-    auto s = join(result);
+    auto runes = decode(std::string_view{"天气很好，🙋 我们去郊游。"});
+    auto result = MixSegment<>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
 
-    // Emoji and punctuation are emitted as separate tokens
-    EXPECT_EQ(s, "天气/很/好/，/🙋/ /我们/去/郊游/。") << "actual: " << s;
+    EXPECT_EQ(join(words), "天气/很/好/，/🙋/ /我们/去/郊游/。") << "actual: " << join(words);
 }
 
-// ─── WordRange interface ────────────────────────────────────────────────────
-
 TEST(MixSegmentNeoTest, WordRangeContiguous) {
-    // The mix path must be a contiguous partition of [0, n)
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"小明硕士毕业于中国科学院计算所"});
@@ -161,14 +129,15 @@ TEST(MixSegmentNeoTest, WordRangeContiguous) {
 }
 
 TEST(MixSegmentNeoTest, ReconstructsOriginal) {
-    // Concatenation of all words must equal the original sentence
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
     auto sentence = std::string{"南京市长江大桥，欢迎你来参观游览。"};
-    auto result = MixSegment<>::cut(dict, model, sentence);
+    auto runes = decode(sentence);
+    auto result = MixSegment<>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
 
     auto reconstructed = std::string{};
-    for (auto &&w : result) {
+    for (auto &&w : words) {
         reconstructed += w;
     }
     EXPECT_EQ(reconstructed, sentence);
@@ -177,17 +146,19 @@ TEST(MixSegmentNeoTest, ReconstructsOriginal) {
 TEST(MixSegmentNeoTest, NanjingBridge) {
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto result = MixSegment<>::cut(dict, model, std::string_view{"南京市长江大桥"});
-    auto s = join(result);
+    auto runes = decode(std::string_view{"南京市长江大桥"});
+    auto result = MixSegment<>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
 
-    EXPECT_EQ(s, "南京市/长江大桥") << "actual: " << s;
+    EXPECT_EQ(join(words), "南京市/长江大桥") << "actual: " << join(words);
 }
 
 TEST(MixSegmentNeoTest, PureASCII) {
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto result = MixSegment<>::cut(dict, model, std::string_view{"IBM,3.14"});
-    auto s = join(result);
+    auto runes = decode(std::string_view{"IBM,3.14"});
+    auto result = MixSegment<>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
 
-    EXPECT_EQ(s, "IBM/,/3.14") << "actual: " << s;
+    EXPECT_EQ(join(words), "IBM/,/3.14") << "actual: " << join(words);
 }

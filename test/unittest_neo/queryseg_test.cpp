@@ -17,8 +17,6 @@ using namespace neo_cppjieba;
 inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
 inline constexpr auto HMM_MODEL_FILE = std::string_view{DICT_DIR "/hmm_model.utf8"};
 
-// ─── Basic segmentation ─────────────────────────────────────────────────────
-
 TEST(QuerySegmentNeoTest, EmptyInput) {
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
@@ -57,47 +55,37 @@ TEST(QuerySegmentNeoTest, TwoCharWord) {
     auto runes = decode(std::string_view{"亲口交代"});
     auto result = QuerySegment<>::cut(dict, model, runes);
     auto words = to_strings(runes, result);
-    auto actual = join(words);
-    EXPECT_EQ(actual, "亲口/交代") << "actual: " << actual;
+    EXPECT_EQ(join(words), "亲口/交代") << "actual: " << join(words);
 }
 
 TEST(QuerySegmentNeoTest, ClassicSentence) {
-    // Canonical query-mode test: "小明硕士毕业于中国科学院计算所，后在日本京都大学深造"
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto sentence = std::string_view{"小明硕士毕业于中国科学院计算所，后在日本京都大学深造"};
-
-    auto result = QuerySegment<>::cut(dict, model, sentence);
-    auto actual = join(result);
+    auto runes = decode(std::string_view{"小明硕士毕业于中国科学院计算所，后在日本京都大学深造"});
+    auto result = QuerySegment<>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
     auto expected = std::string{
         "小明/硕士/毕业/于/中国/科学/学院/科学院/中国科学院/计算/计算所/，/后/在/日本/京都/大学/日本京都大学/深造"};
-    EXPECT_EQ(actual, expected) << "actual: " << actual;
+    EXPECT_EQ(join(words), expected) << "actual: " << join(words);
 }
 
 TEST(QuerySegmentNeoTest, SubWordExtraction) {
-    // "他心理健康" → "他/心理/健康/心理健康"
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto sentence = std::string_view{"他心理健康"};
-
-    auto result = QuerySegment<>::cut(dict, model, sentence);
-    auto actual = join(result);
-    EXPECT_EQ(actual, "他/心理/健康/心理健康") << "actual: " << actual;
+    auto runes = decode(std::string_view{"他心理健康"});
+    auto result = QuerySegment<>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
+    EXPECT_EQ(join(words), "他/心理/健康/心理健康") << "actual: " << join(words);
 }
 
 TEST(QuerySegmentNeoTest, ChineseAcademy) {
-    // "中国科学院" should produce fine-grained sub-words
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto sentence = std::string_view{"中国科学院"};
-
-    auto result = QuerySegment<>::cut(dict, model, sentence);
-    auto actual = join(result);
-    auto expected = std::string{"中国/科学/学院/科学院/中国科学院"};
-    EXPECT_EQ(actual, expected) << "actual: " << actual;
+    auto runes = decode(std::string_view{"中国科学院"});
+    auto result = QuerySegment<>::cut(dict, model, runes);
+    auto words = to_strings(runes, result);
+    EXPECT_EQ(join(words), "中国/科学/学院/科学院/中国科学院") << "actual: " << join(words);
 }
-
-// ─── String overload ─────────────────────────────────────────────────────────
 
 TEST(QuerySegmentNeoTest, UnicodeOverloadWithSeparators) {
     auto dict = DictTrie{DICT_FILE};
@@ -112,44 +100,12 @@ TEST(QuerySegmentNeoTest, UnicodeOverloadWithSeparators) {
     EXPECT_NE(actual.find("京都"), std::string::npos) << "actual: " << actual;
 }
 
-TEST(QuerySegmentNeoTest, StringOverloadBasic) {
-    auto dict = DictTrie{DICT_FILE};
-    auto model = HMModel{HMM_MODEL_FILE};
-    auto result = QuerySegment<>::cut(dict, model, std::string_view{"我来自北京邮电大学"});
-    auto actual = join(result);
-    // Query mode should produce sub-words for "北京邮电大学"
-    EXPECT_FALSE(result.empty());
-    // The result should contain "北京" and "大学" as sub-words
-    EXPECT_NE(actual.find("北京"), std::string::npos) << "actual: " << actual;
-    EXPECT_NE(actual.find("大学"), std::string::npos) << "actual: " << actual;
-}
-
-TEST(QuerySegmentNeoTest, StringOverloadUtf16) {
-    auto dict = DictTrie{DICT_FILE};
-    auto model = HMModel{HMM_MODEL_FILE};
-    auto result = QuerySegment<>::cut(dict, model, std::u16string_view{u"中国科学院"});
-
-    auto expected = std::vector<std::u16string>{u"中国", u"科学", u"学院", u"科学院", u"中国科学院"};
-    EXPECT_EQ(result, expected);
-}
-
-TEST(QuerySegmentNeoTest, EmptyString) {
-    auto dict = DictTrie{DICT_FILE};
-    auto model = HMModel{HMM_MODEL_FILE};
-    auto result = QuerySegment<>::cut(dict, model, std::string_view{""});
-    EXPECT_TRUE(result.empty());
-}
-
-// ─── HMM toggle ─────────────────────────────────────────────────────────────
-
 TEST(QuerySegmentNeoTest, NoHmm) {
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};
-    auto sentence = std::string_view{"中国科学院"};
+    auto runes = decode(std::string_view{"中国科学院"});
+    auto result_hmm = QuerySegment<>::cut(dict, model, runes);
+    auto result_no = QuerySegment<false>::cut(dict, model, runes);
 
-    auto result_hmm = QuerySegment<>::cut(dict, model, sentence);
-    auto result_no = QuerySegment<false>::cut(dict, model, sentence);
-
-    // For this all-dict sentence, HMM vs no-HMM should produce the same result.
-    EXPECT_EQ(join(result_hmm), join(result_no));
+    EXPECT_EQ(to_strings(runes, result_hmm), to_strings(runes, result_no));
 }

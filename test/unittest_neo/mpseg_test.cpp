@@ -15,8 +15,6 @@ using namespace neo_cppjieba;
 
 inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
 
-// ─── Basic segmentation ─────────────────────────────────────────────────────
-
 TEST(MPSegmentTest, EmptyInput) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = Unicode{};
@@ -34,15 +32,12 @@ TEST(MPSegmentTest, SingleChar) {
 }
 
 TEST(MPSegmentTest, ClassicSentence) {
-    // The canonical MP test case from jieba
     auto dict = DictTrie{DICT_FILE};
     auto sentence = std::string_view{"我来自北京邮电大学"};
     auto runes = decode(sentence);
     auto result = MPSegment::cut(dict, runes);
     auto words = to_strings(runes, result);
 
-    // MP mode picks the maximum probability path:
-    // "我" / "来自" / "北京邮电大学"
     auto expected = std::vector<std::string>{"我", "来自", "北京邮电大学"};
     EXPECT_EQ(words, expected) << "actual: " << join(words);
 }
@@ -53,7 +48,6 @@ TEST(MPSegmentTest, NanjingBridge) {
     auto result = MPSegment::cut(dict, runes);
     auto words = to_strings(runes, result);
 
-    // MP mode: "南京市" / "长江大桥"
     auto expected = std::vector<std::string>{"南京市", "长江大桥"};
     EXPECT_EQ(words, expected) << "actual: " << join(words);
 }
@@ -63,60 +57,40 @@ TEST(MPSegmentTest, HunanChangsha) {
     auto runes = decode(std::string_view{"湖南长沙市天心区"});
     auto result = MPSegment::cut(dict, runes);
     auto words = to_strings(runes, result);
-    auto s = join(words);
 
-    EXPECT_EQ(s, "湖南长沙市/天心区") << "actual: " << s;
+    EXPECT_EQ(join(words), "湖南长沙市/天心区") << "actual: " << join(words);
 }
 
-// ─── String overload with pre-filter ─────────────────────────────────────────
-
-TEST(MPSegmentTest, UnicodeOverloadWithSeparators) {
+TEST(MPSegmentTest, SeparatorsAndPunctuation) {
     auto dict = DictTrie{DICT_FILE};
     auto sentence = std::string_view{"我来自北京邮电大学。"};
     auto runes = decode(sentence);
-    auto ranges = MPSegment::cut(dict, runes);
-    auto words = to_strings(runes, ranges);
+    auto result = MPSegment::cut(dict, runes);
+    auto words = to_strings(runes, result);
+
     auto expected = std::vector<std::string>{"我", "来自", "北京邮电大学", "。"};
     EXPECT_EQ(words, expected) << "actual: " << join(words);
 }
 
-TEST(MPSegmentTest, StringOverloadWithPunctuation) {
+TEST(MPSegmentTest, MixedAsciiAndChinese) {
     auto dict = DictTrie{DICT_FILE};
-    auto words = MPSegment::cut(dict, std::string_view{"我来自北京邮电大学。"});
-    auto s = join(words);
+    auto runes = decode(std::string_view{"B超 T恤"});
+    auto result = MPSegment::cut(dict, runes);
+    auto words = to_strings(runes, result);
 
-    // Punctuation is emitted as separate token by pre_filter
-    EXPECT_EQ(s, "我/来自/北京邮电大学/。") << "actual: " << s;
+    EXPECT_EQ(join(words), "B超/ /T恤") << "actual: " << join(words);
 }
 
-TEST(MPSegmentTest, StringOverloadUtf16) {
+TEST(MPSegmentTest, UnicodeEmojiAndPunctuation) {
     auto dict = DictTrie{DICT_FILE};
-    auto words = MPSegment::cut(dict, std::u16string_view{u"我来自北京邮电大学"});
+    auto runes = decode(std::string_view{"天气很好，🙋 我们去郊游。"});
+    auto result = MPSegment::cut(dict, runes);
+    auto words = to_strings(runes, result);
 
-    auto expected = std::vector<std::u16string>{u"我", u"来自", u"北京邮电大学"};
-    EXPECT_EQ(words, expected);
+    EXPECT_EQ(join(words), "天气/很/好/，/🙋/ /我们/去/郊游/。") << "actual: " << join(words);
 }
-
-TEST(MPSegmentTest, StringOverloadMixed) {
-    auto dict = DictTrie{DICT_FILE};
-    auto words = MPSegment::cut(dict, std::string_view{"B超 T恤"});
-    auto s = join(words);
-
-    EXPECT_EQ(s, "B超/ /T恤") << "actual: " << s;
-}
-
-TEST(MPSegmentTest, Unicode32Emoji) {
-    auto dict = DictTrie{DICT_FILE};
-    auto words = MPSegment::cut(dict, std::string_view{"天气很好，🙋 我们去郊游。"});
-    auto s = join(words);
-
-    EXPECT_EQ(s, "天气/很/好/，/🙋/ /我们/去/郊游/。") << "actual: " << s;
-}
-
-// ─── WordRange interface ────────────────────────────────────────────────────
 
 TEST(MPSegmentTest, WordRangeContiguous) {
-    // The MP path must be a contiguous partition of [0, n)
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"小明硕士毕业于中国科学院计算所"});
     auto result = MPSegment::cut(dict, runes);
@@ -131,13 +105,11 @@ TEST(MPSegmentTest, WordRangeContiguous) {
 }
 
 TEST(MPSegmentTest, AllSingleChars) {
-    // Characters that individually are in the dictionary but don't form longer words together
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"的了是"});
     auto result = MPSegment::cut(dict, runes);
     auto words = to_strings(runes, result);
 
-    // Each should be its own token
     ASSERT_EQ(words.size(), 3);
     EXPECT_EQ(words[0], "的");
     EXPECT_EQ(words[1], "了");
