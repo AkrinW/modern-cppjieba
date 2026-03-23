@@ -107,10 +107,8 @@ inline auto append_mix_words(const DictTrie &dict, const HMModel &model, std::ve
 
         auto run_begin = mp_words[i].begin;
         auto run_end = mp_words[j - 1].end;
-        auto hmm_words = HMMSegment::cut(model, runes.subspan(run_begin, run_end - run_begin));
-        for (auto &hmm_word : hmm_words) {
-            result.push_back(WordRange{pos + run_begin + hmm_word.begin, pos + run_begin + hmm_word.end});
-        }
+        neo_cppjieba::detail::hmm_cut_append(model, runes.subspan(run_begin, run_end - run_begin), result,
+                                             pos + run_begin);
 
         i = j;
     }
@@ -144,7 +142,7 @@ inline auto mix_cut_with_dag_buffered(const DictTrie &dict, const HMModel &model
         if (segment_runes.empty()) {
             return;
         }
-        auto mp_result = MPSegment::cut_segment(dict, segment_runes);
+        auto mp_result = neo_cppjieba::detail::mp_cut_segment(dict, segment_runes);
         result.dags.push_back(typename BufferedMixResult<hmm>::SegmentDag{segment_pos, std::move(mp_result.dag)});
         append_mix_words<hmm>(dict, model, result.words, mp_result.words, segment_runes, segment_pos);
     };

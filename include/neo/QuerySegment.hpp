@@ -31,21 +31,31 @@ struct QuerySegment {
         -> std::vector<WordRange> {
         auto result = std::vector<WordRange>{};
         result.reserve(runes.size());
-
-        auto segments = get_pre_filter_separators(runes);
-        auto pos = uint32_t{0};
-
-        cut_one_segment_with_inline_dag(dict, model, runes.subspan(pos, segments[0] - pos), pos, result);
-        for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
-            result.push_back(WordRange{segments[i], segments[i] + 1});
-            pos = segments[i] + 1;
-            cut_one_segment_with_inline_dag(dict, model, runes.subspan(pos, segments[i + 1] - pos), pos, result);
-        }
-
+        cut(dict, model, runes, result);
         return result;
     }
 
 private:
+    /// Append query-mode segmentation results while preserving separator runes as standalone tokens.
+    static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes, std::vector<WordRange> &result,
+                    uint32_t pos = 0) -> void {
+        auto segments = get_pre_filter_separators(runes);
+        auto segment_pos = pos;
+
+        // First text segment before the first separator.
+        cut_one_segment_with_inline_dag(dict, model, runes.subspan(0, segments[0]), segment_pos, result);
+        for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
+            // Emit the separator rune itself.
+            result.push_back(WordRange{pos + segments[i], pos + segments[i] + 1});
+            auto next_begin = segments[i] + 1;
+            segment_pos = pos + next_begin;
+            // Continue with the following text segment.
+            cut_one_segment_with_inline_dag(dict, model, runes.subspan(next_begin, segments[i + 1] - next_begin),
+                                            segment_pos, result);
+        }
+    }
+
+    /// Check whether the DAG contains a dictionary match covering [begin, end).
     [[nodiscard]] static auto has_dag_edge(const Dag &dag, uint32_t begin, uint32_t end) -> bool {
         for (auto &&edge : dag.get_edges(begin)) {
             if (edge.next_pos == end) {
@@ -55,6 +65,7 @@ private:
         return false;
     }
 
+    /// Reuse the already-built DAG to emit 2-gram and 3-gram dictionary sub-words for an MP word.
     static auto append_sub_words_from_dag(const Dag &dag, uint32_t segment_offset, WordRange word,
                                           std::vector<WordRange> &result) -> void {
         auto len = word.size();
@@ -81,31 +92,7 @@ private:
         }
     }
 
-    static auto append_sub_words_by_lookup(const DictTrie &dict, std::span<const Rune> runes,
-                                           std::span<const WordRange> words, std::vector<WordRange> &result) -> void {
-        for (auto &word : words) {
-            auto len = word.size();
-
-            if (len > 2) {
-                for (auto i = uint32_t{0}; i + 2 <= len; ++i) {
-                    auto sub = runes.subspan(word.begin + i, 2);
-                    if (dict.find(sub).has_value()) {
-                        result.push_back(WordRange{word.begin + i, word.begin + i + 2});
-                    }
-                }
-            }
-
-            if (len > 3) {
-                for (auto i = uint32_t{0}; i + 3 <= len; ++i) {
-                    auto sub = runes.subspan(word.begin + i, 3);
-                    if (dict.find(sub).has_value()) {
-                        result.push_back(WordRange{word.begin + i, word.begin + i + 3});
-                    }
-                }
-            }
-        }
-    }
-
+    /// Emit query-mode tokens for an HMM word that has no DAG path in the MP result.
     static auto append_query_local_word_by_lookup(const DictTrie &dict, std::span<const Rune> runes, WordRange word,
                                                   uint32_t segment_offset, std::vector<WordRange> &result) -> void {
         auto len = word.size();
@@ -132,19 +119,21 @@ private:
         result.push_back(WordRange{segment_offset + word.begin, segment_offset + word.end});
     }
 
+    /// Emit the main word plus its searchable sub-words when the MP DAG is already available.
     static auto append_query_word_from_dag(const Dag &dag, uint32_t segment_offset, WordRange word,
                                            std::vector<WordRange> &result) -> void {
         append_sub_words_from_dag(dag, segment_offset, word, result);
         result.push_back(word);
     }
 
+    /// Query mode piggybacks on MP segmentation so it can reuse the DAG for sub-word generation.
     static auto cut_one_segment_with_inline_dag(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
                                                 uint32_t pos, std::vector<WordRange> &result) -> void {
         if (runes.empty()) {
             return;
         }
 
-        auto mp_result = MPSegment::cut_segment(dict, runes);
+        auto mp_result = detail::mp_cut_segment(dict, runes);
         auto &dag = mp_result.dag;
         auto &mp_words = mp_result.words;
 

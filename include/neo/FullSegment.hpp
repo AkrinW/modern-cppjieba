@@ -40,6 +40,7 @@ struct FullSegment {
     }
 
 private:
+    /// Emit all dictionary matches inside one separator-free segment, plus uncovered single-rune fallbacks.
     static auto cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
                                 uint32_t pos) -> void {
         if (runes.empty()) {
@@ -58,22 +59,20 @@ private:
             auto edge_count = edges.size();
 
             if (edge_count == 1) {
-                // only one edge, must be a single character (either dict single-char or fallback non-dict)
-                // emit as fallback if the position is not already covered by previous longer words
+                // Only one edge means this position has no longer dictionary match.
+                // Emit it only when it is not already covered by an earlier overlapping word.
                 if (max_covered <= i) {
                     result.push_back(WordRange{pos + static_cast<uint32_t>(i), pos + edges[0].next_pos});
                     max_covered = static_cast<size_t>(edges[0].next_pos);
                 }
             } else {
-                // multiple edges, meaning there are longer words starting at this position
-                // emit all of them (including single-char if it exists) since full mode includes all overlapping
-                // matches
+                // Multiple edges means there are overlapping dictionary words starting here.
+                // Full mode keeps every longer match so downstream callers can decide how to use them.
                 for (auto j = size_t{1}; j < edge_count; ++j) {
                     result.push_back(WordRange{pos + static_cast<uint32_t>(i), pos + edges[j].next_pos});
                 }
 
-                // since edges are sorted from shortest to longest, the last edge extends the furthest; update
-                // max_covered accordingly
+                // Edges are sorted from shortest to longest, so the last one extends farthest.
                 max_covered = std::max(max_covered, static_cast<size_t>(edges.back().next_pos));
             }
         }

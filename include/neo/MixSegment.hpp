@@ -34,21 +34,28 @@ struct MixSegment {
         -> std::vector<WordRange> {
         auto result = std::vector<WordRange>{};
         result.reserve(runes.size() / 2);
-        auto segments = get_pre_filter_separators(runes);
-        auto pos = uint32_t{0};
-        // first segment.
-        cut_one_segment(dict, model, result, runes.subspan(pos, segments[0] - pos), pos);
-        for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
-            // separator segment.
-            result.push_back(WordRange{segments[i], segments[i] + 1});
-            pos = segments[i] + 1;
-            // next text segment.
-            cut_one_segment(dict, model, result, runes.subspan(pos, segments[i + 1] - pos), pos);
-        }
+        cut(dict, model, runes, result);
         return result;
     }
 
 private:
+    /// Append mix-mode segmentation results while preserving separator runes as standalone tokens.
+    static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
+                    std::vector<WordRange> &result, uint32_t pos = 0) -> void {
+        auto segments = get_pre_filter_separators(runes);
+        auto segment_pos = pos;
+        // First text segment before the first separator.
+        cut_one_segment(dict, model, result, runes.subspan(0, segments[0]), segment_pos);
+        for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
+            // Emit the separator rune itself.
+            result.push_back(WordRange{pos + segments[i], pos + segments[i] + 1});
+            auto next_begin = segments[i] + 1;
+            segment_pos = pos + next_begin;
+            // Continue with the following text segment.
+            cut_one_segment(dict, model, result, runes.subspan(next_begin, segments[i + 1] - next_begin), segment_pos);
+        }
+    }
+
     /// Perform mix-mode segmentation on a separator-free Unicode rune sequence.
     static auto cut_one_segment(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
                                 std::span<const Rune> runes, uint32_t pos) -> void {
@@ -56,10 +63,11 @@ private:
             return;
         }
 
-        auto mp_words = MPSegment::cut(dict, runes);
-        append_mix_words(dict, model, result, mp_words, runes, pos);
+        auto mp_result = detail::mp_cut_segment(dict, runes);
+        append_mix_words(dict, model, result, mp_result.words, runes, pos);
     }
 
+    /// Re-segment MP single-character runs with HMM so OOV multi-character words can be recovered.
     static auto append_mix_words(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
                                  const std::vector<WordRange> &mp_words, std::span<const Rune> runes, uint32_t pos)
         -> void {
@@ -90,10 +98,7 @@ private:
 
             auto run_begin = mp_words[i].begin;
             auto run_end = mp_words[j - 1].end;
-            auto hmm_words = HMMSegment::cut(model, runes.subspan(run_begin, run_end - run_begin));
-            for (auto &hmm_word : hmm_words) {
-                result.push_back(WordRange{pos + run_begin + hmm_word.begin, pos + run_begin + hmm_word.end});
-            }
+            detail::hmm_cut_append(model, runes.subspan(run_begin, run_end - run_begin), result, pos + run_begin);
 
             i = j;
         }
