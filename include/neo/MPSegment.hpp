@@ -23,6 +23,10 @@ namespace neo_cppjieba {
 /// This is a purely static utility — no instance state, no ownership of
 /// dictionaries. The DictTrie is taken as a const reference parameter.
 struct MPSegment {
+    struct SegmentResult {
+        Dag dag;
+        std::vector<WordRange> words;
+    };
 
     /// Perform MP segmentation on a Unicode rune sequence.
     ///
@@ -46,16 +50,15 @@ struct MPSegment {
         return range;
     }
 
-private:
-    /// Perform MP segmentation on a separator-free Unicode rune sequence.
-    static auto cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
-                                uint32_t pos) -> void {
+    /// Perform MP segmentation on a single separator-free segment and retain its DAG.
+    [[nodiscard]] static auto cut_segment(const DictTrie &dict, std::span<const Rune> runes) -> SegmentResult {
+        auto result = SegmentResult{};
         if (runes.empty()) {
-            return;
+            return result;
         }
 
-        auto dag = dict.find_dag(runes);
-        auto n = dag.size();
+        result.dag = dict.find_dag(runes);
+        auto n = result.dag.size();
 
         // DP node: cumulative best weight from position i to end, and the next_pos chosen by that optimal edge.
         struct DPNode {
@@ -72,7 +75,7 @@ private:
 
         // ── Reverse DP ───────────────────────────────────────────────────
         for (auto i = static_cast<ptrdiff_t>(n) - 1; i >= 0; --i) {
-            auto edges = dag.get_edges(static_cast<size_t>(i));
+            auto edges = result.dag.get_edges(static_cast<size_t>(i));
 
             for (auto &&edge : edges) {
                 // weight == 0.0f ⇒ not a real dictionary word (sentinel).
@@ -93,10 +96,23 @@ private:
         }
 
         // ── Trace forward ────────────────────────────────────────────────
+        result.words.reserve(n);
         for (auto i = uint32_t{0}; i < n;) {
             auto next = dp[i].next_pos;
-            result.push_back(WordRange{pos + i, pos + next});
+            result.words.push_back(WordRange{i, next});
             i = next;
+        }
+
+        return result;
+    }
+
+private:
+    /// Perform MP segmentation on a separator-free Unicode rune sequence.
+    static auto cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
+                                uint32_t pos) -> void {
+        auto segment = cut_segment(dict, runes);
+        for (auto &word : segment.words) {
+            result.push_back(WordRange{pos + word.begin, pos + word.end});
         }
     }
 };

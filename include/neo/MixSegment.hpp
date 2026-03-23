@@ -32,20 +32,20 @@ template <bool hmm = true>
 struct MixSegment {
     [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes)
         -> std::vector<WordRange> {
-        auto range = std::vector<WordRange>{};
-        range.reserve(runes.size() / 2);
+        auto result = std::vector<WordRange>{};
+        result.reserve(runes.size() / 2);
         auto segments = get_pre_filter_separators(runes);
         auto pos = uint32_t{0};
         // first segment.
-        cut_one_segment(dict, model, range, runes.subspan(pos, segments[0] - pos), pos);
+        cut_one_segment(dict, model, result, runes.subspan(pos, segments[0] - pos), pos);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // separator segment.
-            range.push_back(WordRange{segments[i], segments[i] + 1});
+            result.push_back(WordRange{segments[i], segments[i] + 1});
             pos = segments[i] + 1;
             // next text segment.
-            cut_one_segment(dict, model, range, runes.subspan(pos, segments[i + 1] - pos), pos);
+            cut_one_segment(dict, model, result, runes.subspan(pos, segments[i + 1] - pos), pos);
         }
-        return range;
+        return result;
     }
 
 private:
@@ -57,7 +57,12 @@ private:
         }
 
         auto mp_words = MPSegment::cut(dict, runes);
+        append_mix_words(dict, model, result, mp_words, runes, pos);
+    }
 
+    static auto append_mix_words(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
+                                 const std::vector<WordRange> &mp_words, std::span<const Rune> runes, uint32_t pos)
+        -> void {
         if constexpr (!hmm) {
             for (auto &word : mp_words) {
                 result.push_back(WordRange{pos + word.begin, pos + word.end});

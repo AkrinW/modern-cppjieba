@@ -1,3 +1,4 @@
+#include "../QuerySegmentCompare.hpp"
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/DictTrie.hpp"
@@ -108,4 +109,34 @@ TEST(QuerySegmentNeoTest, NoHmm) {
     auto result_no = QuerySegment<false>::cut(dict, model, runes);
 
     EXPECT_EQ(to_strings(runes, result_hmm), to_strings(runes, result_no));
+}
+
+TEST(QuerySegmentNeoTest, ReuseDagMatchesRequery) {
+    auto dict = DictTrie{DICT_FILE};
+    auto model = HMModel{HMM_MODEL_FILE};
+    auto runes = decode(std::string_view{"小明硕士毕业于中国科学院计算所，后在日本京都大学深造"});
+
+    auto result_requery = test::query_cut_requery(dict, model, runes);
+    auto result_buffered = test::query_cut_buffered_dag(dict, model, runes);
+    auto result_inline = QuerySegment<>::cut(dict, model, runes);
+
+    EXPECT_EQ(result_buffered, result_requery);
+    EXPECT_EQ(result_inline, result_requery);
+    EXPECT_EQ(to_strings(runes, result_buffered), to_strings(runes, result_requery));
+    EXPECT_EQ(to_strings(runes, result_inline), to_strings(runes, result_requery));
+}
+
+TEST(QuerySegmentNeoTest, ReuseDagMatchesRequeryWithoutHmm) {
+    auto dict = DictTrie{DICT_FILE};
+    auto model = HMModel{HMM_MODEL_FILE};
+    auto runes = decode(std::string_view{"他来到了网易杭研大厦"});
+
+    auto result_requery = test::query_cut_requery<false>(dict, model, runes);
+    auto result_buffered = test::query_cut_buffered_dag<false>(dict, model, runes);
+    auto result_inline = QuerySegment<false>::cut(dict, model, runes);
+
+    EXPECT_EQ(result_buffered, result_requery);
+    EXPECT_EQ(result_inline, result_requery);
+    EXPECT_EQ(to_strings(runes, result_buffered), to_strings(runes, result_requery));
+    EXPECT_EQ(to_strings(runes, result_inline), to_strings(runes, result_requery));
 }
