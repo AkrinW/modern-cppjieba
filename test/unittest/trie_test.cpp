@@ -18,7 +18,7 @@ TEST(TrieTest, Construct) {
     vector<Unicode> keys;
     vector<const DictUnit *> values;
     keys.push_back(DecodeUTF8RunesInString("你"));
-    values.push_back((const DictUnit *)(NULL));
+    values.push_back((const DictUnit *)nullptr);
     Trie trie(keys, values);
 }
 
@@ -29,14 +29,15 @@ TEST(DictTrieTest, NewAndDelete) {
 }
 
 TEST(DictTrieTest, Test1) {
-    string s1, s2;
+    string s1;
+    string s2;
     DictTrie trie(DICT_FILE);
     ASSERT_LT(trie.GetMinWeight() + 15.6479, 0.001);
     string word("来到");
     cppjieba::RuneStrArray uni;
     ASSERT_TRUE(DecodeUTF8RunesInString(word, uni));
     const DictUnit *du = trie.Find(uni.begin(), uni.end());
-    ASSERT_TRUE(du != NULL);
+    ASSERT_TRUE(du != nullptr);
     ASSERT_EQ(2u, du->word.size());
     ASSERT_EQ(26469u, du->word[0]);
     ASSERT_EQ(21040u, du->word[1]);
@@ -46,8 +47,8 @@ TEST(DictTrieTest, Test1) {
     word = "清华大学";
     LocalVector<pair<size_t, const DictUnit *>> res;
     const char *words[] = {"清", "清华", "清华大学"};
-    for (size_t i = 0; i < sizeof(words) / sizeof(words[0]); i++) {
-        ASSERT_TRUE(DecodeUTF8RunesInString(words[i], uni));
+    for (auto &word : words) {
+        ASSERT_TRUE(DecodeUTF8RunesInString(word, uni));
         res.push_back(make_pair(uni.size() - 1, trie.Find(uni.begin(), uni.end())));
     }
     vector<pair<size_t, const DictUnit *>> vec;
@@ -67,20 +68,20 @@ TEST(DictTrieTest, UserDict) {
     cppjieba::RuneStrArray unicode;
     ASSERT_TRUE(DecodeUTF8RunesInString(word, unicode));
     const DictUnit *unit = trie.Find(unicode.begin(), unicode.end());
-    ASSERT_TRUE(unit != NULL);
+    ASSERT_TRUE(unit != nullptr);
     ASSERT_NEAR(unit->weight, -14.100, 0.001);
 
     word = "蓝翔";
     ASSERT_TRUE(DecodeUTF8RunesInString(word, unicode));
     unit = trie.Find(unicode.begin(), unicode.end());
-    ASSERT_TRUE(unit != NULL);
+    ASSERT_TRUE(unit != nullptr);
     ASSERT_EQ(unit->tag, "nz");
     ASSERT_NEAR(unit->weight, -14.100, 0.001);
 
     word = "区块链";
     ASSERT_TRUE(DecodeUTF8RunesInString(word, unicode));
     unit = trie.Find(unicode.begin(), unicode.end());
-    ASSERT_TRUE(unit != NULL);
+    ASSERT_TRUE(unit != nullptr);
     ASSERT_EQ(unit->tag, "nz");
     ASSERT_NEAR(unit->weight, -15.6478, 0.001);
 }

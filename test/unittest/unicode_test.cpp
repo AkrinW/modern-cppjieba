@@ -31,7 +31,7 @@ TEST(UnicodeTest, Rand) {
     const size_t ITERATION = 1024;
     const size_t MAX_LEN = 256;
     string s;
-    srand(time(NULL));
+    srand(time(nullptr));
 
     for (size_t i = 0; i < ITERATION; i++) {
         size_t len = rand() % MAX_LEN;

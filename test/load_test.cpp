@@ -12,7 +12,7 @@
 
 using namespace cppjieba;
 
-void Cut(size_t times = 50) {
+static void Cut(size_t times = 50) {
     MixSegment seg(DICT_DIR "/jieba.dict.utf8", DICT_DIR "/hmm_model.utf8");
     vector<string> res;
     string doc;
@@ -28,10 +28,11 @@ void Cut(size_t times = 50) {
     }
     printf("\n");
     long endTime = clock();
-    ColorPrintln(GREEN, "Cut: [%.3lf seconds]time consumed.", double(endTime - beginTime) / CLOCKS_PER_SEC);
+    ColorPrintln(GREEN, "Cut: [%.3lf seconds]time consumed.",
+                 static_cast<double>(endTime - beginTime) / CLOCKS_PER_SEC);
 }
 
-void Extract(size_t times = 400) {
+static void Extract(size_t times = 400) {
     KeywordExtractor Extractor(DICT_DIR "/jieba.dict.utf8", DICT_DIR "/hmm_model.utf8", DICT_DIR "/idf.utf8",
                                DICT_DIR "/stop_words.utf8");
     vector<string> words;
@@ -48,10 +49,11 @@ void Extract(size_t times = 400) {
     }
     printf("\n");
     long endTime = clock();
-    ColorPrintln(GREEN, "Extract: [%.3lf seconds]time consumed.", double(endTime - beginTime) / CLOCKS_PER_SEC);
+    ColorPrintln(GREEN, "Extract: [%.3lf seconds]time consumed.",
+                 static_cast<double>(endTime - beginTime) / CLOCKS_PER_SEC);
 }
 
-int main(int argc, char **argv) {
+auto main(int /*argc*/, char ** /*argv*/) -> int {
     Cut();
     Extract();
     return EXIT_SUCCESS;

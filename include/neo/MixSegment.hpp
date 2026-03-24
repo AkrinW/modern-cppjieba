@@ -72,7 +72,7 @@ private:
                                  const std::vector<WordRange> &mp_words, std::span<const Rune> runes, uint32_t pos)
         -> void {
         if constexpr (!hmm) {
-            for (auto &word : mp_words) {
+            for (const auto &word : mp_words) {
                 result.push_back(WordRange{pos + word.begin, pos + word.end});
             }
             return;
@@ -80,7 +80,7 @@ private:
 
         auto i = size_t{0};
         while (i < mp_words.size()) {
-            auto &word = mp_words[i];
+            const auto &word = mp_words[i];
 
             // Multi-character word or user-dict single Chinese character → emit directly.
             if (word.size() > 1 || (word.size() == 1 && dict.is_user_dict_single_chinese_word(runes[word.begin]))) {

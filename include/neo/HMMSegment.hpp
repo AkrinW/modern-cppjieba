@@ -84,8 +84,8 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
 /// Find the end position of a consecutive ASCII letter sequence starting at `begin`.
 /// Returns `begin` if runes[begin] is not a letter.
-[[nodiscard]] inline constexpr auto sequential_letter_end(std::span<const Rune> runes, uint32_t begin,
-                                                          uint32_t end) noexcept -> uint32_t {
+[[nodiscard]] constexpr auto sequential_letter_end(std::span<const Rune> runes, uint32_t begin, uint32_t end) noexcept
+    -> uint32_t {
     auto r = runes[begin];
     if (('a' > r || r > 'z') && ('A' > r || r > 'Z')) {
         return begin;
@@ -104,7 +104,7 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
 /// Find the end position of a consecutive number sequence starting at `begin`.
 /// Returns `begin` if runes[begin] is not a digit.
-[[nodiscard]] inline constexpr auto number_end(std::span<const Rune> runes, uint32_t begin, uint32_t end) noexcept
+[[nodiscard]] constexpr auto number_end(std::span<const Rune> runes, uint32_t begin, uint32_t end) noexcept
     -> uint32_t {
     auto r = runes[begin];
     if ('0' > r || r > '9') {

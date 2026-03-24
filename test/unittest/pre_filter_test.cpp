@@ -18,7 +18,7 @@ TEST(PreFilterTest, Test1) {
         ASSERT_TRUE(filter.HasNext());
         vector<string> words;
         while (filter.HasNext()) {
-            PreFilter::Range range;
+            PreFilter::Range range{};
             range = filter.Next();
             words.push_back(GetStringFromRunes(s, range.begin, range.end - 1));
         }
@@ -33,7 +33,7 @@ TEST(PreFilterTest, Test1) {
         ASSERT_TRUE(filter.HasNext());
         vector<string> words;
         while (filter.HasNext()) {
-            PreFilter::Range range;
+            PreFilter::Range range{};
             range = filter.Next();
             words.push_back(GetStringFromRunes(s, range.begin, range.end - 1));
         }

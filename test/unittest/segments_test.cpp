@@ -117,7 +117,7 @@ TEST(MixSegmentTest, TestUserDict) {
         const size_t ITERATION = 16;
         const size_t MAX_LEN = 256;
         string s;
-        srand(time(NULL));
+        srand(time(nullptr));
 
         for (size_t i = 0; i < ITERATION; i++) {
             size_t len = rand() % MAX_LEN;
@@ -206,7 +206,8 @@ TEST(FullSegment, Test1) {
 TEST(QuerySegment, Test1) {
     QuerySegment segment(DICT_DIR "/jieba.dict.utf8", DICT_DIR "/hmm_model.utf8", "");
     vector<string> words;
-    string s1, s2;
+    string s1;
+    string s2;
 
     segment.Cut("小明硕士毕业于中国科学院计算所，后在日本京都大学深造", words);
     s1 = Join(words.begin(), words.end(), "/");
@@ -228,7 +229,8 @@ TEST(QuerySegment, Test2) {
     QuerySegment segment(TEST_DATA_DIR "/extra_dict/jieba.dict.small.utf8", DICT_DIR "/hmm_model.utf8",
                          TEST_DATA_DIR "/userdict.utf8|" TEST_DATA_DIR "/userdict.english");
     vector<string> words;
-    string s1, s2;
+    string s1;
+    string s2;
 
     {
         segment.Cut("小明硕士毕业于中国科学院计算所，后在日本京都大学深造", words);
