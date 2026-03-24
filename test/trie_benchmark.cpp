@@ -97,7 +97,7 @@ static auto load_raw_entries(const std::string &dict_path) -> std::vector<RawEnt
         std::perror("open");
         return entries;
     }
-    struct stat st {};
+    struct stat st{};
     ::fstat(fd, &st);
     auto file_size = static_cast<size_t>(st.st_size);
     const auto *data = static_cast<const char *>(::mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0));

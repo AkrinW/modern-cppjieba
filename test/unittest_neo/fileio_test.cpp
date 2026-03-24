@@ -378,7 +378,9 @@ TEST(FileIOPerfTest, MmapVsIfstream) {
     constexpr auto ITERATIONS = 5;
 
     // Warm up filesystem cache
-    { auto _ = get_map_file(path); }
+    {
+        auto _ = get_map_file(path);
+    }
     {
         auto ifs = std::ifstream{path.c_str()};
         auto line = std::string{};

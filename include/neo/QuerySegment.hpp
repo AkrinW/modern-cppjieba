@@ -37,8 +37,8 @@ struct QuerySegment {
 
 private:
     /// Append query-mode segmentation results while preserving separator runes as standalone tokens.
-    static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes, std::vector<WordRange> &result,
-                    uint32_t pos = 0) -> void {
+    static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
+                    std::vector<WordRange> &result, uint32_t pos = 0) -> void {
         auto segments = get_pre_filter_separators(runes);
         auto segment_pos = pos;
 

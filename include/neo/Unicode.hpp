@@ -87,7 +87,8 @@ auto encode(std::span<const Rune> input) -> std::basic_string<CharT>;
 // fast lookup. it is faster than re-encoding each Rune when the target encoding matches the source encoding, as it can
 // directly copy the corresponding byte range from the original source string.
 template <CharType CharT = char>
-auto encode(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets, WordRange range) -> std::basic_string<CharT>;
+auto encode(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets, WordRange range)
+    -> std::basic_string<CharT>;
 
 namespace detail {
 // decode_one_utf8 decodes a single Unicode code point from a UTF-8 encoded string and returns it as a Rune.
@@ -389,7 +390,8 @@ inline auto encode(std::span<const Rune> input) -> std::basic_string<CharT> {
 }
 
 template <CharType CharT>
-inline auto encode(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets, WordRange range) -> std::basic_string<CharT> {
+inline auto encode(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets, WordRange range)
+    -> std::basic_string<CharT> {
     return std::basic_string<CharT>{source.data() + offsets[range.begin], source.data() + offsets[range.end]};
 }
 

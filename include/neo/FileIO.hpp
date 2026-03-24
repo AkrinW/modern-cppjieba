@@ -37,7 +37,7 @@ public:
 
         check(fd_ != -1, "MappedFile: failed to open file: {}", path);
 
-        struct ::stat st {};
+        struct ::stat st{};
         check(::fstat(fd_, &st) == 0, "MappedFile: failed to stat file: {}", path);
         size_ = static_cast<size_t>(st.st_size);
 

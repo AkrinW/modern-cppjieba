@@ -2,6 +2,6 @@
 #define TEST_PATHS_H
 
 #define TEST_DATA_DIR "@CMAKE_CURRENT_SOURCE_DIR@/testdata"
-#define DICT_DIR "@CMAKE_SOURCE_DIR@/dict"
+#define DICT_DIR      "@CMAKE_SOURCE_DIR@/dict"
 
-#endif // TEST_PATHS_H 
+#endif // TEST_PATHS_H

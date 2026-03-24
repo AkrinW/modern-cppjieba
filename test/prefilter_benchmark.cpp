@@ -51,8 +51,8 @@ static auto print_report(const BenchResult &r) -> void {
     auto ns_per_rune = r.total_ms * 1e6 / total_runes_all;
     auto runes_per_sec = total_runes_all / (r.total_ms / 1000.0);
 
-    std::printf("│ %-40s │ %10.2f ms │ %8.2f ns/rune │ %8.2f Mr/s │\n",
-                r.label, r.total_ms, ns_per_rune, runes_per_sec / 1e6);
+    std::printf("│ %-40s │ %10.2f ms │ %8.2f ns/rune │ %8.2f Mr/s │\n", r.label, r.total_ms, ns_per_rune,
+                runes_per_sec / 1e6);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ static auto load_unicode_lines(const std::string &path) -> std::vector<LineData>
         std::perror("open");
         return result;
     }
-    struct stat st {};
+    struct stat st{};
     ::fstat(fd, &st);
     auto file_size = static_cast<size_t>(st.st_size);
     const auto *data = static_cast<const char *>(::mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0));
@@ -683,8 +683,7 @@ auto main(int, char *[]) -> int {
 
     // ── Benchmark ────────────────────────────────────────────────────────
     std::printf("┌──────────────────────────────────────────┬───────────────┬─────────────────┬──────────────┐\n");
-    std::printf("│ %-40s │ %-13s │ %-15s │ %-12s │\n",
-                "Strategy", "Total time", "Latency", "Throughput");
+    std::printf("│ %-40s │ %-13s │ %-15s │ %-12s │\n", "Strategy", "Total time", "Latency", "Throughput");
     std::printf("├──────────────────────────────────────────┼───────────────┼─────────────────┼──────────────┤\n");
 
     auto r1 = bench_alternative<linear_symbol_set>("linear scan (production)", lines, total_runes, ROUNDS);

@@ -98,7 +98,7 @@ TEST(UnicodeWithSourceTest, EncodeRangeFull) {
     const auto &runes = result.get_runes();
     const auto &offsets = result.get_offsets();
 
-    auto range = WordRange{0,  static_cast<uint32_t>(runes.size())};
+    auto range = WordRange{0, static_cast<uint32_t>(runes.size())};
     auto encoded = encode(view, offsets, range);
 
     EXPECT_EQ(encoded, input);
@@ -180,7 +180,8 @@ TEST(UnicodeWithSourceTest, RoundtripMatchesNormalEncode) {
     // Sub-range encode must match for various ranges
     for (size_t start = 0; start < normal.size(); ++start) {
         for (size_t count = 0; count + start <= normal.size() && count <= 5; ++count) {
-            auto fast = encode(view, offsets, WordRange{static_cast<uint32_t>(start), static_cast<uint32_t>(start + count)});
+            auto fast =
+                encode(view, offsets, WordRange{static_cast<uint32_t>(start), static_cast<uint32_t>(start + count)});
             auto slow = encode(std::span<const Rune>(normal.data() + start, count));
             EXPECT_EQ(fast, slow) << "Mismatch at start=" << start << " count=" << count;
         }

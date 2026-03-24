@@ -25,7 +25,8 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
     // ── Initialization (t = 0) ──────────────────────────────────────
     for (auto y = size_t{0}; y < Y; ++y) {
-        weight[y * X] = model.get_start_prob(static_cast<HMMState>(y)) + model.get_emit_prob(static_cast<HMMState>(y), runes[begin]);
+        weight[y * X] = model.get_start_prob(static_cast<HMMState>(y))
+                        + model.get_emit_prob(static_cast<HMMState>(y), runes[begin]);
         path[y * X] = 0;
     }
 
@@ -83,8 +84,8 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
 /// Find the end position of a consecutive ASCII letter sequence starting at `begin`.
 /// Returns `begin` if runes[begin] is not a letter.
-[[nodiscard]] inline constexpr auto sequential_letter_end(std::span<const Rune> runes, uint32_t begin, uint32_t end) noexcept
-    -> uint32_t {
+[[nodiscard]] inline constexpr auto sequential_letter_end(std::span<const Rune> runes, uint32_t begin,
+                                                          uint32_t end) noexcept -> uint32_t {
     auto r = runes[begin];
     if (('a' > r || r > 'z') && ('A' > r || r > 'Z')) {
         return begin;

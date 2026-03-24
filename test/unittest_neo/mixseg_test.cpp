@@ -89,7 +89,8 @@ TEST(MixSegmentNeoTest, UnicodeOverloadWithSeparators) {
     auto runes = decode(sentence);
     auto result = MixSegment<>::cut(dict, model, runes);
     auto words = to_strings(runes, result);
-    auto expected = std::vector<std::string>{"我", "来自", "北京邮电大学", "。", "。", "。", "学号", "123456", "，", "用", "AK47"};
+    auto expected =
+        std::vector<std::string>{"我", "来自", "北京邮电大学", "。", "。", "。", "学号", "123456", "，", "用", "AK47"};
     EXPECT_EQ(words, expected) << "actual: " << join(words);
 }
 
