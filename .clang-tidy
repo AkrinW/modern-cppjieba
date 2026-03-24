@@ -1,4 +1,7 @@
 ---
+HeaderFilterRegex: '^(include/neo|test)/'
+ExcludeHeaderFilterRegex: '^test/Perf\.hpp$'
+
 Checks: >
   -*,
   unused-includes,
