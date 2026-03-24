@@ -1,8 +1,9 @@
 #pragma once
 
 #include "DictTrie.hpp"
+#include "HMMSegment.hpp"
 #include "HMModel.hpp"
-#include "MixSegment.hpp"
+#include "MPSegment.hpp"
 #include "StringUtil.hpp"
 #include "Unicode.hpp"
 
@@ -144,6 +145,10 @@ private:
             return;
         }
 
+        // Scratch buffer for HMM segmentation — allocated once and reused
+        // across iterations to avoid repeated heap allocations.
+        auto hmm_scratch = std::vector<WordRange>{};
+
         auto i = size_t{0};
         while (i < mp_words.size()) {
             auto &word = mp_words[i];
@@ -162,8 +167,15 @@ private:
 
             auto run_begin = mp_words[i].begin;
             auto run_end = mp_words[j - 1].end;
-            auto hmm_words = HMMSegment::cut(model, runes.subspan(run_begin, run_end - run_begin));
-            for (auto &hmm_word : hmm_words) {
+
+            // Reuse hmm_scratch: clear capacity-preserving, then fill directly.
+            // Call hmm_cut_one_segment instead of HMMSegment::cut to skip
+            // redundant separator detection — runes are already separator-free.
+            hmm_scratch.clear();
+            detail::hmm_cut_one_segment(model, hmm_scratch,
+                                        runes.subspan(run_begin, run_end - run_begin), 0);
+
+            for (auto &hmm_word : hmm_scratch) {
                 auto local = WordRange{run_begin + hmm_word.begin, run_begin + hmm_word.end};
                 append_query_local_word_by_lookup(dict, runes, local, pos, result);
             }
