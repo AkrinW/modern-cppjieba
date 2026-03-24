@@ -87,7 +87,7 @@ TEST(PosTagTest, SizeAndAlignment) {
 }
 
 // ─── Read all tags from jieba.dict.utf8 ─────────────────────────────────────
-
+namespace {
 class PosTagDictTest : public ::testing::Test {
 protected:
     // Parsed tag info from one line of the dictionary.
@@ -129,6 +129,7 @@ protected:
         ASSERT_FALSE(entries_.empty()) << "Dictionary is empty";
     }
 };
+}
 
 // Every tag in jieba.dict.utf8 must be ≤ 4 characters (fits in PosTag).
 TEST_F(PosTagDictTest, AllTagsFitInPosTag) {

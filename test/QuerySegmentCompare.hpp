@@ -84,7 +84,7 @@ inline auto append_mix_words(const DictTrie &dict, const HMModel &model, std::ve
                              const std::vector<WordRange> &mp_words, std::span<const Rune> runes, uint32_t pos)
     -> void {
     if constexpr (!hmm) {
-        for (auto &word : mp_words) {
+        for (const auto &word : mp_words) {
             result.push_back(WordRange{pos + word.begin, pos + word.end});
         }
         return;
@@ -92,7 +92,7 @@ inline auto append_mix_words(const DictTrie &dict, const HMModel &model, std::ve
 
     auto i = size_t{0};
     while (i < mp_words.size()) {
-        auto &word = mp_words[i];
+        const auto &word = mp_words[i];
         if (word.size() > 1 || (word.size() == 1 && dict.is_user_dict_single_chinese_word(runes[word.begin]))) {
             result.push_back(WordRange{pos + word.begin, pos + word.end});
             ++i;

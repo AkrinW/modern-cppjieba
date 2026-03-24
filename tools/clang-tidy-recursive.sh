@@ -6,9 +6,61 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 
 readonly BUILD_DIR_DEFAULT="${REPO_ROOT}/build"
-readonly SOURCE_ROOT_DEFAULT="${REPO_ROOT}/test"
-readonly HEADER_ROOT_DEFAULT="${REPO_ROOT}/include/neo"
 readonly MAX_PASSES_DEFAULT=10
+readonly PER_FILE_TIMEOUT_DEFAULT=120
+
+read_clang_tidy_field() {
+    local field=$1
+    local config="${REPO_ROOT}/.clang-tidy"
+    [[ -f "${config}" ]] || return 1
+    sed -n "s/^${field}:[[:space:]]*//p" "${config}" \
+        | sed "s/^['\"]//; s/['\"][[:space:]]*$//"
+}
+
+parse_config() {
+    local -a scan_roots=()
+    SOURCE_ROOTS=()
+    HEADER_ROOTS=()
+    EXCLUDE_REGEX=""
+
+    local regex
+    if regex=$(read_clang_tidy_field "HeaderFilterRegex") && [[ -n "${regex}" ]]; then
+        local inner="${regex#'^'}"
+        inner="${inner%'/'}"
+        inner="${inner#'('}"
+        inner="${inner%')'}"
+        IFS='|' read -ra scan_roots <<< "${inner}"
+    fi
+    if [[ ${#scan_roots[@]} -eq 0 ]]; then
+        scan_roots=("include/neo" "test")
+    fi
+
+    local root
+    for root in "${scan_roots[@]}"; do
+        case "${root}" in
+            include/*) HEADER_ROOTS+=("${root}") ;;
+            *)         SOURCE_ROOTS+=("${root}") ;;
+        esac
+    done
+
+    if regex=$(read_clang_tidy_field "ExcludeHeaderFilterRegex") && [[ -n "${regex}" ]]; then
+        EXCLUDE_REGEX="${regex}"
+    fi
+
+    # Build absolute-path header-filter for clang-tidy.
+    # .clang-tidy uses relative paths like '^(include/neo|test)/' but
+    # clang-tidy matches against absolute file paths, so we anchor to REPO_ROOT.
+    local raw_filter
+    if raw_filter=$(read_clang_tidy_field "HeaderFilterRegex") && [[ -n "${raw_filter}" ]]; then
+        # Strip leading ^ if present; we'll re-anchor against the repo root
+        raw_filter="${raw_filter#'^'}"
+        local escaped_root
+        escaped_root=$(printf '%s' "${REPO_ROOT}" | sed 's/[.\[\]*+?{}|()^$]/\\&/g')
+        HEADER_FILTER="^${escaped_root}/${raw_filter}"
+    else
+        HEADER_FILTER=".*"
+    fi
+}
 
 resolve_clang_tidy() {
     if [[ -n "${CLANG_TIDY:-}" ]]; then
@@ -40,14 +92,34 @@ resolve_clang_tidy() {
 collect_source_files() {
     (
         cd "${REPO_ROOT}"
-        find "${SOURCE_ROOT}" -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) -print0
+        local root
+        for root in "${SOURCE_ROOTS[@]}"; do
+            [[ -d "${root}" ]] || continue
+            while IFS= read -r -d '' file; do
+                if [[ -n "${EXCLUDE_REGEX}" ]] && printf '%s' "${file}" | grep -qE "${EXCLUDE_REGEX}"; then
+                    echo "  [skip] ${file}" >&2
+                    continue
+                fi
+                printf '%s\0' "${file}"
+            done < <(find "${root}" -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) -print0)
+        done
     )
 }
 
 collect_header_files() {
     (
         cd "${REPO_ROOT}"
-        find "${HEADER_ROOT}" -type f \( -name '*.hpp' -o -name '*.hh' -o -name '*.h' -o -name '*.ipp' \) -print0
+        local root
+        for root in "${HEADER_ROOTS[@]}"; do
+            [[ -d "${root}" ]] || continue
+            while IFS= read -r -d '' file; do
+                if [[ -n "${EXCLUDE_REGEX}" ]] && printf '%s' "${file}" | grep -qE "${EXCLUDE_REGEX}"; then
+                    echo "  [skip] ${file}" >&2
+                    continue
+                fi
+                printf '%s\0' "${file}"
+            done < <(find "${root}" -type f \( -name '*.hpp' -o -name '*.hh' -o -name '*.h' -o -name '*.ipp' \) -print0)
+        done
     )
 }
 
@@ -73,18 +145,30 @@ run_source_tidy() {
     fi
 
     local args=(
+        -quiet
         -p "${BUILD_DIR}"
-        --quiet
+        --header-filter="${HEADER_FILTER}"
         --extra-arg-before=--gcc-toolchain="${GCC_TOOLCHAIN}"
+        --extra-arg=-isystem"${REPO_ROOT}/deps/limonp/include"
     )
     if [[ "${mode}" == "fix" ]]; then
         args+=(--fix --format-style=file)
     fi
 
-    (
-        cd "${REPO_ROOT}"
-        printf '%s\0' "${files[@]}" | xargs -0 "${CLANG_TIDY_BIN}" "${args[@]}"
-    )
+    local file rc
+    for file in "${files[@]}"; do
+        echo "  [${mode}] ${file}"
+        rc=0
+        (
+            cd "${REPO_ROOT}"
+            timeout "${PER_FILE_TIMEOUT}" "${CLANG_TIDY_BIN}" "${args[@]}" "${file}"
+        ) || rc=$?
+        if [[ ${rc} -eq 124 ]]; then
+            echo "  TIMEOUT after ${PER_FILE_TIMEOUT}s: ${file}" >&2
+        elif [[ ${rc} -ne 0 ]]; then
+            return ${rc}
+        fi
+    done
 }
 
 run_header_tidy() {
@@ -97,9 +181,11 @@ run_header_tidy() {
 
     local file
     for file in "${files[@]}"; do
+        echo "  [${mode}] ${file}"
         local args=(
+            -quiet
             "${file}"
-            --quiet
+            --header-filter="${HEADER_FILTER}"
         )
         if [[ "${mode}" == "fix" ]]; then
             args+=(--fix --format-style=file)
@@ -110,33 +196,41 @@ run_header_tidy() {
             -x c++-header
             --std=c++26
             -I"${REPO_ROOT}/include"
-            -I"${REPO_ROOT}/deps/limonp/include"
+            -isystem"${REPO_ROOT}/deps/limonp/include"
         )
 
+        local rc=0
         (
             cd "${REPO_ROOT}"
-            "${CLANG_TIDY_BIN}" "${args[@]}"
-        )
+            timeout "${PER_FILE_TIMEOUT}" "${CLANG_TIDY_BIN}" "${args[@]}"
+        ) || rc=$?
+        if [[ ${rc} -eq 124 ]]; then
+            echo "  TIMEOUT after ${PER_FILE_TIMEOUT}s: ${file}" >&2
+        elif [[ ${rc} -ne 0 ]]; then
+            return ${rc}
+        fi
     done
 }
 
+# Only count diagnostics from files inside REPO_ROOT
 warning_count() {
     local log_file=$1
-    grep -c ': warning:' "${log_file}" || true
+    grep ': warning:' "${log_file}" | grep -c "^${REPO_ROOT}/" || true
 }
 
 error_count() {
     local log_file=$1
-    grep -c ': error:' "${log_file}" || true
+    grep ': error:' "${log_file}" | grep -c "^${REPO_ROOT}/" || true
 }
 
 main() {
     CLANG_TIDY_BIN=$(resolve_clang_tidy)
     BUILD_DIR=${BUILD_DIR:-${BUILD_DIR_DEFAULT}}
-    SOURCE_ROOT=${SOURCE_ROOT:-${SOURCE_ROOT_DEFAULT}}
-    HEADER_ROOT=${HEADER_ROOT:-${HEADER_ROOT_DEFAULT}}
     GCC_TOOLCHAIN=${GCC_TOOLCHAIN:-/home/cwang/dev1/gcc-15.2-o3}
     MAX_PASSES=${MAX_PASSES:-${MAX_PASSES_DEFAULT}}
+    PER_FILE_TIMEOUT=${PER_FILE_TIMEOUT:-${PER_FILE_TIMEOUT_DEFAULT}}
+
+    parse_config
 
     if [[ ! -f "${BUILD_DIR}/compile_commands.json" ]]; then
         echo "compile_commands.json not found under ${BUILD_DIR}" >&2
@@ -157,6 +251,8 @@ main() {
         return 0
     fi
 
+    echo "Found ${#source_files[@]} source file(s), ${#header_files[@]} header file(s)."
+
     local -a tracked_files=("${source_files[@]}" "${header_files[@]}")
     local pass
     for ((pass = 1; pass <= MAX_PASSES; ++pass)); do
@@ -166,22 +262,22 @@ main() {
         fix_log=$(mktemp)
         check_log=$(mktemp)
 
+        echo "--- pass ${pass}: fix ---"
         if ! {
             run_source_tidy fix "${source_files[@]}"
             run_header_tidy fix "${header_files[@]}"
-        } >"${fix_log}" 2>&1; then
-            cat "${fix_log}" >&2
+        } 2>&1 | tee "${fix_log}"; then
             rm -f "${fix_log}" "${check_log}"
             return 2
         fi
 
         after=$(snapshot_hash "${tracked_files[@]}")
 
+        echo "--- pass ${pass}: check ---"
         if ! {
             run_source_tidy check "${source_files[@]}"
             run_header_tidy check "${header_files[@]}"
-        } >"${check_log}" 2>&1; then
-            cat "${check_log}" >&2
+        } 2>&1 | tee "${check_log}"; then
             rm -f "${fix_log}" "${check_log}"
             return 2
         fi
@@ -191,8 +287,7 @@ main() {
         errors=$(error_count "${check_log}")
 
         if [[ "${errors}" != "0" ]]; then
-            cat "${check_log}" >&2
-            echo "clang-tidy reported compiler errors." >&2
+            echo "clang-tidy reported ${errors} compiler error(s) (see above)." >&2
             rm -f "${fix_log}" "${check_log}"
             return 2
         fi
@@ -204,8 +299,7 @@ main() {
         fi
 
         if [[ "${before}" == "${after}" ]]; then
-            cat "${check_log}" >&2
-            echo "clang-tidy still reports ${warnings} warning(s), but no further automatic fixes were applied." >&2
+            echo "clang-tidy still reports ${warnings} warning(s), but no further fixes applied (see above)." >&2
             rm -f "${fix_log}" "${check_log}"
             return 1
         fi

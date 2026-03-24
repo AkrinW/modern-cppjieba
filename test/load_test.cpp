@@ -11,7 +11,7 @@
 #include <iostream>
 
 using namespace cppjieba;
-
+namespace {
 static void Cut(size_t times = 50) {
     MixSegment seg(DICT_DIR "/jieba.dict.utf8", DICT_DIR "/hmm_model.utf8");
     vector<string> res;
@@ -51,6 +51,7 @@ static void Extract(size_t times = 400) {
     long endTime = clock();
     ColorPrintln(GREEN, "Extract: [%.3lf seconds]time consumed.",
                  static_cast<double>(endTime - beginTime) / CLOCKS_PER_SEC);
+}
 }
 
 auto main(int /*argc*/, char ** /*argv*/) -> int {

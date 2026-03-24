@@ -5,8 +5,34 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 
-readonly DEFAULT_ROOTS=("include/neo" "test")
-readonly EXCLUDED_FILES=("test/Perf.hpp")
+read_clang_tidy_field() {
+    local field=$1
+    local config="${REPO_ROOT}/.clang-tidy"
+    [[ -f "${config}" ]] || return 1
+    sed -n "s/^${field}:[[:space:]]*//p" "${config}" \
+        | sed "s/^['\"]//; s/['\"][[:space:]]*$//"
+}
+
+parse_config() {
+    SCAN_ROOTS=()
+    EXCLUDE_REGEX=""
+
+    local regex
+    if regex=$(read_clang_tidy_field "HeaderFilterRegex") && [[ -n "${regex}" ]]; then
+        local inner="${regex#'^'}"
+        inner="${inner%'/'}"
+        inner="${inner#'('}"
+        inner="${inner%')'}"
+        IFS='|' read -ra SCAN_ROOTS <<< "${inner}"
+    fi
+    if [[ ${#SCAN_ROOTS[@]} -eq 0 ]]; then
+        SCAN_ROOTS=("include/neo" "test")
+    fi
+
+    if regex=$(read_clang_tidy_field "ExcludeHeaderFilterRegex") && [[ -n "${regex}" ]]; then
+        EXCLUDE_REGEX="${regex}"
+    fi
+}
 
 resolve_clang_format() {
     if [[ -n "${CLANG_FORMAT:-}" ]]; then
@@ -37,20 +63,20 @@ resolve_clang_format() {
 
 collect_files() {
     local roots=("$@")
-    local excluded_args=()
-    local excluded
-    for excluded in "${EXCLUDED_FILES[@]}"; do
-        excluded_args+=('!' -path "${REPO_ROOT}/${excluded}")
-    done
-
     (
         cd "${REPO_ROOT}"
-        find "${roots[@]}" -type f "${excluded_args[@]}" \
+        while IFS= read -r -d '' file; do
+            if [[ -n "${EXCLUDE_REGEX}" ]] && printf '%s' "${file}" | grep -qE "${EXCLUDE_REGEX}"; then
+                echo "  [skip] ${file}" >&2
+                continue
+            fi
+            printf '%s\0' "${file}"
+        done < <(find "${roots[@]}" -type f \
             \( \
                 -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.cxx' -o \
                 -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.ipp' -o -name '*.h.in' \
             \) \
-            -print0
+            -print0)
     )
 }
 
@@ -71,7 +97,9 @@ main() {
     local clang_format
     clang_format=$(resolve_clang_format)
 
-    local roots=("${DEFAULT_ROOTS[@]}")
+    parse_config
+
+    local roots=("${SCAN_ROOTS[@]}")
     if [[ $# -gt 0 ]]; then
         roots=("$@")
     fi

@@ -18,7 +18,7 @@ TEST(TrieTest, Construct) {
     vector<Unicode> keys;
     vector<const DictUnit *> values;
     keys.push_back(DecodeUTF8RunesInString("你"));
-    values.push_back((const DictUnit *)nullptr);
+    values.push_back(static_cast<const DictUnit *>(nullptr));
     Trie trie(keys, values);
 }
 
