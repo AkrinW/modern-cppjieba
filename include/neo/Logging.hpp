@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -21,6 +22,25 @@ namespace detail {
 inline constexpr auto LOG_LEVEL_ARRAY = std::array<std::string_view, 5>{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"};
 constexpr auto log_level_name(LogLevel level) -> std::string_view {
     return LOG_LEVEL_ARRAY[static_cast<size_t>(level)];
+}
+
+// ANSI color escape sequences per log level.
+inline constexpr auto LOG_LEVEL_COLOR_ARRAY = std::array<std::string_view, 5>{
+    "\033[36m",   // DEBUG: cyan
+    "\033[32m",   // INFO: green
+    "\033[33m",   // WARNING: yellow
+    "\033[31m",   // ERROR: red
+    "\033[1;31m", // FATAL: bold red
+};
+inline constexpr auto LOG_COLOR_RESET = std::string_view{"\033[0m"};
+
+constexpr auto log_level_color(LogLevel level) -> std::string_view {
+    return LOG_LEVEL_COLOR_ARRAY[static_cast<size_t>(level)];
+}
+
+inline auto stderr_is_tty() -> bool {
+    static const auto result = (isatty(STDERR_FILENO) != 0);
+    return result;
 }
 
 // kCompileTimeMinLevel is a compile-time constant that indicates the minimum log level to be compiled into the binary.
@@ -59,6 +79,12 @@ inline auto cur_time() -> std::array<char, LOG_MAX_TIME_BUFFER_SIZE> {
     return buf;
 }
 
+// Colored prefix format:
+//   dim timestamp, dim [pid/tid], level-colored <LEVEL>, magenta file:line
+inline constexpr auto LOG_COLOR_PREFIX_FMT =
+    "\033[90m{}\033[0m[\033[90mpid:{} tid:{:04x}\033[0m]{}<{}>\033[0m\033[35m{}:{}\033[0m ";
+inline constexpr auto LOG_PLAIN_PREFIX_FMT = "{}[pid:{} tid:{:04x}]<{}>{}:{} ";
+
 // log_impl is the internal function that performs the actual logging. It formats the log message and writes it to
 // stderr.
 template <LogLevel Level, typename... Args>
@@ -70,13 +96,24 @@ inline auto log_impl(std::format_string<Args...> fmt, const std::source_location
     auto buffer = std::array<char, LOG_MAX_BUFFER_SIZE>{};
     auto time_buf = cur_time();
     auto tid_hash = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    auto use_color = stderr_is_tty();
+    auto pid = getpid();
+    auto tid_short = static_cast<uint16_t>(tid_hash);
 
-    auto it =
-        std::format_to_n(buffer.begin(), LOG_MAX_BUFFER_SIZE, "{}[pid:{} tid:{:04x}]<{}> {}:{} ", time_buf.data(),
-                         getpid(), static_cast<uint16_t>(tid_hash), log_level_name(Level), loc.file_name(), loc.line());
-    auto used = static_cast<size_t>(it.out - buffer.data());
+    size_t prefix_len = 0;
+    if (use_color) {
+        auto it = std::format_to_n(buffer.begin(), LOG_MAX_BUFFER_SIZE, LOG_COLOR_PREFIX_FMT, time_buf.data(), pid,
+                                   tid_short, log_level_color(Level), log_level_name(Level), loc.file_name(),
+                                   loc.line());
+        prefix_len = static_cast<size_t>(it.out - buffer.data());
+    } else {
+        auto it = std::format_to_n(buffer.begin(), LOG_MAX_BUFFER_SIZE, LOG_PLAIN_PREFIX_FMT, time_buf.data(), pid,
+                                   tid_short, log_level_name(Level), loc.file_name(), loc.line());
+        prefix_len = static_cast<size_t>(it.out - buffer.data());
+    }
 
-    auto result = std::format_to_n(buffer.begin() + used, LOG_MAX_BUFFER_SIZE - used, fmt, std::forward<Args>(args)...);
+    auto result =
+        std::format_to_n(buffer.begin() + prefix_len, LOG_MAX_BUFFER_SIZE - prefix_len, fmt, std::forward<Args>(args)...);
     auto total = static_cast<size_t>(result.out - buffer.data());
 
     if (total < LOG_MAX_BUFFER_SIZE) {
@@ -90,7 +127,17 @@ inline auto log_impl(std::format_string<Args...> fmt, const std::source_location
     std::fwrite(buffer.data(), sizeof(char), total, stderr);
     if constexpr (Level == LogLevel::LL_FATAL) {
         std::fflush(stderr);
-        // throw exception
+        if (use_color) {
+            // Build a plain version for the exception message (no ANSI codes).
+            auto plain = std::array<char, LOG_MAX_BUFFER_SIZE>{};
+            auto pit = std::format_to_n(plain.begin(), LOG_MAX_BUFFER_SIZE, LOG_PLAIN_PREFIX_FMT, time_buf.data(), pid,
+                                        tid_short, log_level_name(Level), loc.file_name(), loc.line());
+            auto plain_prefix = static_cast<size_t>(pit.out - plain.data());
+            auto msg_len = total - prefix_len;
+            auto copy_len = std::min(msg_len, LOG_MAX_BUFFER_SIZE - plain_prefix);
+            std::copy_n(buffer.data() + prefix_len, copy_len, plain.data() + plain_prefix);
+            throw std::runtime_error{std::string{plain.data(), plain_prefix + copy_len}};
+        }
         throw std::runtime_error{std::string{buffer.data(), total}};
     }
 }

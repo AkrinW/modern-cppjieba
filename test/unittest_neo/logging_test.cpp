@@ -57,6 +57,48 @@ TEST(LoggingTest, LogLevelArrayValues) {
     EXPECT_EQ(detail::LOG_LEVEL_ARRAY[4], "FATAL");
 }
 
+// ─── LogLevel color mapping ─────────────────────────────────────────────────
+
+TEST(LoggingTest, LogLevelColorArraySize) {
+    EXPECT_EQ(detail::LOG_LEVEL_COLOR_ARRAY.size(), 5u);
+}
+
+TEST(LoggingTest, LogLevelColorDebugIsCyan) {
+    EXPECT_EQ(detail::log_level_color(LogLevel::LL_DEBUG), "\033[36m");
+}
+
+TEST(LoggingTest, LogLevelColorInfoIsGreen) {
+    EXPECT_EQ(detail::log_level_color(LogLevel::LL_INFO), "\033[32m");
+}
+
+TEST(LoggingTest, LogLevelColorWarningIsYellow) {
+    EXPECT_EQ(detail::log_level_color(LogLevel::LL_WARNING), "\033[33m");
+}
+
+TEST(LoggingTest, LogLevelColorErrorIsRed) {
+    EXPECT_EQ(detail::log_level_color(LogLevel::LL_ERROR), "\033[31m");
+}
+
+TEST(LoggingTest, LogLevelColorFatalIsBoldRed) {
+    EXPECT_EQ(detail::log_level_color(LogLevel::LL_FATAL), "\033[1;31m");
+}
+
+TEST(LoggingTest, LogColorResetSequence) {
+    EXPECT_EQ(detail::LOG_COLOR_RESET, "\033[0m");
+}
+
+// ─── FATAL exception message has no ANSI escape codes ────────────────────────
+
+TEST(LoggingTest, FatalExceptionMessageHasNoColorCodes) {
+    try {
+        log<LogLevel::LL_FATAL>("no color in exception");
+        FAIL() << "Expected std::runtime_error";
+    } catch (const std::runtime_error &e) {
+        auto what = std::string_view{e.what()};
+        EXPECT_EQ(what.find("\033["), std::string_view::npos);
+    }
+}
+
 // ─── Compile-time min level ─────────────────────────────────────────────────
 
 TEST(LoggingTest, CompileTimeMinLevel) {
@@ -451,4 +493,16 @@ TEST(LoggingTest, AssertCheckPredicateNotCalledInRelease) {
 #else
     EXPECT_TRUE(called);
 #endif
+}
+
+TEST(LoggingTest, PrintAllColor) {
+    try {
+        log<LogLevel::LL_DEBUG>();
+        log<LogLevel::LL_ERROR>();
+        log<LogLevel::LL_INFO>();
+        log<LogLevel::LL_WARNING>();
+        log<LogLevel::LL_FATAL>();
+    } catch (const std::runtime_error &e) {
+        
+    }
 }
