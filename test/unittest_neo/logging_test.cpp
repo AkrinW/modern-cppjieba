@@ -309,3 +309,146 @@ TEST(LoggingTest, FatalExceptionEndsWithNewline) {
         EXPECT_EQ(what.back(), '\n');
     }
 }
+
+// ─── log() with no format string or args ─────────────────────────────────────
+
+TEST(LoggingTest, LogNoArgsWritesToStderr) {
+    auto output = capture_stderr([] { log<LogLevel::LL_ERROR>(); });
+#ifndef NDEBUG
+    EXPECT_NE(output.find("ERROR"), std::string::npos);
+    EXPECT_NE(output.find("logging_test.cpp"), std::string::npos);
+#endif
+}
+
+TEST(LoggingTest, LogNoArgsContainsPidAndTid) {
+    auto output = capture_stderr([] { log<LogLevel::LL_WARNING>(); });
+#ifndef NDEBUG
+    auto pid_str = std::string{"pid:"} + std::to_string(getpid());
+    EXPECT_NE(output.find(pid_str), std::string::npos);
+    EXPECT_NE(output.find("tid:"), std::string::npos);
+#endif
+}
+
+TEST(LoggingTest, LogNoArgsEndsWithNewline) {
+    auto output = capture_stderr([] { log<LogLevel::LL_ERROR>(); });
+#ifndef NDEBUG
+    ASSERT_FALSE(output.empty());
+    EXPECT_EQ(output.back(), '\n');
+#endif
+}
+
+TEST(LoggingTest, LogNoArgsFatalThrows) {
+    EXPECT_THROW(log<LogLevel::LL_FATAL>(), std::runtime_error);
+}
+
+TEST(LoggingTest, LogNoArgsFatalExceptionContainsLevel) {
+    try {
+        log<LogLevel::LL_FATAL>();
+        FAIL() << "Expected std::runtime_error";
+    } catch (const std::runtime_error &e) {
+        auto what = std::string_view{e.what()};
+        EXPECT_NE(what.find("FATAL"), std::string_view::npos);
+        EXPECT_NE(what.find("logging_test.cpp"), std::string_view::npos);
+    }
+}
+
+// ─── check() with no format string or args ───────────────────────────────────
+
+TEST(LoggingTest, CheckNoArgsTrueDoesNotThrow) {
+    EXPECT_NO_THROW(check(true));
+}
+
+TEST(LoggingTest, CheckNoArgsFalseThrows) {
+    EXPECT_THROW(check(false), std::runtime_error);
+}
+
+TEST(LoggingTest, CheckNoArgsFalseExceptionContainsLocation) {
+    try {
+        check(false);
+        FAIL() << "Expected std::runtime_error";
+    } catch (const std::runtime_error &e) {
+        auto what = std::string_view{e.what()};
+        EXPECT_NE(what.find("FATAL"), std::string_view::npos);
+        EXPECT_NE(what.find("logging_test.cpp"), std::string_view::npos);
+    }
+}
+
+// ─── assert_check() ─────────────────────────────────────────────────────────
+
+TEST(LoggingTest, AssertCheckTrueDoesNotThrow) {
+    EXPECT_NO_THROW(assert_check([] { return true; }, "should not fire"));
+}
+
+TEST(LoggingTest, AssertCheckTrueWithArgsDoesNotThrow) {
+    EXPECT_NO_THROW(assert_check([] { return true; }, "value={}", 42));
+}
+
+TEST(LoggingTest, AssertCheckFalseThrowsInDebug) {
+#ifndef NDEBUG
+    EXPECT_THROW(assert_check([] { return false; }, "assert failed: {}", "bad"), std::runtime_error);
+#endif
+}
+
+TEST(LoggingTest, AssertCheckFalseExceptionContainsMessage) {
+#ifndef NDEBUG
+    try {
+        assert_check([] { return false; }, "assert detail: {}", 789);
+        FAIL() << "Expected std::runtime_error";
+    } catch (const std::runtime_error &e) {
+        auto what = std::string_view{e.what()};
+        EXPECT_NE(what.find("FATAL"), std::string_view::npos);
+        EXPECT_NE(what.find("assert detail: 789"), std::string_view::npos);
+    }
+#endif
+}
+
+TEST(LoggingTest, AssertCheckFalseExceptionContainsSourceLocation) {
+#ifndef NDEBUG
+    try {
+        assert_check([] { return false; }, "loc in assert_check");
+        FAIL() << "Expected std::runtime_error";
+    } catch (const std::runtime_error &e) {
+        auto what = std::string_view{e.what()};
+        EXPECT_NE(what.find("logging_test.cpp"), std::string_view::npos);
+    }
+#endif
+}
+
+// ─── assert_check() with no format string or args ────────────────────────────
+
+TEST(LoggingTest, AssertCheckNoArgsTrueDoesNotThrow) {
+    EXPECT_NO_THROW(assert_check([] { return true; }));
+}
+
+TEST(LoggingTest, AssertCheckNoArgsFalseThrowsInDebug) {
+#ifndef NDEBUG
+    EXPECT_THROW(assert_check([] { return false; }), std::runtime_error);
+#endif
+}
+
+TEST(LoggingTest, AssertCheckNoArgsFalseExceptionContainsLocation) {
+#ifndef NDEBUG
+    try {
+        assert_check([] { return false; });
+        FAIL() << "Expected std::runtime_error";
+    } catch (const std::runtime_error &e) {
+        auto what = std::string_view{e.what()};
+        EXPECT_NE(what.find("FATAL"), std::string_view::npos);
+        EXPECT_NE(what.find("logging_test.cpp"), std::string_view::npos);
+    }
+#endif
+}
+
+TEST(LoggingTest, AssertCheckPredicateNotCalledInRelease) {
+    auto called = false;
+    auto predicate = [&called] {
+        called = true;
+        return true;
+    };
+    assert_check(predicate, "should not matter");
+#ifdef NDEBUG
+    EXPECT_FALSE(called);
+#else
+    EXPECT_TRUE(called);
+#endif
+}

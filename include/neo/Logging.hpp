@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <type_traits>
 #include <source_location>
 #include <string_view>
 #include <thread>
@@ -25,8 +26,10 @@ constexpr auto log_level_name(LogLevel level) -> std::string_view {
 // kCompileTimeMinLevel is a compile-time constant that indicates the minimum log level to be compiled into the binary.
 #ifndef NDEBUG
 inline constexpr auto kCompileTimeMinLevel = LogLevel::LL_DEBUG;
+inline constexpr auto kNoDebug = false;
 #else
 inline constexpr auto kCompileTimeMinLevel = LogLevel::LL_FATAL;
+inline constexpr auto kNoDebug = true;
 #endif
 
 // LOG_TIME_FORMAT is the format string used to format the timestamp in log messages.
@@ -113,12 +116,50 @@ inline auto log(std::type_identity_t<detail::LogFormatString<Args...>> fmt, Args
     detail::log_impl<Level>(fmt.fmt, fmt.loc, std::forward<Args>(args)...);
 }
 
+template <LogLevel Level>
+inline auto log(const std::source_location &loc = std::source_location::current()) -> void {
+    detail::log_impl<Level>("", loc);
+}
+
 // check is a helper function that evaluates an expression and logs a fatal error if the expression is false. It uses
 // the same formatting mechanism as log_impl to provide detailed error messages.
 template <typename... Args>
 inline auto check(bool expr, std::type_identity_t<detail::LogFormatString<Args...>> fmt, Args &&...args) -> void {
     if (!expr) [[unlikely]] {
         detail::log_impl<LogLevel::LL_FATAL>(fmt.fmt, fmt.loc, std::forward<Args>(args)...);
+    }
+}
+
+inline auto check(bool expr, const std::source_location &loc = std::source_location::current()) -> void {
+    if (!expr) [[unlikely]] {
+        detail::log_impl<LogLevel::LL_FATAL>("", loc);
+    }
+}
+
+// assert_check evaluates a predicate lambda only in debug builds (NDEBUG not defined).
+// In release builds the lambda is never invoked, avoiding side-effect evaluation.
+template <typename F, typename... Args>
+    requires std::is_invocable_r_v<bool, F>
+inline auto assert_check(F &&predicate, std::type_identity_t<detail::LogFormatString<Args...>> fmt, Args &&...args)
+    -> void {
+    if constexpr (detail::kNoDebug) {
+        return;
+    } else {
+        if (!std::forward<F>(predicate)()) [[unlikely]] {
+            detail::log_impl<LogLevel::LL_FATAL>(fmt.fmt, fmt.loc, std::forward<Args>(args)...);
+        }
+    }
+}
+
+template <typename F>
+    requires std::is_invocable_r_v<bool, F>
+inline auto assert_check(F &&predicate, const std::source_location &loc = std::source_location::current()) -> void {
+    if constexpr (detail::kNoDebug) {
+        return;
+    } else {
+        if (!std::forward<F>(predicate)()) [[unlikely]] {
+            detail::log_impl<LogLevel::LL_FATAL>("", loc);
+        }
     }
 }
 
