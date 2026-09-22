@@ -15,6 +15,12 @@ tmp
 t.*
 *.pid
 build
+/build-*/
+/build2/
+/cmake-build-*/
+/install/
+/compile_commands.json
 Testing/Temporary/CTestCostData.txt
 Testing/Temporary/LastTest.log
 .vscode
+/AGENTS.md

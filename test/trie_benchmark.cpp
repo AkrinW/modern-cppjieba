@@ -5,7 +5,7 @@
 ///   2. Query throughput (all-hit sequential scan + random-order scan + miss queries)
 ///
 /// Compile:
-///   g++ -O2 -std=c++26 -I include -I deps/limonp/include test/trie_benchmark.cpp -o build/trie_benchmark
+///   g++ -O2 -std=c++23 -I include -I deps/limonp/include test/trie_benchmark.cpp -o build/trie_benchmark
 ///
 /// Run:
 ///   ./build/trie_benchmark [path/to/jieba.dict.utf8]

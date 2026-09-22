@@ -194,7 +194,7 @@ run_header_tidy() {
             --
             --gcc-toolchain="${GCC_TOOLCHAIN}"
             -x c++-header
-            --std=c++26
+            --std=c++23
             -I"${REPO_ROOT}/include"
             -isystem"${REPO_ROOT}/deps/limonp/include"
         )
