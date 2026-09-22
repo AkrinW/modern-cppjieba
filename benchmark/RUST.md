@@ -2,6 +2,8 @@
 
 本基准固定使用 `jieba-rs 0.11.0`，由 `Cargo.lock` 锁定传递依赖。Rust 使用 release / opt-level=3，C++ 使用 C++23 / Release。生产分词代码保持不变。
 
+更新官方 cppjieba、limonp submodule 后的结果与原始输出见 [2026-09-22 上游更新复测](results/2026-09-22/README.md)。本页末尾保留的是目录迁移前的历史记录。
+
 ## 原对比的问题
 
 - 上游 C API 把每个 token 转成独立的 Rust 字符串，旧的 `RustJiebaCapi.hpp` 随后再复制成 C++ 字符串。计时包含两次词文本复制和 Rust 端逐词分配、释放，不能代表 Rust 原生 API。

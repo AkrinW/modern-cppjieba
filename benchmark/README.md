@@ -3,6 +3,9 @@
 All benchmark executables live here and are enabled with
 `CPPJIEBA_BUILD_BENCHMARKS=ON`. They are separate from GoogleTest and CTest.
 
+Latest recorded comparison: [2026-09-22 upstream dependency refresh](results/2026-09-22/README.md),
+including pinned versions, output mismatches, repeated timings and raw logs.
+
 ```sh
 git submodule update --init deps/cppjieba deps/limonp
 cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release \
