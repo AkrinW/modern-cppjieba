@@ -8,27 +8,6 @@ INCLUDE_DIRECTORIES(
     ${CMAKE_BINARY_DIR}/test
 )
 
-find_program(CARGO_EXECUTABLE cargo HINTS "$ENV{HOME}/.cargo/bin")
-
-if(WIN32)
-    set(JIEBA_RS_CAPI_BENCH_LIB "${CMAKE_SOURCE_DIR}/deps/jieba-rs/target/release/jieba_capi.dll")
-elseif(APPLE)
-    set(JIEBA_RS_CAPI_BENCH_LIB "${CMAKE_SOURCE_DIR}/deps/jieba-rs/target/release/libjieba_capi.dylib")
-else()
-    set(JIEBA_RS_CAPI_BENCH_LIB "${CMAKE_SOURCE_DIR}/deps/jieba-rs/target/release/libjieba_capi.so")
-endif()
-
-if(CARGO_EXECUTABLE)
-    add_custom_command(
-        OUTPUT "${JIEBA_RS_CAPI_BENCH_LIB}"
-        COMMAND "${CARGO_EXECUTABLE}" build --release -p jieba-capi
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/deps/jieba-rs"
-        COMMENT "Building jieba-rs C API benchmark library"
-        VERBATIM
-    )
-    add_custom_target(jieba_rs_capi_build DEPENDS "${JIEBA_RS_CAPI_BENCH_LIB}")
-endif()
-
 ADD_EXECUTABLE(load_test load_test.cpp)
 ADD_EXECUTABLE(jieba_benchmark jieba_benchmark.cpp)
 ADD_SUBDIRECTORY(unittest)
@@ -40,19 +19,25 @@ ADD_EXECUTABLE(dag_benchmark dag_benchmark.cpp)
 ADD_EXECUTABLE(trie_benchmark trie_benchmark.cpp)
 ADD_EXECUTABLE(query_segment_benchmark query_segment_benchmark.cpp)
 
-if(CARGO_EXECUTABLE OR EXISTS "${JIEBA_RS_CAPI_BENCH_LIB}")
+option(CPPJIEBA_BUILD_RUST_BENCHMARKS "Build the pinned Rust comparison benchmark (requires Cargo)" OFF)
+if(CPPJIEBA_BUILD_RUST_BENCHMARKS)
+    find_program(CARGO_EXECUTABLE cargo HINTS "$ENV{HOME}/.cargo/bin" REQUIRED)
+    set(RUST_BENCH_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/rust_benchmark/Cargo.toml")
+    set(RUST_BENCH_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust-target")
+    set(RUST_BENCH_LIB "${RUST_BENCH_TARGET_DIR}/release/${CMAKE_SHARED_LIBRARY_PREFIX}modern_cppjieba_rust_bench${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    add_custom_target(jieba_rs_capi_build
+        COMMAND "${CARGO_EXECUTABLE}" build --release --locked
+                --manifest-path "${RUST_BENCH_MANIFEST}" --target-dir "${RUST_BENCH_TARGET_DIR}"
+        BYPRODUCTS "${RUST_BENCH_LIB}"
+        COMMENT "Building the pinned jieba-rs benchmark adapter (release)"
+        VERBATIM
+    )
     add_executable(cut_compare_benchmark cut_compare_benchmark.cpp)
-    target_link_libraries(cut_compare_benchmark PRIVATE "${JIEBA_RS_CAPI_BENCH_LIB}")
+    add_dependencies(cut_compare_benchmark jieba_rs_capi_build)
+    target_link_libraries(cut_compare_benchmark PRIVATE "${RUST_BENCH_LIB}")
     if(NOT WIN32)
-        get_filename_component(JIEBA_RS_CAPI_BENCH_LIB_DIR "${JIEBA_RS_CAPI_BENCH_LIB}" DIRECTORY)
         set_target_properties(cut_compare_benchmark PROPERTIES
-            BUILD_RPATH "${JIEBA_RS_CAPI_BENCH_LIB_DIR}"
-            INSTALL_RPATH "${JIEBA_RS_CAPI_BENCH_LIB_DIR}"
+            BUILD_RPATH "${RUST_BENCH_TARGET_DIR}/release"
         )
     endif()
-    if(TARGET jieba_rs_capi_build)
-        add_dependencies(cut_compare_benchmark jieba_rs_capi_build)
-    endif()
-else()
-    message(WARNING "Rust benchmark target 'cut_compare_benchmark' is disabled: cargo not found and ${JIEBA_RS_CAPI_BENCH_LIB} is missing.")
 endif()

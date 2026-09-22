@@ -1,400 +1,317 @@
-#include "BenchmarkUtils.hpp"
-#include "RustJiebaCapi.hpp"
 #include "cppjieba/Jieba.hpp"
 #include "neo/Jieba.hpp"
+
+#include "BenchmarkUtils.hpp"
+#include "RustJiebaCapi.hpp"
 #include "test_paths.h"
 
 #include <algorithm>
 #include <array>
+#include <charconv>
+#include <chrono>
 #include <cstdio>
-#include <cstdlib>
+#include <exception>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
 
-struct BenchResult {
-    const char *label;
-    double total_ms;
-    size_t num_lines;
-    size_t total_runes;
-    size_t rounds;
+constexpr auto kLabels = std::array{
+    "Old C++ strings",
+    "Neo C++ strings",
+    "Rust FFI copied -> C++ strings",
+    "Rust FFI views -> C++ strings",
+    "Rust native owned strings",
+    "Rust native borrowed tokens",
 };
 
-struct SharedMethodResult {
-    const char *method_name;
-    bool matched;
-    BenchResult old_result;
-    BenchResult neo_result;
-    BenchResult rust_result;
+// Summarizes independent samples; each sample processes the complete corpus.
+struct Timing {
+    double median;
+    double minimum;
+    double maximum;
 };
 
-struct PairMethodResult {
-    const char *method_name;
-    bool matched;
-    BenchResult old_result;
-    BenchResult neo_result;
+// Keep output differences visible independently of performance measurements.
+struct Verification {
+    size_t old_neo_mismatches = 0;
+    size_t neo_rust_mismatches = 0;
+    size_t rust_tokens = 0;
 };
 
-auto print_words_preview(const char *label, const std::vector<std::string> &words) -> void {
-    constexpr auto kMaxWordsToPrint = size_t{20};
-    std::printf("%s", label);
-    for (auto i = size_t{0}; i < std::min(words.size(), kMaxWordsToPrint); ++i) {
+// Stores all output representations for one segmentation mode.
+struct MethodResult {
+    const char *name;
+    Verification verification;
+    std::array<Timing, kLabels.size()> timings;
+};
+
+// Show a bounded output sample for a segmentation mismatch.
+auto print_words_preview(const char *label, const std::vector<std::string> &words, size_t first_difference) -> void {
+    std::printf("    %s:", label);
+    const auto begin = first_difference > 3 ? first_difference - 3 : 0;
+    for (auto i = begin; i < std::min(words.size(), first_difference + 5); ++i) {
         std::printf(" [%s]", words[i].c_str());
     }
-    if (words.size() > kMaxWordsToPrint) {
-        std::printf(" ... (%zu words)", words.size());
-    }
-    std::printf("\n");
+    std::printf(" (%zu tokens)\n", words.size());
 }
 
-auto print_report(const BenchResult &r) -> void {
-    const auto total_ops = static_cast<double>(r.num_lines * r.rounds);
-    const auto total_runes = static_cast<double>(r.total_runes * r.rounds);
-    const auto ns_per_line = r.total_ms * 1e6 / total_ops;
-    const auto ns_per_rune = r.total_ms * 1e6 / total_runes;
-    const auto lines_per_sec = total_ops / (r.total_ms / 1000.0);
-    const auto runes_per_sec = total_runes / (r.total_ms / 1000.0);
-
-    std::printf("┌──────────────────────────────────────────────────────┐\n");
-    std::printf("│ %-52s │\n", r.label);
-    std::printf("├──────────────────────────┬───────────────────────────┤\n");
-    std::printf("│ Lines                    │ %25zu │\n", r.num_lines);
-    std::printf("│ Total runes              │ %25zu │\n", r.total_runes);
-    std::printf("│ Rounds                   │ %25zu │\n", r.rounds);
-    std::printf("├──────────────────────────┼───────────────────────────┤\n");
-    std::printf("│ Total time               │ %22.2f ms │\n", r.total_ms);
-    std::printf("│ Per line                 │ %22.1f ns │\n", ns_per_line);
-    std::printf("│ Per rune                 │ %22.1f ns │\n", ns_per_rune);
-    std::printf("│ Line throughput          │ %19.2f Kl/s │\n", lines_per_sec / 1e3);
-    std::printf("│ Rune throughput          │ %19.2f Mr/s │\n", runes_per_sec / 1e6);
-    std::printf("└──────────────────────────┴───────────────────────────┘\n\n");
-}
-
+// Include output allocation and destruction in the C++ end-to-end timer.
 template <typename CutFn>
-auto bench_cut(const char *label, const CutFn &fn, const std::vector<std::string> &lines, size_t total_runes, size_t rounds)
-    -> BenchResult {
-    for (const auto &line : lines) {
-        auto words = fn(line);
-        DoNotOptimize(words);
-    }
-
-    const auto t0 = Clock::now();
+auto bench_cut(const CutFn &fn, const std::vector<std::string> &lines, size_t rounds) -> RustMeasurement {
+    auto tokens = size_t{0};
+    const auto start = std::chrono::steady_clock::now();
     for (auto round = size_t{0}; round < rounds; ++round) {
         for (const auto &line : lines) {
             auto words = fn(line);
+            tokens += words.size();
             DoNotOptimize(words);
         }
     }
-    const auto t1 = Clock::now();
-
-    return {label, Ms(t1 - t0).count(), lines.size(), total_runes, rounds};
+    return {Ms(std::chrono::steady_clock::now() - start).count(), tokens};
 }
 
-template <typename OldCutFn, typename NeoCutFn, typename RustCutFn>
-auto verify_three_way(const char *method_name, const OldCutFn &old_fn, const NeoCutFn &neo_fn, const RustCutFn &rust_fn,
-                      const std::vector<std::string> &lines) -> bool {
-    std::printf("Correctness [%s]\n", method_name);
-    auto mismatches = size_t{0};
-    for (auto i = size_t{0}; i < lines.size(); ++i) {
-        const auto old_words = old_fn(lines[i]);
-        const auto neo_words = neo_fn(lines[i]);
-        const auto rust_words = rust_fn(lines[i]);
-        if (!(old_words == neo_words && old_words == rust_words)) {
-            ++mismatches;
-            if (mismatches <= 3) {
-                std::printf("  Mismatch line %zu: \"%.*s\"\n", i,
-                            static_cast<int>(std::min(lines[i].size(), size_t{80})), lines[i].data());
-                print_words_preview("    old :", old_words);
-                print_words_preview("    neo :", neo_words);
-                print_words_preview("    rust:", rust_words);
-            }
+// Verify both Rust adapters and report C++/Rust semantic differences separately.
+template <typename OldFn, typename NeoFn, typename RustFn, typename CopiedFn>
+auto verify(const OldFn &old_fn, const NeoFn &neo_fn, const RustFn &rust_fn, const CopiedFn &copied_fn,
+            const std::vector<std::string> &lines) -> Verification {
+    auto result = Verification{};
+    auto previews = size_t{0};
+    for (const auto &line : lines) {
+        const auto old_words = old_fn(line);
+        const auto neo_words = neo_fn(line);
+        const auto rust_words = rust_fn(line);
+        if (rust_words != copied_fn(line)) {
+            throw std::runtime_error("Rust copied and borrowed FFI results disagree");
+        }
+        result.rust_tokens += rust_words.size();
+        result.old_neo_mismatches += old_words != neo_words;
+        result.neo_rust_mismatches += neo_words != rust_words;
+        if ((old_words != neo_words || neo_words != rust_words) && previews++ < 2) {
+            const auto old_difference =
+                std::mismatch(old_words.begin(), old_words.end(), neo_words.begin(), neo_words.end());
+            const auto rust_difference =
+                std::mismatch(neo_words.begin(), neo_words.end(), rust_words.begin(), rust_words.end());
+            const auto first_difference = static_cast<size_t>(
+                std::min(old_difference.first - old_words.begin(), rust_difference.first - neo_words.begin()));
+            std::printf("  Mismatch near token %zu:\n", first_difference);
+            print_words_preview("old ", old_words, first_difference);
+            print_words_preview("neo ", neo_words, first_difference);
+            print_words_preview("rust", rust_words, first_difference);
         }
     }
-
-    if (mismatches == 0) {
-        std::printf("  old / neo / rust matched on %zu lines.\n\n", lines.size());
-        return true;
-    }
-
-    std::printf("  %zu / %zu lines differ. Benchmark proceeds anyway.\n\n", mismatches, lines.size());
-    return false;
+    std::printf("  Output mismatches: old/neo %zu/%zu, neo/rust %zu/%zu lines\n", result.old_neo_mismatches,
+                lines.size(), result.neo_rust_mismatches, lines.size());
+    return result;
 }
 
-template <typename OldCutFn, typename NeoCutFn>
-auto verify_old_vs_neo(const char *method_name, const OldCutFn &old_fn, const NeoCutFn &neo_fn,
-                       const std::vector<std::string> &lines) -> bool {
-    std::printf("Correctness [%s]\n", method_name);
-    auto mismatches = size_t{0};
-    for (auto i = size_t{0}; i < lines.size(); ++i) {
-        const auto old_words = old_fn(lines[i]);
-        const auto neo_words = neo_fn(lines[i]);
-        if (old_words != neo_words) {
-            ++mismatches;
-            if (mismatches <= 3) {
-                std::printf("  Mismatch line %zu: \"%.*s\"\n", i,
-                            static_cast<int>(std::min(lines[i].size(), size_t{80})), lines[i].data());
-                print_words_preview("    old:", old_words);
-                print_words_preview("    neo:", neo_words);
-            }
-        }
-    }
-
-    if (mismatches == 0) {
-        std::printf("  old / neo matched on %zu lines.\n\n", lines.size());
-        return true;
-    }
-
-    std::printf("  %zu / %zu lines differ. Benchmark proceeds anyway.\n\n", mismatches, lines.size());
-    return false;
+// Report the median and full observed spread without selecting the fastest run.
+auto summarize(std::vector<double> samples) -> Timing {
+    std::sort(samples.begin(), samples.end());
+    const auto middle = samples.size() / 2;
+    const auto median = samples.size() % 2 == 0 ? (samples[middle - 1] + samples[middle]) / 2 : samples[middle];
+    return {median, samples.front(), samples.back()};
 }
 
-auto print_three_way_summary(const SharedMethodResult &result) -> void {
-    struct SummaryRow {
-        const char *name;
-        double ms;
+// Rotate execution order between samples, keeping warmup outside every measured sample.
+template <typename OldFn, typename NeoFn>
+auto run_shared_method(const char *name, RustCutMethod method, const OldFn &old_fn, const NeoFn &neo_fn,
+                       const RustJieba &rust, const std::vector<std::string> &lines, size_t rounds, size_t samples)
+    -> MethodResult {
+    std::printf("\n[%s]\n", name);
+    const auto rust_fn = [&](const std::string &line) {
+        return rust.cut(line, method, RustFfiOutput::Borrowed);
     };
-
-    auto rows = std::array<SummaryRow, 3>{{
-        {"old cppjieba", result.old_result.total_ms},
-        {"neo cppjieba", result.neo_result.total_ms},
-        {"rust jieba", result.rust_result.total_ms},
-    }};
-    const auto fastest = std::min_element(rows.begin(), rows.end(), [](const auto &lhs, const auto &rhs) {
-        return lhs.ms < rhs.ms;
-    });
-
-    std::printf("Summary [%s] (ratio = time / fastest)\n", result.method_name);
-    std::printf("  %-14s  %12s  %8s  %s\n", "Implementation", "Time (ms)", "Ratio", "");
-    std::printf("  ──────────────  ────────────  ────────  ─────────────\n");
-    for (const auto &row : rows) {
-        const auto ratio = row.ms / fastest->ms;
-        const auto marker = (row.ms == fastest->ms) ? "◀ fastest" : "";
-        std::printf("  %-14s  %12.2f  %7.2fx  %s\n", row.name, row.ms, ratio, marker);
+    const auto copied_fn = [&](const std::string &line) {
+        return rust.cut(line, method, RustFfiOutput::Copied);
+    };
+    const auto verification = verify(old_fn, neo_fn, rust_fn, copied_fn, lines);
+    const auto measure = [&](size_t variant, size_t sample_rounds) -> RustMeasurement {
+        switch (variant) {
+            case 0:
+                return bench_cut(old_fn, lines, sample_rounds);
+            case 1:
+                return bench_cut(neo_fn, lines, sample_rounds);
+            case 2:
+                return bench_cut(copied_fn, lines, sample_rounds);
+            case 3:
+                return bench_cut(rust_fn, lines, sample_rounds);
+            case 4:
+                return rust.benchmark(lines, method, RustNativeOutput::Owned, sample_rounds);
+            case 5:
+                return rust.benchmark(lines, method, RustNativeOutput::Borrowed, sample_rounds);
+        }
+        std::unreachable();
+    };
+    for (auto variant = size_t{0}; variant < kLabels.size(); ++variant) {
+        DoNotOptimize(measure(variant, 1));
     }
-    std::printf("\n");
-}
-
-auto print_pair_summary(const PairMethodResult &result) -> void {
-    const auto speedup = result.old_result.total_ms / result.neo_result.total_ms;
-    const auto faster = result.neo_result.total_ms < result.old_result.total_ms ? "neo cppjieba" : "old cppjieba";
-
-    std::printf("Summary [%s]\n", result.method_name);
-    std::printf("  %-14s  %12.2f ms\n", "old cppjieba", result.old_result.total_ms);
-    std::printf("  %-14s  %12.2f ms\n", "neo cppjieba", result.neo_result.total_ms);
-    std::printf("  Old / Neo speedup: %.2fx (%s faster)\n\n", speedup, faster);
-}
-
-template <typename OldCutFn, typename NeoCutFn, typename RustCutFn>
-auto run_shared_method(const char *method_name, const char *old_label, const char *neo_label, const char *rust_label,
-                       const OldCutFn &old_fn, const NeoCutFn &neo_fn, const RustCutFn &rust_fn,
-                       const std::vector<std::string> &lines, size_t total_runes, size_t rounds) -> SharedMethodResult {
-    std::printf("═══════════════════════════════════════════════════════\n");
-    std::printf("  %s\n", method_name);
-    std::printf("═══════════════════════════════════════════════════════\n\n");
-
-    const auto matched = verify_three_way(method_name, old_fn, neo_fn, rust_fn, lines);
-
-    const auto old_result = bench_cut(old_label, old_fn, lines, total_runes, rounds);
-    print_report(old_result);
-
-    const auto neo_result = bench_cut(neo_label, neo_fn, lines, total_runes, rounds);
-    print_report(neo_result);
-
-    const auto rust_result = bench_cut(rust_label, rust_fn, lines, total_runes, rounds);
-    print_report(rust_result);
-
-    const auto result = SharedMethodResult{method_name, matched, old_result, neo_result, rust_result};
-    print_three_way_summary(result);
+    auto timings = std::array<std::vector<double>, kLabels.size()>{};
+    for (auto &values : timings) {
+        values.reserve(samples);
+    }
+    for (auto sample = size_t{0}; sample < samples; ++sample) {
+        for (auto offset = size_t{0}; offset < kLabels.size(); ++offset) {
+            const auto variant = (sample + offset) % kLabels.size();
+            const auto result = measure(variant, rounds);
+            if (variant >= 2 && result.tokens != verification.rust_tokens * rounds) {
+                throw std::runtime_error("Rust benchmark token count differs from correctness pass");
+            }
+            timings[variant].push_back(result.milliseconds);
+        }
+    }
+    auto result = MethodResult{name, verification, {}};
+    std::printf("  %-36s %12s %12s %12s\n", "Path / output", "Median ms", "Min ms", "Max ms");
+    for (auto variant = size_t{0}; variant < kLabels.size(); ++variant) {
+        result.timings[variant] = summarize(std::move(timings[variant]));
+        const auto &t = result.timings[variant];
+        std::printf("  %-36s %12.3f %12.3f %12.3f\n", kLabels[variant], t.median, t.minimum, t.maximum);
+    }
+    std::printf("  Removing the redundant Rust word copies: %.2fx (same C++ string output)\n",
+                result.timings[2].median / result.timings[3].median);
+    if (verification.old_neo_mismatches != 0 || verification.neo_rust_mismatches != 0) {
+        std::printf("  Cross-implementation ranking suppressed: segmentation outputs differ.\n");
+    }
     return result;
 }
 
-template <typename OldCutFn, typename NeoCutFn>
-auto run_pair_method(const char *method_name, const char *old_label, const char *neo_label, const OldCutFn &old_fn,
-                     const NeoCutFn &neo_fn, const std::vector<std::string> &lines, size_t total_runes, size_t rounds)
-    -> PairMethodResult {
-    std::printf("═══════════════════════════════════════════════════════\n");
-    std::printf("  %s\n", method_name);
-    std::printf("═══════════════════════════════════════════════════════\n\n");
+// Preserve the standalone HMM comparison, which has no matching Rust public API.
+template <typename OldFn, typename NeoFn>
+auto run_hmm_pair(const OldFn &old_fn, const NeoFn &neo_fn, const std::vector<std::string> &lines, size_t rounds,
+                  size_t samples) -> void {
+    auto mismatches = size_t{0};
+    for (const auto &line : lines) {
+        mismatches += old_fn(line) != neo_fn(line);
+    }
+    auto old_times = std::vector<double>{};
+    auto neo_times = std::vector<double>{};
+    for (auto sample = size_t{0}; sample < samples; ++sample) {
+        if (sample % 2 == 0) {
+            old_times.push_back(bench_cut(old_fn, lines, rounds).milliseconds);
+            neo_times.push_back(bench_cut(neo_fn, lines, rounds).milliseconds);
+        } else {
+            neo_times.push_back(bench_cut(neo_fn, lines, rounds).milliseconds);
+            old_times.push_back(bench_cut(old_fn, lines, rounds).milliseconds);
+        }
+    }
+    std::printf("\n[HMM-only appendix] old %.3f ms, neo %.3f ms (medians); mismatches %zu/%zu lines\n",
+                summarize(std::move(old_times)).median, summarize(std::move(neo_times)).median, mismatches,
+                lines.size());
+}
 
-    const auto matched = verify_old_vs_neo(method_name, old_fn, neo_fn, lines);
-
-    const auto old_result = bench_cut(old_label, old_fn, lines, total_runes, rounds);
-    print_report(old_result);
-
-    const auto neo_result = bench_cut(neo_label, neo_fn, lines, total_runes, rounds);
-    print_report(neo_result);
-
-    const auto result = PairMethodResult{method_name, matched, old_result, neo_result};
-    print_pair_summary(result);
+// Reject malformed or zero iteration counts before loading engines or starting timers.
+auto positive_count(std::string_view value) -> size_t {
+    auto result = size_t{0};
+    const auto parsed = std::from_chars(value.data(), value.data() + value.size(), result);
+    if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || result == 0) {
+        throw std::invalid_argument("rounds and samples must be positive integers");
+    }
     return result;
 }
 
-auto print_shared_matrix(const std::array<SharedMethodResult, 4> &results) -> void {
-    std::printf("══════════════════════════════════════════════════════════════════════════════════\n");
-    std::printf("  Shared methods summary\n");
-    std::printf("══════════════════════════════════════════════════════════════════════════════════\n");
-    std::printf("  %-10s  %12s  %12s  %12s  %-12s  %9s  %9s\n", "Method", "Old (ms)", "Neo (ms)", "Rust (ms)", "Fastest",
-                "Old/Neo", "Old/Rust");
-    std::printf("  ──────────  ────────────  ────────────  ────────────  ────────────  ─────────  ─────────\n");
+// Run against a shared base dictionary and HMM file, excluding initialization from timing.
+auto run(int argc, char *argv[]) -> int {
+    const auto dict_path = argc > 1 ? std::string{argv[1]} : std::string{DICT_DIR} + "/jieba.dict.utf8";
+    const auto model_path = argc > 2 ? std::string{argv[2]} : std::string{DICT_DIR} + "/hmm_model.utf8";
+    const auto user_dict_path = argc > 3 ? std::string{argv[3]} : std::string{};
+    const auto text_path = argc > 4 ? std::string{argv[4]} : std::string{TEST_DATA_DIR} + "/weicheng.utf8";
+    const auto rounds = argc > 5 ? positive_count(argv[5]) : size_t{5};
+    const auto samples = argc > 6 ? positive_count(argv[6]) : size_t{7};
+    if (argc > 7 || !user_dict_path.empty()) {
+        throw std::invalid_argument(
+            "Usage: cut_compare_benchmark [dict [model [\"\" [text [rounds [samples]]]]]]; "
+            "user dictionaries have different default-frequency semantics; use one shared base dictionary");
+    }
+    std::printf("jieba-rs 0.11.0, Cargo release opt-level=3; C++ %ld\n", static_cast<long>(__cplusplus));
+    std::printf("Dictionary: %s\nHMM model (all engines): %s\nText: %s\n", dict_path.c_str(), model_path.c_str(),
+                text_path.c_str());
+    std::printf("No user dictionary; %zu rounds/sample, %zu rotated samples. Initialization and I/O excluded.\n",
+                rounds, samples);
+    std::printf("FFI copied reproduces the upstream C API copy pattern; FFI views removes that extra copy.\n");
+    std::printf("Native owned returns Vec<String>; native borrowed returns tokens/offsets without string copies.\n");
+    const auto lines = load_lines(text_path);
+    if (lines.empty()) {
+        throw std::runtime_error("no input lines loaded from " + text_path);
+    }
+    auto bytes = size_t{0};
+    for (const auto &line : lines) {
+        bytes += line.size();
+    }
+    std::printf("Input: %zu nonempty lines, %zu UTF-8 bytes\n", lines.size(), bytes);
+    // The legacy facade treats an empty path as its bundled user dictionary.
+    auto old = cppjieba::Jieba{dict_path, model_path, std::string{TEST_DATA_DIR} + "/empty_user.dict.utf8"};
+    const auto neo = neo_cppjieba::Jieba{dict_path, model_path, ""};
+    const auto rust = RustJieba{dict_path, model_path};
+    const auto mix_old = [&](const std::string &s) {
+        auto words = std::vector<std::string>{};
+        old.Cut(s, words, true);
+        return words;
+    };
+    const auto mp_old = [&](const std::string &s) {
+        auto words = std::vector<std::string>{};
+        old.Cut(s, words, false);
+        return words;
+    };
+    const auto full_old = [&](const std::string &s) {
+        auto words = std::vector<std::string>{};
+        old.CutAll(s, words);
+        return words;
+    };
+    const auto search_old = [&](const std::string &s) {
+        auto words = std::vector<std::string>{};
+        old.CutForSearch(s, words, true);
+        return words;
+    };
+    const auto results = std::array{
+        run_shared_method(
+            "MIX", RustCutMethod::Mix, mix_old,
+            [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::MIX>(s); }, rust, lines, rounds,
+            samples),
+        run_shared_method(
+            "MP", RustCutMethod::Mp, mp_old,
+            [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::MIX, false>(s); }, rust, lines, rounds,
+            samples),
+        run_shared_method(
+            "FULL", RustCutMethod::Full, full_old,
+            [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::FULL>(s); }, rust, lines, rounds,
+            samples),
+        run_shared_method(
+            "SEARCH", RustCutMethod::Search, search_old,
+            [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::SEARCH>(s); }, rust, lines, rounds,
+            samples),
+    };
+    std::printf("\nMedian summary (ms; borrowed tokens have a different output contract)\n");
+    std::printf("%-8s %10s %10s %10s %10s %10s %10s %12s\n", "Method", "Old", "Neo", "FFI copy", "FFI view", "RS owned",
+                "RS borrow", "NE/RS diffs");
     for (const auto &result : results) {
-        struct WinnerRow {
-            const char *name;
-            double ms;
-        };
-        auto rows = std::array<WinnerRow, 3>{{
-            {"old", result.old_result.total_ms},
-            {"neo", result.neo_result.total_ms},
-            {"rust", result.rust_result.total_ms},
-        }};
-        const auto fastest = std::min_element(rows.begin(), rows.end(), [](const auto &lhs, const auto &rhs) {
-            return lhs.ms < rhs.ms;
-        });
-        std::printf("  %-10s  %12.2f  %12.2f  %12.2f  %-12s  %8.2fx  %8.2fx\n", result.method_name,
-                    result.old_result.total_ms, result.neo_result.total_ms, result.rust_result.total_ms, fastest->name,
-                    result.old_result.total_ms / result.neo_result.total_ms,
-                    result.old_result.total_ms / result.rust_result.total_ms);
+        std::printf("%-8s", result.name);
+        for (const auto &timing : result.timings) {
+            std::printf(" %10.3f", timing.median);
+        }
+        std::printf(" %8zu/%zu\n", result.verification.neo_rust_mismatches, lines.size());
     }
-    std::printf("══════════════════════════════════════════════════════════════════════════════════\n\n");
+    run_hmm_pair(
+        [&](const std::string &s) {
+            auto words = std::vector<std::string>{};
+            old.CutHMM(s, words);
+            return words;
+        },
+        [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::HMM>(s); }, lines, rounds, samples);
+    return 0;
 }
 
 } // namespace
 
+// Convert benchmark input errors into a failing exit status with an actionable message.
 auto main(int argc, char *argv[]) -> int {
-    auto dict_path = std::string(DICT_DIR) + "/jieba.dict.utf8";
-    auto model_path = std::string(DICT_DIR) + "/hmm_model.utf8";
-    auto user_dict_path = std::string(DICT_DIR) + "/user.dict.utf8";
-    auto text_path = std::string(TEST_DATA_DIR) + "/weicheng.utf8";
-    auto rounds = size_t{50};
-
-    if (argc > 1) {
-        dict_path = argv[1];
-    }
-    if (argc > 2) {
-        model_path = argv[2];
-    }
-    if (argc > 3) {
-        user_dict_path = argv[3];
-    }
-    if (argc > 4) {
-        text_path = argv[4];
-    }
-    if (argc > 5) {
-        rounds = static_cast<size_t>(std::strtoull(argv[5], nullptr, 10));
-    }
-
-    std::printf("Dictionary : %s\n", dict_path.c_str());
-    std::printf("HMM Model  : %s\n", model_path.c_str());
-    std::printf("User Dict  : %s\n", user_dict_path.c_str());
-    std::printf("Text file  : %s\n", text_path.c_str());
-    std::printf("Rounds     : %zu\n\n", rounds);
-
-    const auto lines = load_lines(text_path);
-    if (lines.empty()) {
-        std::fprintf(stderr, "No input lines loaded from %s\n", text_path.c_str());
+    try {
+        return run(argc, argv);
+    } catch (const std::exception &error) {
+        std::fprintf(stderr, "%s\n", error.what());
         return 1;
     }
-
-    auto total_bytes = size_t{0};
-    auto total_runes = size_t{0};
-    for (const auto &line : lines) {
-        total_bytes += line.size();
-        total_runes += neo_cppjieba::decode(line).size();
-    }
-    std::printf("Loaded %zu lines (%zu bytes UTF-8, %zu runes)\n\n", lines.size(), total_bytes, total_runes);
-
-    std::printf("Loading old cppjieba ...\n");
-    auto t0 = Clock::now();
-    auto old_jieba = cppjieba::Jieba{dict_path, model_path, user_dict_path};
-    auto t1 = Clock::now();
-    std::printf("Old cppjieba loaded in %.2f ms\n", Ms(t1 - t0).count());
-
-    std::printf("Loading neo cppjieba ...\n");
-    t0 = Clock::now();
-    auto neo_jieba = neo_cppjieba::Jieba{dict_path, model_path, user_dict_path};
-    t1 = Clock::now();
-    std::printf("Neo cppjieba loaded in %.2f ms\n", Ms(t1 - t0).count());
-
-    std::printf("Loading rust jieba ...\n");
-    t0 = Clock::now();
-    auto rust_jieba = RustJieba{dict_path, user_dict_path};
-    t1 = Clock::now();
-    std::printf("Rust jieba loaded in %.2f ms\n\n", Ms(t1 - t0).count());
-
-    const auto mix_old = [&](const std::string &s) {
-        auto words = std::vector<std::string>{};
-        old_jieba.Cut(s, words, true);
-        return words;
-    };
-    const auto mix_neo = [&](const std::string &s) { return neo_jieba.cut<neo_cppjieba::CutMethod::MIX>(s); };
-    const auto mix_rust = [&](const std::string &s) { return rust_jieba.cut(s, true); };
-
-    const auto mp_old = [&](const std::string &s) {
-        auto words = std::vector<std::string>{};
-        old_jieba.Cut(s, words, false);
-        return words;
-    };
-    const auto mp_neo = [&](const std::string &s) { return neo_jieba.cut<neo_cppjieba::CutMethod::MIX, false>(s); };
-    const auto mp_rust = [&](const std::string &s) { return rust_jieba.cut(s, false); };
-
-    const auto full_old = [&](const std::string &s) {
-        auto words = std::vector<std::string>{};
-        old_jieba.CutAll(s, words);
-        return words;
-    };
-    const auto full_neo = [&](const std::string &s) { return neo_jieba.cut<neo_cppjieba::CutMethod::FULL>(s); };
-    const auto full_rust = [&](const std::string &s) { return rust_jieba.cut_all(s); };
-
-    const auto search_old = [&](const std::string &s) {
-        auto words = std::vector<std::string>{};
-        old_jieba.CutForSearch(s, words, true);
-        return words;
-    };
-    const auto search_neo = [&](const std::string &s) { return neo_jieba.cut<neo_cppjieba::CutMethod::SEARCH>(s); };
-    const auto search_rust = [&](const std::string &s) { return rust_jieba.cut_for_search(s, true); };
-
-    const auto hmm_only_old = [&](const std::string &s) {
-        auto words = std::vector<std::string>{};
-        old_jieba.CutHMM(s, words);
-        return words;
-    };
-    const auto hmm_only_neo = [&](const std::string &s) { return neo_jieba.cut<neo_cppjieba::CutMethod::HMM>(s); };
-
-    std::printf("═══════════════════════════════════════════════════════\n");
-    std::printf("  Three-way benchmark: old cppjieba vs neo cppjieba vs rust jieba\n");
-    std::printf("═══════════════════════════════════════════════════════\n\n");
-    std::printf("Shared methods: MIX, MP(no HMM), FULL, SEARCH\n");
-    std::printf("Rust jieba public API has no standalone HMM-only method, so HMM-only stays old/neo only.\n\n");
-
-    const auto mix_result = run_shared_method("MIX", "Old cppjieba Cut()", "Neo cppjieba cut<MIX>()",
-                                              "Rust jieba cut(hmm=true)", mix_old, mix_neo, mix_rust, lines,
-                                              total_runes, rounds);
-
-    const auto mp_result = run_shared_method("MP (no HMM)", "Old cppjieba Cut(hmm=false)",
-                                             "Neo cppjieba cut<MIX,false>()", "Rust jieba cut(hmm=false)", mp_old,
-                                             mp_neo, mp_rust, lines, total_runes, rounds);
-
-    const auto full_result = run_shared_method("FULL", "Old cppjieba CutAll()", "Neo cppjieba cut<FULL>()",
-                                               "Rust jieba cut_all()", full_old, full_neo, full_rust, lines,
-                                               total_runes, rounds);
-
-    const auto search_result =
-        run_shared_method("SEARCH", "Old cppjieba CutForSearch()", "Neo cppjieba cut<SEARCH>()",
-                          "Rust jieba cut_for_search()", search_old, search_neo, search_rust, lines, total_runes,
-                          rounds);
-
-    print_shared_matrix(std::array<SharedMethodResult, 4>{{mix_result, mp_result, full_result, search_result}});
-
-    std::printf("═══════════════════════════════════════════════════════\n");
-    std::printf("  Appendix: methods without rust counterpart\n");
-    std::printf("═══════════════════════════════════════════════════════\n\n");
-
-    const auto hmm_result = run_pair_method("HMM-only", "Old cppjieba CutHMM()", "Neo cppjieba cut<HMM>()",
-                                            hmm_only_old, hmm_only_neo, lines, total_runes, rounds);
-
-    if (!mix_result.matched || !mp_result.matched || !full_result.matched || !search_result.matched || !hmm_result.matched) {
-        std::printf("Note: some correctness checks differ. Review mismatch samples before reading the timing as apples-to-apples.\n");
-    }
-
-    return 0;
 }
