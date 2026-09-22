@@ -14,5 +14,5 @@ ADD_EXECUTABLE(test.run
 
 target_compile_definitions(test.run PRIVATE LOGGING_LEVEL=LL_WARNING)
 # Add include directories
-target_link_libraries(test.run PRIVATE cppjieba cppjieba_test_data GTest::gtest)
+target_link_libraries(test.run PRIVATE cppjieba::cppjieba cppjieba_test_data GTest::gtest)
 add_test(NAME legacy_unit_tests COMMAND test.run)

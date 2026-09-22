@@ -1,0 +1,31 @@
+find_program(CARGO_EXECUTABLE cargo HINTS "$ENV{HOME}/.cargo/bin" REQUIRED)
+
+set(RUST_BENCH_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/cargo")
+set(RUST_BENCH_LIB "${RUST_BENCH_TARGET_DIR}/release/${CMAKE_SHARED_LIBRARY_PREFIX}modern_cppjieba_rust_bench${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(RUST_BENCH_BYPRODUCTS)
+if(WIN32)
+    set(RUST_BENCH_IMPLIB "${RUST_BENCH_LIB}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
+    list(APPEND RUST_BENCH_BYPRODUCTS "${RUST_BENCH_IMPLIB}")
+endif()
+
+add_custom_command(
+    OUTPUT "${RUST_BENCH_LIB}"
+    BYPRODUCTS ${RUST_BENCH_BYPRODUCTS}
+    COMMAND "${CARGO_EXECUTABLE}" build --release --locked
+            --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml" --target-dir "${RUST_BENCH_TARGET_DIR}"
+    DEPENDS Cargo.toml Cargo.lock src/lib.rs
+    COMMENT "Building the pinned jieba-rs benchmark adapter (release)"
+    VERBATIM
+)
+add_custom_target(jieba_rs_build DEPENDS "${RUST_BENCH_LIB}")
+
+add_library(jieba_rs SHARED IMPORTED GLOBAL)
+add_library(jieba_rs::jieba_rs ALIAS jieba_rs)
+set_target_properties(jieba_rs PROPERTIES
+    IMPORTED_LOCATION "${RUST_BENCH_LIB}"
+    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+if(WIN32)
+    set_target_properties(jieba_rs PROPERTIES IMPORTED_IMPLIB "${RUST_BENCH_IMPLIB}")
+endif()
+add_dependencies(jieba_rs jieba_rs_build)

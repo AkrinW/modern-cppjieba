@@ -19,5 +19,5 @@ ADD_EXECUTABLE(test_neo.run
 
 target_compile_definitions(test_neo.run PRIVATE LOGGING_LEVEL=LL_WARNING)
 # Add include directories
-target_link_libraries(test_neo.run PRIVATE cppjieba cppjieba_test_data GTest::gtest)
+target_link_libraries(test_neo.run PRIVATE neo_cppjieba::neo_cppjieba cppjieba_test_data GTest::gtest)
 add_test(NAME neo_unit_tests COMMAND test_neo.run)
