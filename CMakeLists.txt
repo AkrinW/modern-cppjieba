@@ -43,11 +43,32 @@ install(DIRECTORY include/
 install(DIRECTORY dict/
         DESTINATION ${CMAKE_INSTALL_DATADIR}/cppjieba/dict)
 
-if(CPPJIEBA_TOP_LEVEL_PROJECT)
-  ENABLE_TESTING()
+option(BUILD_TESTING "Build unit tests" ${CPPJIEBA_TOP_LEVEL_PROJECT})
+option(CPPJIEBA_BUILD_LEGACY_TESTS "Build tests for the legacy dependency" OFF)
+option(CPPJIEBA_BUILD_BENCHMARKS "Build standalone benchmarks" OFF)
+option(CPPJIEBA_BUILD_RUST_BENCHMARKS "Build the pinned Rust comparison benchmark (requires Cargo)" OFF)
 
-  message(STATUS "MSVC value: ${MSVC}")
-  ADD_SUBDIRECTORY(test)
-  ADD_TEST(NAME ./test/test.run COMMAND ./test/test.run)
-  ADD_TEST(NAME ./load_test COMMAND ./load_test)
+if(CPPJIEBA_BUILD_LEGACY_TESTS AND NOT BUILD_TESTING)
+    message(FATAL_ERROR "CPPJIEBA_BUILD_LEGACY_TESTS requires BUILD_TESTING=ON")
+endif()
+if(CPPJIEBA_BUILD_RUST_BENCHMARKS AND NOT CPPJIEBA_BUILD_BENCHMARKS)
+    message(FATAL_ERROR "CPPJIEBA_BUILD_RUST_BENCHMARKS requires CPPJIEBA_BUILD_BENCHMARKS=ON")
+endif()
+
+if(BUILD_TESTING OR CPPJIEBA_BUILD_BENCHMARKS)
+    # Configure test paths
+    configure_file(test/test_paths.h.in "${PROJECT_BINARY_DIR}/generated/test_paths.h")
+    add_library(cppjieba_test_data INTERFACE)
+    target_include_directories(cppjieba_test_data INTERFACE
+        "${PROJECT_BINARY_DIR}/generated"
+        "${PROJECT_SOURCE_DIR}/test"
+    )
+endif()
+
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(test)
+endif()
+if(CPPJIEBA_BUILD_BENCHMARKS)
+    add_subdirectory(benchmark)
 endif()

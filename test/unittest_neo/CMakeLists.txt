@@ -1,23 +1,7 @@
-message(STATUS "MSVC value: ${MSVC}")
-if (MSVC)
-	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDebugDLL")
-	set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-	add_compile_options(/utf-8)
-endif()
-
-SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/test)
-SET(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
-
-ADD_DEFINITIONS(-DLOGGING_LEVEL=LL_WARNING)
-
-# Add include directories
-INCLUDE_DIRECTORIES(
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_BINARY_DIR}/test
-)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/test")
 
 ADD_EXECUTABLE(test_neo.run
-    ${CMAKE_SOURCE_DIR}/test/unittest/gtest_main.cpp
+    ../gtest_main.cpp
     unicode_test.cpp
     logging_test.cpp
     fileio_test.cpp
@@ -33,4 +17,7 @@ ADD_EXECUTABLE(test_neo.run
     jieba_test.cpp
 )
 
-TARGET_LINK_LIBRARIES(test_neo.run gtest)
+target_compile_definitions(test_neo.run PRIVATE LOGGING_LEVEL=LL_WARNING)
+# Add include directories
+target_link_libraries(test_neo.run PRIVATE cppjieba cppjieba_test_data GTest::gtest)
+add_test(NAME neo_unit_tests COMMAND test_neo.run)

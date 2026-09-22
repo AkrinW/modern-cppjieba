@@ -24,4 +24,4 @@ Testing/Temporary/CTestCostData.txt
 Testing/Temporary/LastTest.log
 .vscode
 /AGENTS.md
-/test/rust_benchmark/target/
+/benchmark/rust_benchmark/target/
