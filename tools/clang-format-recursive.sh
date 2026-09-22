@@ -26,7 +26,7 @@ parse_config() {
         IFS='|' read -ra SCAN_ROOTS <<< "${inner}"
     fi
     if [[ ${#SCAN_ROOTS[@]} -eq 0 ]]; then
-        SCAN_ROOTS=("include/neo" "test")
+        SCAN_ROOTS=("include/neo" "test" "benchmark")
     fi
 
     if regex=$(read_clang_tidy_field "ExcludeHeaderFilterRegex") && [[ -n "${regex}" ]]; then

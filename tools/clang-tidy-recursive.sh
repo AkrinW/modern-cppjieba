@@ -32,7 +32,7 @@ parse_config() {
         IFS='|' read -ra scan_roots <<< "${inner}"
     fi
     if [[ ${#scan_roots[@]} -eq 0 ]]; then
-        scan_roots=("include/neo" "test")
+        scan_roots=("include/neo" "test" "benchmark")
     fi
 
     local root
@@ -48,7 +48,7 @@ parse_config() {
     fi
 
     # Build absolute-path header-filter for clang-tidy.
-    # .clang-tidy uses relative paths like '^(include/neo|test)/' but
+    # .clang-tidy uses relative paths like '^(include/neo|test|benchmark)/' but
     # clang-tidy matches against absolute file paths, so we anchor to REPO_ROOT.
     local raw_filter
     if raw_filter=$(read_clang_tidy_field "HeaderFilterRegex") && [[ -n "${raw_filter}" ]]; then
@@ -149,7 +149,6 @@ run_source_tidy() {
         -p "${BUILD_DIR}"
         --header-filter="${HEADER_FILTER}"
         --extra-arg-before=--gcc-toolchain="${GCC_TOOLCHAIN}"
-        --extra-arg=-isystem"${REPO_ROOT}/deps/limonp/include"
     )
     if [[ "${mode}" == "fix" ]]; then
         args+=(--fix --format-style=file)
@@ -196,7 +195,6 @@ run_header_tidy() {
             -x c++-header
             --std=c++23
             -I"${REPO_ROOT}/include"
-            -isystem"${REPO_ROOT}/deps/limonp/include"
         )
 
         local rc=0

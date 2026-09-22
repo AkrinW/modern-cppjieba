@@ -7,6 +7,7 @@ on:
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
+  CXX: g++-14
 
 jobs:
   build:
@@ -16,28 +17,30 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ 
-          ubuntu-22.04,
-          ubuntu-latest,
-          macos-13,
-          macos-14,
-          macos-latest,
-          windows-2022,
-          windows-latest,
-        ]  
-        cpp_version: [11, 14, 17, 20]
+        os: [ubuntu-24.04]
+        cpp_version: [23]
+        legacy_tests: ["OFF", "ON"]
 
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v2
-        with:
-            submodules: recursive
+        uses: actions/checkout@v4
+
+      - name: Initialize legacy comparison dependency
+        if: matrix.legacy_tests == 'ON'
+        run: git submodule update --init deps/limonp
 
       - name: Configure CMake
         # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
         # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
         # run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
-        run: cmake -B ${{github.workspace}}/build -DBUILD_TESTING=ON -DCMAKE_CXX_STANDARD=${{matrix.cpp_version}} -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        run: cmake -B ${{github.workspace}}/build -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_LEGACY_TESTS=${{matrix.legacy_tests}} -DCPPJIEBA_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_STANDARD=${{matrix.cpp_version}} -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+
+      - name: Check unit-test isolation
+        run: |
+          test ! -d build/benchmark
+          if [ "${{matrix.legacy_tests}}" = "OFF" ]; then
+            test ! -d build/deps
+          fi
 
       - name: Build
         # Build your program with the given configuration
@@ -46,7 +49,54 @@ jobs:
 
       - name: Test
         working-directory: ${{github.workspace}}/build
-        # Execute tests defined by the CMake configuration.  
+        # Execute tests defined by the CMake configuration.
         # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
         run: ctest -C ${{env.BUILD_TYPE}} --verbose
-      
+
+  benchmarks:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        rust: ["OFF", "ON"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize comparison dependency
+        run: git submodule update --init deps/limonp
+      - name: Configure standalone benchmarks
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+          -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=ON
+          -DCPPJIEBA_BUILD_RUST_BENCHMARKS=${{matrix.rust}}
+      - name: Check benchmark isolation
+        run: |
+          test ! -d build/test
+          test ! -d build/_deps/googletest-src
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Rust adapter unit tests
+        if: matrix.rust == 'ON'
+        run: >-
+          cargo test --release --locked --manifest-path deps/rust-jieba/Cargo.toml
+          --target-dir build/deps/rust-jieba/cargo
+      - name: Rust comparison smoke check
+        if: matrix.rust == 'ON'
+        run: >-
+          ./build/benchmark/cut_compare_benchmark
+          dict/jieba.dict.utf8 dict/hmm_model.utf8 '' test/testdata/testlines.utf8 1 1
+
+  library:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure only the public library
+        run: cmake -S . -B build -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=OFF
+      - name: Install public headers and data
+        run: cmake --install build --prefix install
+      - name: Check installation and dependency isolation
+        run: |
+          test -f install/include/neo/Jieba.hpp
+          test -f install/share/cppjieba/dict/jieba.dict.utf8
+          test ! -e install/include/cppjieba
+          test ! -e install/include/limonp
+          test ! -d build/deps
+          test ! -d build/_deps

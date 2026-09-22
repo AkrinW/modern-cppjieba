@@ -33,16 +33,18 @@
 Rust 对比默认关闭，普通构建不依赖 Cargo。启用后需要可用的 Rust/Cargo，首次构建会下载锁定的依赖。以下命令在仓库根目录执行：
 
 ```sh
+git submodule update --init deps/limonp
 cmake -S . -B build-rust-compare -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=ON \
   -DCPPJIEBA_BUILD_RUST_BENCHMARKS=ON
 cmake --build build-rust-compare --target cut_compare_benchmark -j2
-./build-rust-compare/cut_compare_benchmark
+./build-rust-compare/benchmark/cut_compare_benchmark
 ```
 
 完整参数为 `主词典 HMM模型 空用户词典参数 语料 每样本轮数 样本数`。默认语料是《围城》，每样本 5 轮、共 7 个样本。Linux 可绑定到允许使用且较空闲的 CPU，以减少迁移干扰：
 
 ```sh
-taskset -c 2 ./build-rust-compare/cut_compare_benchmark \
+taskset -c 2 ./build-rust-compare/benchmark/cut_compare_benchmark \
   dict/jieba.dict.utf8 dict/hmm_model.utf8 '' test/testdata/weicheng.utf8 5 7
 ```
 
@@ -51,14 +53,14 @@ taskset -c 2 ./build-rust-compare/cut_compare_benchmark \
 适配器单元测试覆盖四种分词模式、复制与借用输出一致性、UTF-8/内嵌 NUL/空输入，以及原生计时的轮数和 token 计数：
 
 ```sh
-cargo test --release --locked --manifest-path test/rust_benchmark/Cargo.toml \
-  --target-dir build-rust-compare/test/rust-target
+cargo test --release --locked --manifest-path deps/rust-jieba/Cargo.toml \
+  --target-dir build-rust-compare/deps/rust-jieba/cargo
 ```
 
 测试也会检查非法 UTF-8 返回错误；C++ 包装在复制发生异常时仍通过 RAII 释放 Rust 结果。
 
 
-## 2026-09-22 本机复测
+## 2026-09-22 本机复测（目录迁移前记录）
 
 环境：Intel Xeon Gold 5320，Linux，绑定 CPU 2；GCC 16.1.0、rustc 1.94.0。两边均为优化构建，未额外启用 native CPU 指令集或 LTO。表中单位为毫秒，均取 7 个样本的中位数。
 

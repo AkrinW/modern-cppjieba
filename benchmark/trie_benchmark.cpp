@@ -5,10 +5,11 @@
 ///   2. Query throughput (all-hit sequential scan + random-order scan + miss queries)
 ///
 /// Compile:
-///   g++ -O2 -std=c++23 -I include -I deps/limonp/include test/trie_benchmark.cpp -o build/trie_benchmark
+///   cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=ON
+///   cmake --build build-bench --target trie_benchmark
 ///
 /// Run:
-///   ./build/trie_benchmark [path/to/jieba.dict.utf8]
+///   ./build-bench/benchmark/trie_benchmark [path/to/jieba.dict.utf8]
 
 // ── Old Trie headers (defines cppjieba::Rune as uint32_t, cppjieba::Unicode as LocalVector<Rune>) ──
 #include "cppjieba/Trie.hpp"

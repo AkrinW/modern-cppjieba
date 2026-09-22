@@ -7,10 +7,11 @@
 ///   4. Segmentation scenario: decode + cut into WordRanges + encode each word
 ///
 /// Compile:
-///   g++ -O2 -std=c++23 -I include -I deps/limonp/include test/unicode_benchmark.cpp -o build/unicode_benchmark
+///   cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=ON
+///   cmake --build build-bench --target unicode_benchmark
 ///
 /// Run:
-///   ./build/unicode_benchmark [path/to/jieba.dict.utf8]
+///   ./build-bench/benchmark/unicode_benchmark [path/to/jieba.dict.utf8]
 
 #include "neo/FileIO.hpp"
 #include "neo/StringUtil.hpp"
