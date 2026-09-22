@@ -23,6 +23,8 @@ add_library(jieba_rs SHARED IMPORTED GLOBAL)
 add_library(jieba_rs::jieba_rs ALIAS jieba_rs)
 set_target_properties(jieba_rs PROPERTIES
     IMPORTED_LOCATION "${RUST_BENCH_LIB}"
+    # Cargo's cdylib has no SONAME; link by library name so runtime lookup uses the build RPATH.
+    IMPORTED_NO_SONAME TRUE
     INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 if(WIN32)

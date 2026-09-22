@@ -80,9 +80,11 @@ jobs:
           --target-dir build/deps/rust-jieba/cargo
       - name: Rust comparison smoke check
         if: matrix.rust == 'ON'
+        working-directory: ${{runner.temp}}
         run: >-
-          ./build/benchmark/cut_compare_benchmark
-          dict/jieba.dict.utf8 dict/hmm_model.utf8 '' test/testdata/testlines.utf8 1 1
+          ${{github.workspace}}/build/benchmark/cut_compare_benchmark
+          ${{github.workspace}}/dict/jieba.dict.utf8 ${{github.workspace}}/dict/hmm_model.utf8
+          '' ${{github.workspace}}/test/testdata/testlines.utf8 1 1
 
   library:
     runs-on: ubuntu-24.04
