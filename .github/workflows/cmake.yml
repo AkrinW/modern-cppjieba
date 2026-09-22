@@ -27,7 +27,7 @@ jobs:
 
       - name: Initialize legacy comparison dependency
         if: matrix.legacy_tests == 'ON'
-        run: git submodule update --init deps/limonp
+        run: git submodule update --init deps/cppjieba
 
       - name: Configure CMake
         # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
@@ -61,7 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Initialize comparison dependency
-        run: git submodule update --init deps/limonp
+        run: git submodule update --init deps/cppjieba deps/limonp
       - name: Configure standalone benchmarks
         run: >-
           cmake -S . -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}

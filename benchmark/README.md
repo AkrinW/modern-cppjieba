@@ -4,7 +4,7 @@ All benchmark executables live here and are enabled with
 `CPPJIEBA_BUILD_BENCHMARKS=ON`. They are separate from GoogleTest and CTest.
 
 ```sh
-git submodule update --init deps/limonp
+git submodule update --init deps/cppjieba deps/limonp
 cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=ON
 cmake --build build-bench --parallel

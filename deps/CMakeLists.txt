@@ -1,7 +1,6 @@
-find_package(limonp CONFIG QUIET)
-if(NOT TARGET limonp::limonp)
+if(CPPJIEBA_BUILD_BENCHMARKS)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/limonp/include/limonp/StringUtil.hpp")
-        message(FATAL_ERROR "Legacy comparisons require limonp. Run: git submodule update --init deps/limonp")
+        message(FATAL_ERROR "Comparison helpers require limonp. Run: git submodule update --init deps/limonp")
     endif()
     # The upstream project unconditionally enables its own tests; expose only its headers here.
     add_library(cppjieba_limonp INTERFACE)
@@ -9,7 +8,7 @@ if(NOT TARGET limonp::limonp)
     target_include_directories(cppjieba_limonp SYSTEM INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/limonp/include")
 endif()
 
-add_subdirectory(cppjieba)
+include(cppjieba.cmake)
 if(CPPJIEBA_BUILD_RUST_BENCHMARKS)
     add_subdirectory(rust-jieba)
 endif()

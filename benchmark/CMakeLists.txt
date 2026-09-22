@@ -20,6 +20,7 @@ foreach(benchmark IN ITEMS load_test jieba_benchmark dict_trie_benchmark dag_ben
     target_link_libraries(${benchmark} PRIVATE cppjieba::cppjieba)
 endforeach()
 target_link_libraries(fileio_benchmark PRIVATE limonp::limonp)
+target_link_libraries(load_test PRIVATE limonp::limonp)
 
 if(CPPJIEBA_BUILD_RUST_BENCHMARKS)
     add_executable(cut_compare_benchmark cut_compare_benchmark.cpp)

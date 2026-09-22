@@ -5,37 +5,44 @@ These dependencies are loaded only for legacy tests or benchmarks. The public
 
 | Dependency | Source | CMake target |
 | --- | --- | --- |
-| old cppjieba | Vendored snapshot of this repository's legacy implementation | `cppjieba::cppjieba` |
-| limonp | Installed CMake package, or the pinned `deps/limonp` submodule | `limonp::limonp` |
+| cppjieba | Official upstream submodule, pinned commit | `cppjieba::cppjieba` |
+| limonp | Official upstream submodule, pinned commit | `limonp::limonp` |
 | jieba-rs | Cargo registry, exactly 0.11.0 with `Cargo.lock` | `jieba_rs::jieba_rs` |
 
-## old cppjieba
-
-`cppjieba/include/cppjieba/` preserves the headers from commit
-`9df2451` byte for byte, including the local FullSegment and Unicode fixes.
-It is a separate header-only comparison dependency, not part of the installed
-neo headers. Updating this snapshot is a separate benchmark baseline change.
-
-The `cppjieba/dict` symlink points to the repository's existing dictionaries.
-This retains the legacy facade's default dictionary lookup relative to
-`Jieba.hpp`, including its implicit IDF and stop-word paths. Checkouts must
-preserve symlinks when using the legacy dependency.
-
-## limonp
-
-Initialize the pinned submodule when an installed `limonp::limonp` target is not
-available:
-
 ```sh
-git submodule update --init deps/limonp
+git submodule update --init deps/cppjieba deps/limonp
 ```
 
-The adapter exposes only the headers and does not run limonp's own CMake project,
-which would also enable its tests. Legacy cppjieba links to this target transitively.
+## Versions checked on 2026-09-22
 
-## jieba-rs
+- cppjieba: `8f171de5018e8478ff22ca58caacf579cba809c8`, upstream `master` HEAD.
+- limonp: `4065c5f6d5a7a7248aacdd34d738fe0351b97c3f`, upstream `master` HEAD.
+- jieba-rs: `0.11.0`, the latest non-yanked stable version in the crates.io index.
 
-`rust-jieba/` contains the C ABI adapter and C++ wrapper used by the comparison
-benchmark. Cargo downloads the pinned Rust library and its locked dependencies
-only when the Rust benchmark is built. Outputs stay in the CMake build tree.
-See [the Rust benchmark guide](../benchmark/RUST.md) for usage and interpretation.
+The submodule gitlinks and Cargo lockfile determine the versions used by a
+checkout. An installed limonp package does not override the pinned source.
+
+## C++ dependencies
+
+`cppjieba.cmake` exposes the upstream headers without invoking its CMake project.
+Upstream already includes the FullSegment null-match length fix previously kept
+in our vendored snapshot, as well as the UTF-8 decoding interfaces. No local fork
+or source patch is needed for these changes.
+
+Current upstream cppjieba no longer depends on limonp. Legacy tests use cppjieba's
+own formatting helpers; the FileIO comparison and legacy load benchmark link to
+limonp explicitly. Neither upstream project's tests or installation rules are
+pulled into our build.
+
+The upstream facade's default paths resolve to its own `dict/` directory.
+Segmentation comparisons explicitly pass our common dictionary, HMM model and
+user-dictionary path, so updating the submodule's data does not change the common
+benchmark inputs. The neo implementation and root `dict/` remain unchanged.
+The former upstream guide is retained in [cppjieba-upstream-history.md](cppjieba-upstream-history.md).
+
+## Rust dependency and adapter
+
+`rust-jieba/` contains our C ABI adapter and C++ wrapper, not a copy of jieba-rs.
+Cargo downloads the pinned library and locked dependencies when the Rust
+benchmark is built. The adapter sources remain in this repository, and all build
+outputs stay in the CMake build tree. See [the Rust benchmark guide](../benchmark/RUST.md).

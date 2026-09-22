@@ -28,8 +28,8 @@ static void Cut(size_t times = 50) {
     }
     printf("\n");
     long endTime = clock();
-    ColorPrintln(GREEN, "Cut: [%.3lf seconds]time consumed.",
-                 static_cast<double>(endTime - beginTime) / CLOCKS_PER_SEC);
+    limonp::ColorPrintln(limonp::GREEN, "Cut: [%.3lf seconds]time consumed.",
+                         static_cast<double>(endTime - beginTime) / CLOCKS_PER_SEC);
 }
 
 static void Extract(size_t times = 400) {
@@ -49,10 +49,10 @@ static void Extract(size_t times = 400) {
     }
     printf("\n");
     long endTime = clock();
-    ColorPrintln(GREEN, "Extract: [%.3lf seconds]time consumed.",
-                 static_cast<double>(endTime - beginTime) / CLOCKS_PER_SEC);
+    limonp::ColorPrintln(limonp::GREEN, "Extract: [%.3lf seconds]time consumed.",
+                         static_cast<double>(endTime - beginTime) / CLOCKS_PER_SEC);
 }
-}
+} // namespace
 
 auto main(int /*argc*/, char ** /*argv*/) -> int {
     Cut();

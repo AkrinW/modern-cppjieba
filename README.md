@@ -16,10 +16,10 @@
 | `test/unittest/` | 可选的旧库回归测试 |
 | `test/testdata/` | 单测和 benchmark 共用的数据 |
 | `benchmark/` | 独立 benchmark 和比较程序，不注册为 CTest 测试 |
-| `deps/` | 旧 cppjieba 快照、limonp submodule、Rust adapter 与锁文件 |
+| `deps/` | cppjieba 与 limonp submodule、Rust adapter 与锁文件 |
 | `tools/` | 格式化与静态分析脚本 |
 
-旧 cppjieba 保留了本仓库的修复，以独立依赖目标提供比较基线。
+旧 C++ 比较基线使用官方 cppjieba submodule，固定到具体 commit；limonp 同样由 submodule 锁定。
 依赖来源及默认词典路径见 [deps/README.md](deps/README.md)。
 
 ## 仅使用库
@@ -73,7 +73,7 @@ ctest --test-dir build-tests --output-on-failure
 如需同时验证旧库：
 
 ```sh
-git submodule update --init deps/limonp
+git submodule update --init deps/cppjieba
 cmake -S . -B build-tests -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_LEGACY_TESTS=ON
 cmake --build build-tests --parallel
 ctest --test-dir build-tests --output-on-failure
@@ -85,7 +85,7 @@ CTest 名称为 `neo_unit_tests` 和可选的 `legacy_unit_tests`。
 ## Benchmark
 
 ```sh
-git submodule update --init deps/limonp
+git submodule update --init deps/cppjieba deps/limonp
 cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=ON
 cmake --build build-bench --parallel
@@ -109,4 +109,4 @@ benchmark 可以独立构建，不下载或链接 GoogleTest。需要 Rust 比�
 优化级别由 `CMAKE_BUILD_TYPE` 控制；性能比较使用 `Release`。
 格式化和静态分析默认扫描 `include/neo/`、`test/`、`benchmark/`，跳过 `deps/`。
 
-旧版接口与历史文档保存在 [deps/cppjieba/UPSTREAM.md](deps/cppjieba/UPSTREAM.md)。
+旧版接口与历史文档保存在 [deps/cppjieba-upstream-history.md](deps/cppjieba-upstream-history.md)。

@@ -33,7 +33,7 @@
 Rust 对比默认关闭，普通构建不依赖 Cargo。启用后需要可用的 Rust/Cargo，首次构建会下载锁定的依赖。以下命令在仓库根目录执行：
 
 ```sh
-git submodule update --init deps/limonp
+git submodule update --init deps/cppjieba deps/limonp
 cmake -S . -B build-rust-compare -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=ON \
   -DCPPJIEBA_BUILD_RUST_BENCHMARKS=ON

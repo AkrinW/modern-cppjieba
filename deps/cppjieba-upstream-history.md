@@ -1,5 +1,5 @@
 > Historical upstream documentation for the vendored legacy dependency.
-> For the current project, see the [modern-cppjieba guide](../../README.md).
+> For the current project, see the [modern-cppjieba guide](../README.md).
 
 # CppJieba
 
