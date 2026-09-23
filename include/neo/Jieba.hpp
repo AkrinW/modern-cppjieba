@@ -96,11 +96,18 @@ public:
         return cut<M, hmm>(std::span<const Rune>{decoded.runes.data(), decoded.runes.size()});
     }
 
+    // UTF-8 byte buffers produce std::string words; character inputs retain their native string type.
     template <CutMethod M = CutMethod::MIX, bool hmm = true, StringLike Input>
-    [[nodiscard]] auto cut(const Input &input) const -> std::vector<std::basic_string<resolve_char_type_t<Input>>> {
-        auto decoded = neo_cppjieba::decode_with_offset(input);
-        auto ranges = cut<M, hmm>(std::span<const Rune>{decoded.runes.data(), decoded.runes.size()});
-        return encode_words(as_view(input), decoded.offsets, ranges);
+    [[nodiscard]] auto cut(const Input &input) const -> std::vector<std::basic_string<output_char_type_t<Input>>> {
+        const auto source = as_view(input);
+        const auto decoded = neo_cppjieba::decode_with_offset(source);
+        const auto ranges = cut<M, hmm>(std::span<const Rune>{decoded.runes.data(), decoded.runes.size()});
+        auto result = std::vector<std::basic_string<output_char_type_t<Input>>>{};
+        result.reserve(ranges.size());
+        for (const auto &range : ranges) {
+            result.push_back(detail::encode_validated_source(source, decoded.offsets, range));
+        }
+        return result;
     }
 
     [[nodiscard]] auto dict() const noexcept -> const DictTrie & {

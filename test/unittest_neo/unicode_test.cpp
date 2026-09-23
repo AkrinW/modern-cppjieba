@@ -16,6 +16,104 @@
 
 using namespace neo_cppjieba;
 
+namespace {
+
+// Explicit UTF-8 octets keep byte tests independent of char signedness and the execution character set.
+template <ByteType ByteT>
+constexpr auto sample_utf8_bytes() -> std::array<ByteT, 12> {
+    constexpr auto octets = std::array{0x41, 0x00, 0xC2, 0xA2, 0xE4, 0xB8, 0xAD, 0xF0, 0x9F, 0x98, 0x80, 0x00};
+    auto result = std::array<ByteT, octets.size()>{};
+    for (auto i = std::size_t{0}; i < octets.size(); ++i) {
+        result[i] = static_cast<ByteT>(octets[i]);
+    }
+    return result;
+}
+
+// Every byte representation must share UTF-8 validation and offset semantics.
+template <typename ByteT>
+class UnicodeByteTest : public ::testing::Test {};
+
+using ByteTypes = ::testing::Types<std::byte, unsigned char, signed char>;
+TYPED_TEST_SUITE(UnicodeByteTest, ByteTypes);
+
+} // namespace
+
+TYPED_TEST(UnicodeByteTest, DecodesKnownUtf8OctetsWithByteOffsets) {
+    const auto input = sample_utf8_bytes<TypeParam>();
+    const auto expected = Unicode{U'A', U'\0', U'¢', U'中', U'😀', U'\0'};
+    const auto decoded = decode_with_offset(input);
+    EXPECT_EQ(decode_one(input), U'A');
+    EXPECT_EQ(decode(input), expected);
+    EXPECT_EQ(decoded.runes, expected);
+    EXPECT_EQ(decoded.offsets, (std::vector<uint32_t>{0, 1, 2, 4, 7, 11, 12}));
+}
+
+TYPED_TEST(UnicodeByteTest, FixedByteArraysRetainLeadingAndTrailingNul) {
+    const TypeParam input[] = {TypeParam{}, static_cast<TypeParam>(0x41), TypeParam{}};
+    EXPECT_EQ(decode_one(input), U'\0');
+    EXPECT_EQ(decode(input), (Unicode{U'\0', U'A', U'\0'}));
+}
+
+TYPED_TEST(UnicodeByteTest, SpanDecodingRespectsItsExplicitBounds) {
+    const auto input = sample_utf8_bytes<TypeParam>();
+    const auto complete = std::span{input.data() + 4, std::size_t{3}};
+    const auto truncated = complete.first(2);
+    EXPECT_EQ(decode(complete), (Unicode{U'中'}));
+    EXPECT_THROW(decode_one(truncated), LogConfig::Exception);
+    EXPECT_THROW(decode(truncated), LogConfig::Exception);
+    EXPECT_THROW(decode_with_offset(truncated), LogConfig::Exception);
+}
+
+TYPED_TEST(UnicodeByteTest, DecodesOwningTemporaryBuffers) {
+    const auto input = sample_utf8_bytes<TypeParam>();
+    EXPECT_EQ(decode(std::vector<TypeParam>(input.begin(), input.end())),
+              (Unicode{U'A', U'\0', U'¢', U'中', U'😀', U'\0'}));
+}
+
+TYPED_TEST(UnicodeByteTest, EmptyBuffersHaveOnlyTheSentinelOffset) {
+    const auto input = std::span<const TypeParam>{};
+    const auto decoded = decode_with_offset(input);
+    EXPECT_TRUE(decode(input).empty());
+    EXPECT_TRUE(decoded.runes.empty());
+    EXPECT_EQ(decoded.offsets, (std::vector<uint32_t>{0}));
+    EXPECT_THROW(decode_one(input), LogConfig::Exception);
+}
+
+TYPED_TEST(UnicodeByteTest, InvalidUtf8ThrowsTheConfiguredException) {
+    const auto invalid = std::array{std::array{0xC0, 0xAF, 0x00, 0x00}, std::array{0xED, 0xA0, 0x80, 0x00},
+                                    std::array{0xF4, 0x90, 0x80, 0x80}, std::array{0xE4, 0x28, 0xAD, 0x00},
+                                    std::array{0xFF, 0x00, 0x00, 0x00}};
+    for (const auto &octets : invalid) {
+        auto input = std::array<TypeParam, 4>{};
+        for (auto i = std::size_t{0}; i < octets.size(); ++i) {
+            input[i] = static_cast<TypeParam>(octets[i]);
+        }
+        EXPECT_THROW(decode_one(input), LogConfig::Exception);
+        EXPECT_THROW(decode(input), LogConfig::Exception);
+        EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
+    }
+}
+
+TYPED_TEST(UnicodeByteTest, DecodeOneSupportsConstantEvaluation) {
+    constexpr auto valid = [] {
+        const auto input = sample_utf8_bytes<TypeParam>();
+        const auto units = as_code_units(input);
+        return decode_one(units.subspan(2, 2)) == U'¢' && decode_one(units.subspan(4, 3)) == U'中'
+               && decode_one(units.subspan(7, 4)) == U'😀';
+    }();
+    static_assert(valid);
+    EXPECT_TRUE(valid);
+}
+
+TEST(UnicodeTest, StandardByteViewsDecodeUtf8Storage) {
+    const auto input = std::u8string_view{u8"中😀"};
+    const auto bytes = std::as_bytes(std::span{input.data(), input.size()});
+    EXPECT_EQ(decode(bytes), (Unicode{U'中', U'😀'}));
+
+    char8_t writable[] = {u8'A', u8'\0'};
+    EXPECT_EQ(decode(std::as_writable_bytes(std::span{writable})), (Unicode{U'A', U'\0'}));
+}
+
 TEST(UnicodeWithSourceTest, SafetyChecksRejectTruncatedUtf8) {
     const auto input = std::string{"a\xE4\xBD"};
     EXPECT_THROW(decode(input), LogConfig::Exception);
@@ -95,6 +193,11 @@ TYPED_TEST(UnicodeCharacterTest, InvalidScalarsThrowConfiguredException) {
         EXPECT_THROW(encode_one<TypeParam>(rune), LogConfig::Exception);
         EXPECT_THROW(encode<TypeParam>(std::span<const Rune>{runes}), LogConfig::Exception);
     }
+}
+
+TYPED_TEST(UnicodeCharacterTest, EmptySingleRuneInputThrowsAtThePublicEntry) {
+    const auto input = std::basic_string_view<TypeParam>{};
+    EXPECT_THROW(decode_one(input), LogConfig::Exception);
 }
 
 TYPED_TEST(UnicodeCharacterTest, SingleRuneRoundTripsDuringConstantEvaluation) {

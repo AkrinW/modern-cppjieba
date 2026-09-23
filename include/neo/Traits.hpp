@@ -5,16 +5,31 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <ranges>
+#include <span>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 namespace neo_cppjieba {
+static_assert(std::numeric_limits<unsigned char>::digits == 8, "Unicode byte input requires 8-bit bytes");
+
+// Byte buffers carry UTF-8 octets, independent of signedness and native byte order.
+template <typename T>
+concept ByteType = std::same_as<T, std::byte> || std::same_as<T, unsigned char> || std::same_as<T, signed char>;
+
 // Encoding represents the encoding type of a string.
 enum class Encoding : uint8_t { UTF8, UTF16, UTF32 };
 
 // encoding_of is a type trait that maps a character type to its corresponding encoding.
 template <typename T>
 struct encoding_of;
+
+// Byte storage uses the same UTF-8 decoder as char and char8_t.
+template <ByteType T>
+struct encoding_of<T> {
+    static constexpr auto value = Encoding::UTF8;
+};
 
 template <>
 struct encoding_of<char> {
@@ -36,6 +51,7 @@ struct encoding_of<char32_t> {
     static constexpr auto value = Encoding::UTF32;
 };
 
+// Wide input must contain UTF-16 or UTF-32 code units according to its width, independently of the locale.
 template <>
 struct encoding_of<wchar_t> {
     static_assert(sizeof(wchar_t) == 2 || sizeof(wchar_t) == 4, "Unsupported wchar_t width");
@@ -53,6 +69,10 @@ inline constexpr auto encoding_of_v = encoding_of<std::remove_cvref_t<T>>::value
 template <typename T>
 concept CharType = std::same_as<T, char> || std::same_as<T, char8_t> || std::same_as<T, char16_t>
                    || std::same_as<T, char32_t> || std::same_as<T, wchar_t>;
+
+// Input code units also include byte storage; output strings retain standard character types.
+template <typename T>
+concept CodeUnit = CharType<T> || ByteType<T>;
 
 // Use a consteval function and if constexpr to replace complex SFINAE template specializations,
 // avoiding ambiguity during type extraction.
@@ -79,10 +99,10 @@ using resolve_char_type_t = typename decltype(get_char_type<T>())::type;
 
 namespace detail {
 
-// Require the same const access and readable character pointer used by as_view.
+// Require the same const access and readable code-unit pointer used by as_view.
 template <typename T>
-concept ConstCharacterRange =
-    CharType<resolve_char_type_t<T>> && std::ranges::contiguous_range<const std::remove_reference_t<T>>
+concept ConstCodeUnitRange =
+    CodeUnit<resolve_char_type_t<T>> && std::ranges::contiguous_range<const std::remove_reference_t<T>>
     && std::ranges::sized_range<const std::remove_reference_t<T>> && requires(const std::remove_reference_t<T> &input) {
            { std::ranges::data(input) } -> std::convertible_to<const resolve_char_type_t<T> *>;
            { std::ranges::size(input) } -> std::convertible_to<std::size_t>;
@@ -91,14 +111,19 @@ concept ConstCharacterRange =
 } // namespace detail
 
 // Core StringLike Concept: any type convertible to a basic_string_view via as_view.
-//  - Must have a valid CharType.
-//  - Must be implicitly convertible to string_view, OR be a contiguous range with a known size.
+//  - Must have a valid CodeUnit type.
+//  - Characters may convert to string_view; byte storage must be a contiguous range with a known size.
 template <typename T>
 concept StringLike =
-    CharType<resolve_char_type_t<T>>
+    CodeUnit<resolve_char_type_t<T>>
     && (!std::is_array_v<std::remove_reference_t<T>> || std::is_bounded_array_v<std::remove_reference_t<T>>)
-    && (std::convertible_to<const std::remove_reference_t<T> &, std::basic_string_view<resolve_char_type_t<T>>>
-        || detail::ConstCharacterRange<T>);
+    && ((CharType<resolve_char_type_t<T>>
+         && std::convertible_to<const std::remove_reference_t<T> &, std::basic_string_view<resolve_char_type_t<T>>>)
+        || detail::ConstCodeUnitRange<T>);
+
+// Byte input produces UTF-8 std::string output; native character input preserves its character type.
+template <StringLike T>
+using output_char_type_t = std::conditional_t<ByteType<resolve_char_type_t<T>>, char, resolve_char_type_t<T>>;
 
 // Owning temporaries may be decoded, but must not expose a view that outlives them.
 template <typename T>
@@ -106,29 +131,45 @@ concept StringViewSource =
     StringLike<T>
     && (std::is_lvalue_reference_v<T> || std::ranges::borrowed_range<T> || std::is_pointer_v<std::remove_cvref_t<T>>);
 
-// Unified as_view implementation
-// Arrays omit one trailing NUL; sized ranges retain every code unit, including NULs.
+// Unified input adaptation for as_code_units and as_view.
+// Character arrays omit one trailing NUL; byte buffers and sized ranges retain every code unit, including NULs.
 // Pointer inputs must refer to a readable, NUL-terminated C string.
 template <StringViewSource T>
-constexpr auto as_view(T &&input) -> std::basic_string_view<resolve_char_type_t<T>> {
+constexpr auto as_code_units(T &&input) -> std::span<const resolve_char_type_t<T>> {
     using CharT = resolve_char_type_t<T>;
     const auto &source = input;
 
-    if constexpr (std::is_array_v<std::remove_reference_t<T>>) {
+    if constexpr (ByteType<CharT>) {
+        return {std::ranges::data(source), std::ranges::size(source)};
+    } else if constexpr (std::is_array_v<std::remove_reference_t<T>>) {
         constexpr auto extent = std::extent_v<std::remove_reference_t<T>>;
         const auto size = extent - (source[extent - 1] == CharT{} ? 1 : 0);
-        return std::basic_string_view<CharT>{source, size};
+        return {source, size};
     } else if constexpr (std::is_pointer_v<std::remove_cvref_t<T>>) {
         if (source == nullptr) [[unlikely]] {
             check(false, "Cannot view a null C-string pointer");
         }
-        return std::basic_string_view<CharT>{source};
-    } else if constexpr (detail::ConstCharacterRange<T>) {
+        const auto view = std::basic_string_view<CharT>{source};
+        return {view.data(), view.size()};
+    } else if constexpr (detail::ConstCodeUnitRange<T>) {
         // Branch B: sized strings, views, std::vector<CharT>, std::array<CharT, N>, std::span<CharT>, etc.
-        return std::basic_string_view<CharT>{std::ranges::data(source), std::ranges::size(source)};
+        return {std::ranges::data(source), std::ranges::size(source)};
     } else {
         // Branch A: custom types with a const conversion to string_view.
-        return std::basic_string_view<CharT>{source};
+        const auto view = std::basic_string_view<CharT>{source};
+        return {view.data(), view.size()};
+    }
+}
+
+// Expose a string view without copying; char may inspect the representation of any byte type.
+// Byte-to-char views require runtime evaluation in C++23; as_code_units also supports constant evaluation.
+template <StringViewSource T>
+constexpr auto as_view(T &&input) -> std::basic_string_view<output_char_type_t<T>> {
+    const auto units = as_code_units(std::forward<T>(input));
+    if constexpr (ByteType<resolve_char_type_t<T>>) {
+        return {reinterpret_cast<const char *>(units.data()), units.size()};
+    } else {
+        return {units.data(), units.size()};
     }
 }
 

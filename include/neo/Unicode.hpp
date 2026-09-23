@@ -147,13 +147,20 @@ constexpr auto decode_error_name(UnicodeDecodeError error) -> std::string_view {
     std::unreachable();
 }
 
+// Report external decoding failures consistently at the public entry and within the decoding loop.
+template <CodeUnit CharT>
+inline auto throw_decode_error(UnicodeDecodeError error, size_t offset) -> void {
+    constexpr auto encoding = encoding_of_v<CharT> == Encoding::UTF8    ? "UTF-8"
+                              : encoding_of_v<CharT> == Encoding::UTF16 ? "UTF-16"
+                                                                        : "UTF-32";
+    check(false, "{} decoding failed at code-unit offset {}: {}", encoding, offset, decode_error_name(error));
+}
+
 // decode_one_utf8 decodes a single Unicode code point from a UTF-8 encoded string and returns it as a Rune.
-template <CharType CharT>
+template <CodeUnit CharT>
     requires(encoding_of_v<CharT> == Encoding::UTF8)
-constexpr auto decode_one_utf8(std::basic_string_view<CharT> input) -> DecodedRune {
-    if (input.empty()) {
-        return {.error = UnicodeDecodeError::EmptyInput};
-    }
+constexpr auto decode_one_utf8(std::span<const CharT> input) -> DecodedRune {
+    assert_check([&] { return !input.empty(); }, "UTF-8 decoding requires a nonempty internal span");
     const auto first = static_cast<uint8_t>(input[0]);
     // one byte (ASCII)
     if (first < 0x80) {
@@ -220,10 +227,8 @@ constexpr auto decode_one_utf8(std::basic_string_view<CharT> input) -> DecodedRu
 // decode_one_utf16 decodes a single Unicode code point from a UTF-16 encoded string and returns it as a Rune.
 template <CharType CharT>
     requires(encoding_of_v<CharT> == Encoding::UTF16)
-constexpr auto decode_one_utf16(std::basic_string_view<CharT> input) -> DecodedRune {
-    if (input.empty()) {
-        return {.error = UnicodeDecodeError::EmptyInput};
-    }
+constexpr auto decode_one_utf16(std::span<const CharT> input) -> DecodedRune {
+    assert_check([&] { return !input.empty(); }, "UTF-16 decoding requires a nonempty internal span");
     const auto first = static_cast<uint16_t>(input[0]);
     // single code unit (BMP)
     if (first < 0xD800 || first > 0xDFFF) {
@@ -246,10 +251,8 @@ constexpr auto decode_one_utf16(std::basic_string_view<CharT> input) -> DecodedR
 // decode_one_utf32 decodes a single Unicode code point from a UTF-32 encoded string and returns it as a Rune.
 template <CharType CharT>
     requires(encoding_of_v<CharT> == Encoding::UTF32)
-constexpr auto decode_one_utf32(std::basic_string_view<CharT> input) -> DecodedRune {
-    if (input.empty()) {
-        return {.error = UnicodeDecodeError::EmptyInput};
-    }
+constexpr auto decode_one_utf32(std::span<const CharT> input) -> DecodedRune {
+    assert_check([&] { return !input.empty(); }, "UTF-32 decoding requires a nonempty internal span");
     const auto rune = static_cast<Rune>(input[0]);
     if (rune > 0x10FFFF) {
         return {.error = UnicodeDecodeError::OutOfRange};
@@ -261,8 +264,8 @@ constexpr auto decode_one_utf32(std::basic_string_view<CharT> input) -> DecodedR
 }
 
 // Dispatch by encoding without reinterpreting pointers to distinct character types.
-template <CharType CharT>
-constexpr auto decode_step(std::basic_string_view<CharT> input) -> DecodedRune {
+template <CodeUnit CharT>
+constexpr auto decode_step(std::span<const CharT> input) -> DecodedRune {
     if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
         return decode_one_utf8(input);
     } else if constexpr (encoding_of_v<CharT> == Encoding::UTF16) {
@@ -273,15 +276,11 @@ constexpr auto decode_step(std::basic_string_view<CharT> input) -> DecodedRune {
 }
 
 // Keep exception construction off the successful path, including constant evaluation.
-template <CharType CharT>
-constexpr auto checked_decode_step(std::basic_string_view<CharT> input, size_t offset) -> DecodedRune {
+template <CodeUnit CharT>
+constexpr auto checked_decode_step(std::span<const CharT> input, size_t offset) -> DecodedRune {
     const auto result = decode_step(input);
     if (result.error != UnicodeDecodeError::None) [[unlikely]] {
-        constexpr auto encoding = encoding_of_v<CharT> == Encoding::UTF8    ? "UTF-8"
-                                  : encoding_of_v<CharT> == Encoding::UTF16 ? "UTF-16"
-                                                                            : "UTF-32";
-        check(false, "{} decoding failed at code-unit offset {}: {}", encoding, offset,
-              decode_error_name(result.error));
+        throw_decode_error<CharT>(result.error, offset);
     }
     assert_check([&] { return result.code_units > 0 && result.code_units <= input.size(); },
                  "Unicode decoder produced invalid progress");
@@ -361,6 +360,23 @@ constexpr auto checked_encode_step(Rune rune, size_t index) -> EncodedRune<CharT
     return encode_step<CharT>(rune);
 }
 
+// Copy source code units after range and offset validity has been established by the caller.
+// Generated offsets and segmentation ranges are internal invariants; keep their diagnostics in debug builds.
+template <CharType CharT>
+inline auto encode_validated_source(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets,
+                                    WordRange range) -> std::basic_string<CharT> {
+    assert_check([&] { return range.begin <= range.end && range.end < offsets.size(); },
+                 "Invalid internal rune range [{}, {}) for {} Unicode offsets", range.begin, range.end, offsets.size());
+    const auto begin = offsets[range.begin];
+    const auto end = offsets[range.end];
+    assert_check([&] { return begin <= end && end <= source.size(); },
+                 "Invalid internal source offsets [{}, {}) for {} code units", begin, end, source.size());
+    if (begin == end) {
+        return {};
+    }
+    return std::basic_string<CharT>{source.data() + begin, end - begin};
+}
+
 // Check representability before narrowing positions or allocating the offset sentinel.
 constexpr auto checked_offset_count(size_t source_size) -> size_t {
     if (source_size > std::numeric_limits<uint32_t>::max() || source_size == std::numeric_limits<size_t>::max())
@@ -385,8 +401,8 @@ inline auto valid_decoded_offsets(const UnicodeWithOffset &decoded, size_t sourc
 enum class OffsetMode { Omit, Record };
 
 // Share traversal and validation between both public decoding APIs.
-template <OffsetMode Mode, CharType CharT>
-auto decode_impl(std::basic_string_view<CharT> input)
+template <OffsetMode Mode, CodeUnit CharT>
+auto decode_impl(std::span<const CharT> input)
     -> std::conditional_t<Mode == OffsetMode::Record, UnicodeWithOffset, Unicode> {
     auto result = std::conditional_t<Mode == OffsetMode::Record, UnicodeWithOffset, Unicode>{};
     auto &runes = [&]() -> Unicode & {
@@ -403,7 +419,7 @@ auto decode_impl(std::basic_string_view<CharT> input)
 
     for (auto i = size_t{0}; i < input.size();) {
         // Invalid UTF-8/UTF-16 sequences throw instead of discarding the decoded prefix.
-        const auto decoded = checked_decode_step(input.substr(i), i);
+        const auto decoded = checked_decode_step(input.subspan(i), i);
         if constexpr (Mode == OffsetMode::Record) {
             result.offsets.push_back(static_cast<uint32_t>(i));
         }
@@ -425,17 +441,21 @@ auto WordRange::to_string(std::span<const Rune> runes) const -> std::basic_strin
 
 template <StringLike T>
 constexpr auto decode_one(const T &input) -> Rune {
-    return detail::checked_decode_step(as_view(input), 0).rune;
+    const auto units = as_code_units(input);
+    if (units.empty()) [[unlikely]] {
+        detail::throw_decode_error<resolve_char_type_t<T>>(detail::UnicodeDecodeError::EmptyInput, 0);
+    }
+    return detail::checked_decode_step(units, 0).rune;
 }
 
 template <StringLike T>
 inline auto decode(const T &input) -> Unicode {
-    return detail::decode_impl<detail::OffsetMode::Omit>(as_view(input));
+    return detail::decode_impl<detail::OffsetMode::Omit>(as_code_units(input));
 }
 
 template <StringLike T>
 inline auto decode_with_offset(const T &input) -> UnicodeWithOffset {
-    return detail::decode_impl<detail::OffsetMode::Record>(as_view(input));
+    return detail::decode_impl<detail::OffsetMode::Record>(as_code_units(input));
 }
 
 template <CharType CharT>
@@ -466,7 +486,7 @@ inline auto encode(std::basic_string_view<CharT> source, std::span<const uint32_
     const auto end = offsets[range.end];
     check(begin <= end && end <= source.size(), "Invalid source offsets [{}, {}) for {} code units", begin, end,
           source.size());
-    return std::basic_string<CharT>{source.substr(begin, end - begin)};
+    return detail::encode_validated_source(source, offsets, range);
 }
 
 } // namespace neo_cppjieba

@@ -3,7 +3,10 @@
 #include "neo/Traits.hpp"
 
 #include <array>
+#include <concepts>
 #include <cstddef>
+#include <cstdint>
+#include <memory_resource>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -47,6 +50,10 @@ struct ConstOnlyRange {
 // Test whether a value category may expose a borrowed view.
 template <typename T>
 concept CanView = requires(T &&input) { as_view(std::forward<T>(input)); };
+
+// Typed code-unit views must enforce the same lifetime contract as string views.
+template <typename T>
+concept CanViewCodeUnits = requires(T &&input) { as_code_units(std::forward<T>(input)); };
 
 } // namespace
 
@@ -127,4 +134,56 @@ TEST(TraitsTest, NullCStringThrowsConfiguredException) {
 TEST(TraitsTest, CustomConversionExceptionPropagates) {
     const auto input = ThrowingViewSource{};
     EXPECT_THROW(as_view(input), std::logic_error);
+}
+
+TEST(TraitsTest, ByteInputsRequireSizedContiguousStorage) {
+    static_assert(StringLike<std::vector<std::byte>> && StringLike<std::pmr::vector<std::byte>>);
+    static_assert(StringLike<std::array<unsigned char, 3>> && StringLike<signed char[3]>);
+    static_assert(StringLike<std::span<const std::byte, 3>> && StringLike<std::span<unsigned char>>);
+    static_assert(StringLike<std::vector<std::uint8_t>> && StringLike<std::vector<std::int8_t>>);
+    static_assert(!StringLike<const std::byte *> && !StringLike<unsigned char *> && !StringLike<signed char *>);
+    static_assert(!StringLike<std::byte[]> && !StringLike<std::span<volatile std::byte>>);
+    static_assert(!StringLike<std::array<std::uint16_t, 3>> && !StringLike<std::array<std::uint32_t, 3>>);
+    static_assert(!StringLike<std::array<bool, 3>>);
+}
+
+TEST(TraitsTest, ByteInputsUseUtf8AndProduceStandardCharStrings) {
+    static_assert(encoding_of_v<const std::byte &> == Encoding::UTF8);
+    static_assert(encoding_of_v<unsigned char> == Encoding::UTF8 && encoding_of_v<signed char> == Encoding::UTF8);
+    static_assert(std::same_as<output_char_type_t<std::vector<std::byte>>, char>);
+    static_assert(std::same_as<output_char_type_t<std::span<unsigned char>>, char>);
+    static_assert(std::same_as<output_char_type_t<signed char[3]>, char>);
+    static_assert(std::same_as<output_char_type_t<std::u8string>, char8_t>);
+    static_assert(std::same_as<output_char_type_t<std::u16string>, char16_t>);
+}
+
+TEST(TraitsTest, ByteViewsRejectOwningTemporaries) {
+    static_assert(CanView<std::vector<std::byte> &> && CanViewCodeUnits<std::vector<std::byte> &>);
+    static_assert(CanView<std::span<const std::byte>> && CanViewCodeUnits<std::span<const std::byte>>);
+    static_assert(!CanView<std::vector<std::byte>> && !CanViewCodeUnits<std::vector<std::byte>>);
+    static_assert(!CanView<std::array<unsigned char, 3>> && !CanViewCodeUnits<std::array<unsigned char, 3>>);
+}
+
+TEST(TraitsTest, ByteArrayViewsRetainEmbeddedAndTrailingNul) {
+    const std::byte input[] = {std::byte{'a'}, std::byte{}, std::byte{'b'}, std::byte{}};
+    EXPECT_EQ(as_view(input), (std::string_view{"a\0b\0", 4}));
+    EXPECT_EQ(as_code_units(input).data(), input);
+    EXPECT_EQ(as_code_units(input).size(), 4);
+}
+
+TEST(TraitsTest, ByteCodeUnitViewsSupportConstantEvaluation) {
+    constexpr auto valid = [] {
+        const std::byte input[] = {std::byte{0x41}, std::byte{}};
+        const auto units = as_code_units(input);
+        return units.size() == 2 && units[0] == std::byte{0x41} && units[1] == std::byte{};
+    }();
+    static_assert(valid);
+    EXPECT_TRUE(valid);
+}
+
+TEST(TraitsTest, EmptyByteRangesProduceEmptyViews) {
+    const auto input = std::vector<std::byte>{};
+    EXPECT_TRUE(as_view(input).empty());
+    EXPECT_TRUE(as_view(std::span<const unsigned char>{}).empty());
+    EXPECT_TRUE(as_code_units(input).empty());
 }
