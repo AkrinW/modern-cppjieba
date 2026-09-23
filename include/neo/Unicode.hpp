@@ -1,21 +1,22 @@
 #pragma once
 
-#include "Config.hpp"
+#include "Logging.hpp"
 #include "Traits.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 namespace neo_cppjieba {
-// SAFE_STRING_CHECK is a compile-time constant that indicates whether to perform safety checks on input strings during
-// decoding. Setting it to TRUE enables checks for valid UTF-8/UTF-16 sequences, while FALSE may skip these checks for
-// performance at the risk of undefined behavior on invalid input.
-inline constexpr auto SAFE_STRING_CHECK = UnicodeConfig::safe_string_check;
+// Unicode decoding always checks input bounds and rejects malformed sequences.
+// These checks remain enabled in release builds because input may come from users or files.
 
 // Rune is a Unicode code point, every single Unicode character is represented by a Rune. using char32_t to fixed width
 // of Rune to 4 bytes, which can represent all Unicode code points.
@@ -33,13 +34,15 @@ struct UnicodeWithOffset {
     // Total size: runes.size() + 1.
     std::vector<uint32_t> offsets;
 
-    [[nodiscard]] auto get_runes() const -> const Unicode & {
+    [[nodiscard]] auto get_runes() const & noexcept -> const Unicode & {
         return runes;
     }
+    auto get_runes() const && -> const Unicode & = delete;
 
-    [[nodiscard]] auto get_offsets() const -> const std::vector<uint32_t> & {
+    [[nodiscard]] auto get_offsets() const & noexcept -> const std::vector<uint32_t> & {
         return offsets;
     }
+    auto get_offsets() const && -> const std::vector<uint32_t> & = delete;
 };
 
 /// A half-open range [begin, end) of rune positions within the input.
@@ -48,11 +51,14 @@ struct WordRange {
     uint32_t end;
 
     [[nodiscard]] constexpr auto size() const noexcept -> uint32_t {
+        assert_check([this] { return begin <= end; }, "Reversed internal WordRange [{}, {})", begin, end);
         return end - begin;
     }
 
     /// Extract the corresponding sub-span from the original runes.
     [[nodiscard]] auto slice(std::span<const Rune> runes) const -> std::span<const Rune> {
+        assert_check([&] { return end <= runes.size(); }, "Internal WordRange end {} exceeds {} runes", end,
+                     runes.size());
         return runes.subspan(begin, size());
     }
 
@@ -86,159 +92,329 @@ auto encode(std::span<const Rune> input) -> std::basic_string<CharT>;
 
 // encodes a sequence of Unicode's WordRange [start, end) back to the source encoding using the provided offsets for
 // fast lookup. it is faster than re-encoding each Rune when the target encoding matches the source encoding, as it can
-// directly copy the corresponding byte range from the original source string.
+// directly copy source code units. The source and offsets must come from the same validated input.
 template <CharType CharT = char>
 auto encode(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets, WordRange range)
     -> std::basic_string<CharT>;
 
 namespace detail {
-// decode_one_utf8 decodes a single Unicode code point from a UTF-8 encoded string and returns it as a Rune.
-constexpr auto decode_one_utf8(const std::string_view &input) -> std::pair<Rune, uint8_t> {
-    if (input.empty()) {
-        return std::pair{Rune{}, 0};
+
+// Distinguish malformed input from a successful decoding of the NUL character.
+enum class UnicodeDecodeError : uint8_t {
+    None,
+    EmptyInput,
+    TruncatedSequence,
+    InvalidLeadingUnit,
+    InvalidContinuation,
+    OverlongSequence,
+    Surrogate,
+    OutOfRange
+};
+
+// One decoded scalar and its consumed source code units, or a specific input error.
+struct DecodedRune {
+    Rune rune{};
+    uint8_t code_units{};
+    UnicodeDecodeError error{UnicodeDecodeError::None};
+};
+
+// Exclude surrogate code points while retaining NUL, noncharacters and unassigned scalars.
+[[nodiscard]] constexpr auto is_unicode_scalar(Rune rune) noexcept -> bool {
+    return rune <= 0x10FFFF && (rune < 0xD800 || rune > 0xDFFF);
+}
+
+// Describe the input failure without allocating inside the decoding kernel.
+constexpr auto decode_error_name(UnicodeDecodeError error) -> std::string_view {
+    switch (error) {
+        case UnicodeDecodeError::None:
+            return "none";
+        case UnicodeDecodeError::EmptyInput:
+            return "empty input";
+        case UnicodeDecodeError::TruncatedSequence:
+            return "truncated sequence";
+        case UnicodeDecodeError::InvalidLeadingUnit:
+            return "invalid leading code unit";
+        case UnicodeDecodeError::InvalidContinuation:
+            return "invalid continuation code unit";
+        case UnicodeDecodeError::OverlongSequence:
+            return "overlong sequence";
+        case UnicodeDecodeError::Surrogate:
+            return "surrogate code point";
+        case UnicodeDecodeError::OutOfRange:
+            return "code point exceeds U+10FFFF";
     }
-    auto &&first = static_cast<unsigned char>(input[0]);
+    assert_check([] { return false; }, "Unknown internal Unicode decoding error");
+    std::unreachable();
+}
+
+// decode_one_utf8 decodes a single Unicode code point from a UTF-8 encoded string and returns it as a Rune.
+template <CharType CharT>
+    requires(encoding_of_v<CharT> == Encoding::UTF8)
+constexpr auto decode_one_utf8(std::basic_string_view<CharT> input) -> DecodedRune {
+    if (input.empty()) {
+        return {.error = UnicodeDecodeError::EmptyInput};
+    }
+    const auto first = static_cast<uint8_t>(input[0]);
     // one byte (ASCII)
     if (first < 0x80) {
-        return std::pair{static_cast<Rune>(first), 1};
+        return {.rune = static_cast<Rune>(first), .code_units = 1};
     }
     // two bytes
     if (first >> 5 == 0x6) {
-        if constexpr (SAFE_STRING_CHECK) {
-            if (input.size() < 2) {
-                return std::pair{Rune{}, 0};
-            }
+        if (input.size() < 2) {
+            return {.error = UnicodeDecodeError::TruncatedSequence};
         }
-        auto &&second = static_cast<unsigned char>(input[1]);
-        if constexpr (SAFE_STRING_CHECK) {
-            if (second >> 6 != 0x2) {
-                return std::pair{Rune{}, 0};
-            }
+        const auto second = static_cast<uint8_t>(input[1]);
+        if (second >> 6 != 0x2) {
+            return {.error = UnicodeDecodeError::InvalidContinuation};
         }
-        return std::pair{static_cast<Rune>(((first & 0x1F) << 6) | (second & 0x3F)), 2};
+        const auto rune = static_cast<Rune>(((first & 0x1F) << 6) | (second & 0x3F));
+        if (rune < 0x80) {
+            return {.error = UnicodeDecodeError::OverlongSequence};
+        }
+        return {.rune = rune, .code_units = 2};
     }
     // three bytes
     if (first >> 4 == 0xE) {
-        if constexpr (SAFE_STRING_CHECK) {
-            if (input.size() < 3) {
-                return std::pair{Rune{}, 0};
-            }
+        if (input.size() < 3) {
+            return {.error = UnicodeDecodeError::TruncatedSequence};
         }
-        auto &&second = static_cast<unsigned char>(input[1]);
-        auto &&third = static_cast<unsigned char>(input[2]);
-        if constexpr (SAFE_STRING_CHECK) {
-            if (second >> 6 != 0x2 || third >> 6 != 0x2) {
-                return std::pair{Rune{}, 0};
-            }
+        const auto second = static_cast<uint8_t>(input[1]);
+        const auto third = static_cast<uint8_t>(input[2]);
+        if (second >> 6 != 0x2 || third >> 6 != 0x2) {
+            return {.error = UnicodeDecodeError::InvalidContinuation};
         }
-        return std::pair{static_cast<Rune>(((first & 0xF) << 12) | ((second & 0x3F) << 6) | (third & 0x3F)), 3};
+        const auto rune = static_cast<Rune>(((first & 0xF) << 12) | ((second & 0x3F) << 6) | (third & 0x3F));
+        if (rune < 0x800) {
+            return {.error = UnicodeDecodeError::OverlongSequence};
+        }
+        if (!is_unicode_scalar(rune)) {
+            return {.error = UnicodeDecodeError::Surrogate};
+        }
+        return {.rune = rune, .code_units = 3};
     }
     // four bytes
-    if constexpr (SAFE_STRING_CHECK) {
-        if (first >> 3 != 0x1E) {
-            return std::pair{Rune{}, 0};
-        }
+    if (first < 0xF0 || first > 0xF4) {
+        return {.error = UnicodeDecodeError::InvalidLeadingUnit};
     }
-    if constexpr (SAFE_STRING_CHECK) {
-        if (input.size() < 4) {
-            return std::pair{Rune{}, 0};
-        }
+    if (input.size() < 4) {
+        return {.error = UnicodeDecodeError::TruncatedSequence};
     }
-    auto &&second = static_cast<unsigned char>(input[1]);
-    auto &&third = static_cast<unsigned char>(input[2]);
-    auto &&fourth = static_cast<unsigned char>(input[3]);
-    if constexpr (SAFE_STRING_CHECK) {
-        if (second >> 6 != 0x2 || third >> 6 != 0x2 || fourth >> 6 != 0x2) {
-            return std::pair{Rune{}, 0};
-        }
+    const auto second = static_cast<uint8_t>(input[1]);
+    const auto third = static_cast<uint8_t>(input[2]);
+    const auto fourth = static_cast<uint8_t>(input[3]);
+    if (second >> 6 != 0x2 || third >> 6 != 0x2 || fourth >> 6 != 0x2) {
+        return {.error = UnicodeDecodeError::InvalidContinuation};
     }
-    return std::pair{
-        static_cast<Rune>(((first & 0x7) << 18) | ((second & 0x3F) << 12) | ((third & 0x3F) << 6) | (fourth & 0x3F)),
-        4};
+    const auto rune =
+        static_cast<Rune>(((first & 0x7) << 18) | ((second & 0x3F) << 12) | ((third & 0x3F) << 6) | (fourth & 0x3F));
+    if (rune < 0x10000) {
+        return {.error = UnicodeDecodeError::OverlongSequence};
+    }
+    if (!is_unicode_scalar(rune)) {
+        return {.error = UnicodeDecodeError::OutOfRange};
+    }
+    return {.rune = rune, .code_units = 4};
 }
 
 // decode_one_utf16 decodes a single Unicode code point from a UTF-16 encoded string and returns it as a Rune.
-constexpr auto decode_one_utf16(const std::u16string_view &input) -> std::pair<Rune, uint8_t> {
+template <CharType CharT>
+    requires(encoding_of_v<CharT> == Encoding::UTF16)
+constexpr auto decode_one_utf16(std::basic_string_view<CharT> input) -> DecodedRune {
     if (input.empty()) {
-        return std::pair{Rune{}, 0};
+        return {.error = UnicodeDecodeError::EmptyInput};
     }
-    auto &&first = input[0];
+    const auto first = static_cast<uint16_t>(input[0]);
     // single code unit (BMP)
     if (first < 0xD800 || first > 0xDFFF) {
-        return std::pair{static_cast<Rune>(first), 1};
+        return {.rune = static_cast<Rune>(first), .code_units = 1};
     }
     // surrogate pair
-    if constexpr (SAFE_STRING_CHECK) {
-        if (first > 0xDBFF) {
-            return std::pair{Rune{}, 0};
-        }
+    if (first > 0xDBFF) {
+        return {.error = UnicodeDecodeError::Surrogate};
     }
-    if constexpr (SAFE_STRING_CHECK) {
-        if (input.size() < 2) {
-            return std::pair{Rune{}, 0};
-        }
+    if (input.size() < 2) {
+        return {.error = UnicodeDecodeError::TruncatedSequence};
     }
-    auto &&second = input[1];
-    if constexpr (SAFE_STRING_CHECK) {
-        if (second < 0xDC00 || second > 0xDFFF) {
-            return std::pair{Rune{}, 0};
-        }
+    const auto second = static_cast<uint16_t>(input[1]);
+    if (second < 0xDC00 || second > 0xDFFF) {
+        return {.error = UnicodeDecodeError::InvalidContinuation};
     }
-    return std::pair{static_cast<Rune>(((first - 0xD800) << 10) | (second - 0xDC00)) + 0x10000, 2};
+    return {.rune = static_cast<Rune>(((first - 0xD800) << 10) | (second - 0xDC00)) + 0x10000, .code_units = 2};
 }
 
 // decode_one_utf32 decodes a single Unicode code point from a UTF-32 encoded string and returns it as a Rune.
-constexpr auto decode_one_utf32(const std::u32string_view &input) -> std::pair<Rune, uint8_t> {
+template <CharType CharT>
+    requires(encoding_of_v<CharT> == Encoding::UTF32)
+constexpr auto decode_one_utf32(std::basic_string_view<CharT> input) -> DecodedRune {
     if (input.empty()) {
-        return std::pair{Rune{}, 0};
+        return {.error = UnicodeDecodeError::EmptyInput};
     }
-    return std::pair{static_cast<Rune>(input[0]), 1};
+    const auto rune = static_cast<Rune>(input[0]);
+    if (rune > 0x10FFFF) {
+        return {.error = UnicodeDecodeError::OutOfRange};
+    }
+    if (!is_unicode_scalar(rune)) {
+        return {.error = UnicodeDecodeError::Surrogate};
+    }
+    return {.rune = rune, .code_units = 1};
 }
+
+// Dispatch by encoding without reinterpreting pointers to distinct character types.
+template <CharType CharT>
+constexpr auto decode_step(std::basic_string_view<CharT> input) -> DecodedRune {
+    if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
+        return decode_one_utf8(input);
+    } else if constexpr (encoding_of_v<CharT> == Encoding::UTF16) {
+        return decode_one_utf16(input);
+    } else {
+        return decode_one_utf32(input);
+    }
+}
+
+// Keep exception construction off the successful path, including constant evaluation.
+template <CharType CharT>
+constexpr auto checked_decode_step(std::basic_string_view<CharT> input, size_t offset) -> DecodedRune {
+    const auto result = decode_step(input);
+    if (result.error != UnicodeDecodeError::None) [[unlikely]] {
+        constexpr auto encoding = encoding_of_v<CharT> == Encoding::UTF8    ? "UTF-8"
+                                  : encoding_of_v<CharT> == Encoding::UTF16 ? "UTF-16"
+                                                                            : "UTF-32";
+        check(false, "{} decoding failed at code-unit offset {}: {}", encoding, offset,
+              decode_error_name(result.error));
+    }
+    assert_check([&] { return result.code_units > 0 && result.code_units <= input.size(); },
+                 "Unicode decoder produced invalid progress");
+    return result;
+}
+
+// Typed storage for one encoded scalar; no cross-character pointer casts are needed.
+template <CharType CharT>
+struct EncodedRune {
+    static constexpr auto capacity = encoding_of_v<CharT> == Encoding::UTF8    ? size_t{4}
+                                     : encoding_of_v<CharT> == Encoding::UTF16 ? size_t{2}
+                                                                               : size_t{1};
+    std::array<CharT, capacity> units{};
+    uint8_t size{};
+};
+
 // encode_one_utf8 encodes a single Rune into a UTF-8 sequence.
-constexpr auto encode_one_utf8(Rune rune) -> std::pair<std::array<char, 4>, uint8_t> {
+template <CharType CharT>
+    requires(encoding_of_v<CharT> == Encoding::UTF8)
+constexpr auto encode_one_utf8(Rune rune) -> EncodedRune<CharT> {
     if (rune < 0x80) {
-        return std::pair{std::array<char, 4>{static_cast<char>(rune), 0, 0, 0}, 1};
+        return {{static_cast<CharT>(rune), 0, 0, 0}, 1};
     }
     if (rune < 0x800) {
-        return std::pair{
-            std::array<char, 4>{static_cast<char>(0xC0 | (rune >> 6)), static_cast<char>(0x80 | (rune & 0x3F)), 0, 0},
-            2};
+        return {{static_cast<CharT>(0xC0 | (rune >> 6)), static_cast<CharT>(0x80 | (rune & 0x3F)), 0, 0}, 2};
     }
     if (rune < 0x10000) {
-        return std::pair{std::array<char, 4>{static_cast<char>(0xE0 | (rune >> 12)),
-                                             static_cast<char>(0x80 | ((rune >> 6) & 0x3F)),
-                                             static_cast<char>(0x80 | (rune & 0x3F)), 0},
-                         3};
+        return {{static_cast<CharT>(0xE0 | (rune >> 12)), static_cast<CharT>(0x80 | ((rune >> 6) & 0x3F)),
+                 static_cast<CharT>(0x80 | (rune & 0x3F)), 0},
+                3};
     }
-    if (rune <= 0x10FFFF) {
-        return std::pair{std::array<char, 4>{
-                             static_cast<char>(0xF0 | (rune >> 18)), static_cast<char>(0x80 | ((rune >> 12) & 0x3F)),
-                             static_cast<char>(0x80 | ((rune >> 6) & 0x3F)), static_cast<char>(0x80 | (rune & 0x3F))},
-                         4};
-    }
-    return std::pair{std::array<char, 4>{}, 0}; // invalid code point
+    // Invalid code points are rejected before this encoding kernel is called.
+    return {{static_cast<CharT>(0xF0 | (rune >> 18)), static_cast<CharT>(0x80 | ((rune >> 12) & 0x3F)),
+             static_cast<CharT>(0x80 | ((rune >> 6) & 0x3F)), static_cast<CharT>(0x80 | (rune & 0x3F))},
+            4};
 }
 
 // encode_one_utf16 encodes a single Rune into a UTF-16 sequence.
-constexpr auto encode_one_utf16(Rune rune) -> std::pair<std::array<char16_t, 2>, uint8_t> {
+template <CharType CharT>
+    requires(encoding_of_v<CharT> == Encoding::UTF16)
+constexpr auto encode_one_utf16(Rune rune) -> EncodedRune<CharT> {
     if (rune < 0x10000) {
-        return std::pair{std::array<char16_t, 2>{static_cast<char16_t>(rune), 0}, 1};
+        return {{static_cast<CharT>(rune), 0}, 1};
     }
-    if (rune <= 0x10FFFF) {
-        auto adjusted = rune - 0x10000;
-        return std::pair{std::array<char16_t, 2>{static_cast<char16_t>(0xD800 + (adjusted >> 10)),
-                                                 static_cast<char16_t>(0xDC00 + (adjusted & 0x3FF))},
-                         2};
-    }
-    return std::pair{std::array<char16_t, 2>{}, 0}; // invalid code point
+    // Invalid code points are rejected before this encoding kernel is called.
+    const auto adjusted = rune - 0x10000;
+    return {{static_cast<CharT>(0xD800 + (adjusted >> 10)), static_cast<CharT>(0xDC00 + (adjusted & 0x3FF))}, 2};
 }
 
 // encode_one_utf32 encodes a single Rune into a UTF-32 code unit (identity).
-constexpr auto encode_one_utf32(Rune rune) -> std::pair<char32_t, uint8_t> {
-    if (rune <= 0x10FFFF) {
-        return std::pair{rune, 1};
+template <CharType CharT>
+    requires(encoding_of_v<CharT> == Encoding::UTF32)
+constexpr auto encode_one_utf32(Rune rune) -> EncodedRune<CharT> {
+    // Invalid code points are rejected before this encoding kernel is called.
+    return {{static_cast<CharT>(rune)}, 1};
+}
+
+// Encode a validated scalar using storage of the requested output character type.
+template <CharType CharT>
+constexpr auto encode_step(Rune rune) -> EncodedRune<CharT> {
+    assert_check([=] { return is_unicode_scalar(rune); }, "Invalid internal Unicode scalar");
+    if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
+        return encode_one_utf8<CharT>(rune);
+    } else if constexpr (encoding_of_v<CharT> == Encoding::UTF16) {
+        return encode_one_utf16<CharT>(rune);
+    } else {
+        return encode_one_utf32<CharT>(rune);
     }
-    return std::pair{char32_t{}, 0}; // invalid code point
+}
+
+// Public encoding accepts user-provided Rune values and reports their position on failure.
+template <CharType CharT>
+constexpr auto checked_encode_step(Rune rune, size_t index) -> EncodedRune<CharT> {
+    if (!is_unicode_scalar(rune)) [[unlikely]] {
+        check(false, "Invalid Unicode scalar U+{:X} at rune index {}", static_cast<uint32_t>(rune), index);
+    }
+    return encode_step<CharT>(rune);
+}
+
+// Check representability before narrowing positions or allocating the offset sentinel.
+constexpr auto checked_offset_count(size_t source_size) -> size_t {
+    if (source_size > std::numeric_limits<uint32_t>::max() || source_size == std::numeric_limits<size_t>::max())
+        [[unlikely]] {
+        check(false, "Source length {} exceeds the supported Unicode offset range", source_size);
+    }
+    return source_size + 1;
+}
+
+// Verify generated offsets once in debug builds, rather than rescanning them for every word.
+inline auto valid_decoded_offsets(const UnicodeWithOffset &decoded, size_t source_size) -> bool {
+    if (decoded.offsets.size() != decoded.runes.size() + 1 || decoded.offsets.empty() || decoded.offsets.front() != 0
+        || decoded.offsets.back() != source_size) {
+        return false;
+    }
+    return std::adjacent_find(decoded.offsets.begin(), decoded.offsets.end(),
+                              [](uint32_t left, uint32_t right) { return left >= right; })
+           == decoded.offsets.end();
+}
+
+// Compile out offset recording for callers that only need decoded runes.
+enum class OffsetMode { Omit, Record };
+
+// Share traversal and validation between both public decoding APIs.
+template <OffsetMode Mode, CharType CharT>
+auto decode_impl(std::basic_string_view<CharT> input)
+    -> std::conditional_t<Mode == OffsetMode::Record, UnicodeWithOffset, Unicode> {
+    auto result = std::conditional_t<Mode == OffsetMode::Record, UnicodeWithOffset, Unicode>{};
+    auto &runes = [&]() -> Unicode & {
+        if constexpr (Mode == OffsetMode::Record) {
+            return result.runes;
+        } else {
+            return result;
+        }
+    }();
+    if constexpr (Mode == OffsetMode::Record) {
+        result.offsets.reserve(checked_offset_count(input.size()));
+    }
+    runes.reserve(input.size()); // reserve enough space to avoid multiple allocations
+
+    for (auto i = size_t{0}; i < input.size();) {
+        // Invalid UTF-8/UTF-16 sequences throw instead of discarding the decoded prefix.
+        const auto decoded = checked_decode_step(input.substr(i), i);
+        if constexpr (Mode == OffsetMode::Record) {
+            result.offsets.push_back(static_cast<uint32_t>(i));
+        }
+        runes.push_back(decoded.rune);
+        i += decoded.code_units;
+    }
+    if constexpr (Mode == OffsetMode::Record) {
+        result.offsets.push_back(static_cast<uint32_t>(input.size()));
+        assert_check([&] { return valid_decoded_offsets(result, input.size()); }, "Invalid generated Unicode offsets");
+    }
+    return result;
 }
 } // namespace detail
 
@@ -249,114 +425,23 @@ auto WordRange::to_string(std::span<const Rune> runes) const -> std::basic_strin
 
 template <StringLike T>
 constexpr auto decode_one(const T &input) -> Rune {
-    auto view = as_view(input);
-    using CharT = typename decltype(view)::value_type;
-
-    if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
-        return detail::decode_one_utf8(std::string_view{view.data(), view.size()}).first;
-    } else if constexpr (encoding_of_v<CharT> == Encoding::UTF16) {
-        return detail::decode_one_utf16(std::u16string_view{view.data(), view.size()}).first;
-    } else {
-        return detail::decode_one_utf32(std::u32string_view{view.data(), view.size()}).first;
-    }
+    return detail::checked_decode_step(as_view(input), 0).rune;
 }
 
 template <StringLike T>
 inline auto decode(const T &input) -> Unicode {
-    auto view = as_view(input);
-    using CharT = typename decltype(view)::value_type;
-    auto result = Unicode{};
-    result.reserve(view.size()); // reserve enough space to avoid multiple allocations
-
-    if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
-        auto i = size_t{0};
-        while (i < view.size()) {
-            auto &&[rune, size] = detail::decode_one_utf8(std::string_view{view.data() + i, view.size() - i});
-            if (size == 0) {
-                result.clear();
-                break; // invalid UTF-8 sequence
-            }
-            result.push_back(rune);
-            i += size;
-        }
-    } else if constexpr (encoding_of_v<CharT> == Encoding::UTF16) {
-        auto i = size_t{0};
-        while (i < view.size()) {
-            auto &&[rune, size] = detail::decode_one_utf16(std::u16string_view{view.data() + i, view.size() - i});
-            if (size == 0) {
-                result.clear();
-                break; // invalid UTF-16 sequence
-            }
-            result.push_back(rune);
-            i += size;
-        }
-    } else {
-        for (const auto &ch : view) {
-            result.push_back(static_cast<Rune>(ch));
-        }
-    }
-    return result;
+    return detail::decode_impl<detail::OffsetMode::Omit>(as_view(input));
 }
 
 template <StringLike T>
 inline auto decode_with_offset(const T &input) -> UnicodeWithOffset {
-    using CharT = resolve_char_type_t<T>;
-    auto view = as_view(input);
-    auto result = UnicodeWithOffset{};
-    result.runes.reserve(view.size());
-    result.offsets.reserve(view.size() + 1);
-
-    if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
-        auto i = uint32_t{0};
-        while (i < view.size()) {
-            result.offsets.push_back(i);
-            auto &&[rune, size] = detail::decode_one_utf8(std::string_view{view.data() + i, view.size() - i});
-            if (size == 0) {
-                result.runes.clear();
-                result.offsets.clear();
-                result.offsets.push_back(0);
-                return result;
-            }
-            result.runes.push_back(rune);
-            i += size;
-        }
-    } else if constexpr (encoding_of_v<CharT> == Encoding::UTF16) {
-        auto i = uint32_t{0};
-        while (i < view.size()) {
-            result.offsets.push_back(i);
-            auto &&[rune, size] = detail::decode_one_utf16(std::u16string_view{view.data() + i, view.size() - i});
-            if (size == 0) {
-                result.runes.clear();
-                result.offsets.clear();
-                result.offsets.push_back(0);
-                return result;
-            }
-            result.runes.push_back(rune);
-            i += size;
-        }
-    } else {
-        for (auto i = size_t{0}; i < view.size(); ++i) {
-            result.offsets.push_back(i);
-            result.runes.push_back(static_cast<Rune>(view[i]));
-        }
-    }
-
-    result.offsets.push_back(view.size());
-    return result;
+    return detail::decode_impl<detail::OffsetMode::Record>(as_view(input));
 }
 
 template <CharType CharT>
 constexpr auto encode_one(Rune rune) -> std::basic_string<CharT> {
-    if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
-        auto &&[buf, len] = detail::encode_one_utf8(rune);
-        return std::basic_string<CharT>{buf.data(), len};
-    } else if constexpr (encoding_of_v<CharT> == Encoding::UTF16) {
-        auto &&[buf, len] = detail::encode_one_utf16(rune);
-        return std::basic_string<CharT>{reinterpret_cast<const CharT *>(buf.data()), len};
-    } else {
-        auto &&[val, len] = detail::encode_one_utf32(rune);
-        return std::basic_string<CharT>{reinterpret_cast<const CharT *>(&val), len};
-    }
+    const auto encoded = detail::checked_encode_step<CharT>(rune, 0);
+    return std::basic_string<CharT>{encoded.units.data(), encoded.size};
 }
 
 template <CharType CharT>
@@ -364,28 +449,10 @@ inline auto encode(std::span<const Rune> input) -> std::basic_string<CharT> {
     auto result = std::basic_string<CharT>{};
     result.reserve(input.size()); // at least one code unit per Rune
 
-    if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
-        for (auto rune : input) {
-            auto &&[buf, len] = detail::encode_one_utf8(rune);
-            if (len == 0) {
-                result.clear();
-                break; // invalid code point
-            }
-            result.append(buf.data(), len);
-        }
-    } else if constexpr (encoding_of_v<CharT> == Encoding::UTF16) {
-        for (auto rune : input) {
-            auto &&[buf, len] = detail::encode_one_utf16(rune);
-            if (len == 0) {
-                result.clear();
-                break; // invalid code point
-            }
-            result.append(reinterpret_cast<const CharT *>(buf.data()), len);
-        }
-    } else {
-        for (auto rune : input) {
-            result.push_back(static_cast<CharT>(rune));
-        }
+    for (auto i = size_t{0}; i < input.size(); ++i) {
+        // Invalid code points are reported rather than converted to an empty string.
+        const auto encoded = detail::checked_encode_step<CharT>(input[i], i);
+        result.append(encoded.units.data(), encoded.size);
     }
     return result;
 }
@@ -393,7 +460,13 @@ inline auto encode(std::span<const Rune> input) -> std::basic_string<CharT> {
 template <CharType CharT>
 inline auto encode(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets, WordRange range)
     -> std::basic_string<CharT> {
-    return std::basic_string<CharT>{source.data() + offsets[range.begin], source.data() + offsets[range.end]};
+    check(range.begin <= range.end && range.end < offsets.size(), "Invalid rune range [{}, {}) for {} Unicode offsets",
+          range.begin, range.end, offsets.size());
+    const auto begin = offsets[range.begin];
+    const auto end = offsets[range.end];
+    check(begin <= end && end <= source.size(), "Invalid source offsets [{}, {}) for {} code units", begin, end,
+          source.size());
+    return std::basic_string<CharT>{source.substr(begin, end - begin)};
 }
 
 } // namespace neo_cppjieba

@@ -3,35 +3,215 @@
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
 
+#include <array>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 using namespace neo_cppjieba;
 
 TEST(UnicodeWithSourceTest, SafetyChecksRejectTruncatedUtf8) {
-    if constexpr (!UnicodeConfig::safe_string_check) {
-        GTEST_SKIP() << "Unicode safety checks are disabled";
-    }
     const auto input = std::string{"a\xE4\xBD"};
-    EXPECT_TRUE(decode(input).empty());
-    const auto result = decode_with_offset(input);
-    EXPECT_TRUE(result.runes.empty());
-    ASSERT_EQ(result.offsets.size(), 1u);
-    EXPECT_EQ(result.offsets.front(), 0u);
+    EXPECT_THROW(decode(input), LogConfig::Exception);
+    EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
 }
 
 TEST(UnicodeWithSourceTest, SafetyChecksRejectTruncatedUtf16) {
-    if constexpr (!UnicodeConfig::safe_string_check) {
-        GTEST_SKIP() << "Unicode safety checks are disabled";
-    }
     const auto input = std::u16string{u'a', char16_t{0xD800}};
-    EXPECT_TRUE(decode(input).empty());
-    const auto result = decode_with_offset(input);
-    EXPECT_TRUE(result.runes.empty());
-    ASSERT_EQ(result.offsets.size(), 1u);
-    EXPECT_EQ(result.offsets.front(), 0u);
+    EXPECT_THROW(decode(input), LogConfig::Exception);
+    EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
+}
+
+namespace {
+
+// Compiler-produced UTF literals provide independent expectations for every character type.
+template <CharType CharT>
+constexpr auto sample_text() -> std::basic_string_view<CharT> {
+    if constexpr (std::same_as<CharT, char>) {
+        return as_view("A\0中😀");
+    } else if constexpr (std::same_as<CharT, char8_t>) {
+        return as_view(u8"A\0中😀");
+    } else if constexpr (std::same_as<CharT, char16_t>) {
+        return as_view(u"A\0中😀");
+    } else if constexpr (std::same_as<CharT, char32_t>) {
+        return as_view(U"A\0中😀");
+    } else {
+        return as_view(L"A\0中😀");
+    }
+}
+
+// Borrowing decoded storage requires its owner to survive the full expression.
+template <typename T>
+concept CanBorrowRunes = requires(T &&decoded) { std::forward<T>(decoded).get_runes(); };
+
+// Offset references have the same owner lifetime requirement as rune references.
+template <typename T>
+concept CanBorrowOffsets = requires(T &&decoded) { std::forward<T>(decoded).get_offsets(); };
+
+} // namespace
+
+// All declared character types must support the same public Unicode operations.
+template <typename CharT>
+class UnicodeCharacterTest : public ::testing::Test {};
+
+using UnicodeCharacterTypes = ::testing::Types<char, char8_t, char16_t, char32_t, wchar_t>;
+TYPED_TEST_SUITE(UnicodeCharacterTest, UnicodeCharacterTypes);
+
+TYPED_TEST(UnicodeCharacterTest, MatchesKnownEncodedUnitsAndSourceOffsets) {
+    const auto input = sample_text<TypeParam>();
+    const auto expected = Unicode{U'A', U'\0', U'中', U'😀'};
+    const auto decoded = decode_with_offset(input);
+    EXPECT_EQ(decoded.runes, expected);
+    EXPECT_EQ(decode(input), expected);
+    EXPECT_EQ(encode<TypeParam>(std::span<const Rune>{expected}), (std::basic_string<TypeParam>{input}));
+    ASSERT_EQ(decoded.offsets.size(), expected.size() + 1);
+    EXPECT_EQ(decoded.offsets.front(), 0u);
+    EXPECT_EQ(decoded.offsets.back(), input.size());
+
+    for (auto i = size_t{0}; i < expected.size(); ++i) {
+        const auto range = WordRange{static_cast<uint32_t>(i), static_cast<uint32_t>(i + 1)};
+        const auto one = encode_one<TypeParam>(expected[i]);
+        EXPECT_EQ(encode(input, decoded.offsets, range), one);
+        EXPECT_EQ(decoded.offsets[i + 1] - decoded.offsets[i], one.size());
+        EXPECT_EQ(decode_one(one), expected[i]);
+    }
+}
+
+TYPED_TEST(UnicodeCharacterTest, ScalarBoundariesRoundTrip) {
+    const auto runes = Unicode{0, 0x7F, 0x80, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFE, 0xFFFF, 0x10000, 0x10FFFF};
+    const auto encoded = encode<TypeParam>(std::span<const Rune>{runes});
+    EXPECT_EQ(decode(encoded), runes);
+}
+
+TYPED_TEST(UnicodeCharacterTest, InvalidScalarsThrowConfiguredException) {
+    for (const auto rune : std::array<Rune, 3>{0xD800, 0xDFFF, 0x110000}) {
+        const auto runes = std::array{U'A', rune};
+        EXPECT_THROW(encode_one<TypeParam>(rune), LogConfig::Exception);
+        EXPECT_THROW(encode<TypeParam>(std::span<const Rune>{runes}), LogConfig::Exception);
+    }
+}
+
+TYPED_TEST(UnicodeCharacterTest, SingleRuneRoundTripsDuringConstantEvaluation) {
+    constexpr auto valid = [] {
+        for (const auto rune : std::array<Rune, 4>{0, U'中', U'😀', 0x10FFFF}) {
+            if (decode_one(encode_one<TypeParam>(rune)) != rune) {
+                return false;
+            }
+        }
+        return true;
+    }();
+    static_assert(valid);
+    EXPECT_TRUE(valid);
+}
+
+TEST(UnicodeTest, MalformedUtf8ThrowsInsteadOfReturningEmptyOutput) {
+    const auto inputs = std::array<std::string_view, 13>{"\x80",
+                                                         "\xC0\x80",
+                                                         "\xC1\xBF",
+                                                         "\xE0\x80\x80",
+                                                         "\xED\xA0\x80",
+                                                         "\xF0\x80\x80\x80",
+                                                         "\xF4\x90\x80\x80",
+                                                         "\xF5\x80\x80\x80",
+                                                         "\xFF",
+                                                         "\xC2",
+                                                         "\xE4\xBD",
+                                                         "\xF0\x9F\x98",
+                                                         "\xE4\x41\xA0"};
+    for (const auto input : inputs) {
+        EXPECT_THROW(decode_one(input), LogConfig::Exception);
+        EXPECT_THROW(decode(input), LogConfig::Exception);
+        EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
+    }
+}
+
+TEST(UnicodeTest, MalformedUtf16ThrowsInsteadOfReturningEmptyOutput) {
+    const auto inputs =
+        std::array{std::u16string{char16_t{0xD800}}, std::u16string{char16_t{0xDC00}},
+                   std::u16string{char16_t{0xD800}, u'A'}, std::u16string{char16_t{0xDC00}, char16_t{0xD800}}};
+    for (const auto &input : inputs) {
+        EXPECT_THROW(decode_one(input), LogConfig::Exception);
+        EXPECT_THROW(decode(input), LogConfig::Exception);
+        EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
+    }
+}
+
+TEST(UnicodeTest, InvalidUtf32ScalarsThrowInAllDecoders) {
+    for (const auto rune : std::array<Rune, 3>{0xD800, 0xDFFF, 0x110000}) {
+        const auto input = std::u32string{rune};
+        EXPECT_THROW(decode_one(input), LogConfig::Exception);
+        EXPECT_THROW(decode(input), LogConfig::Exception);
+        EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
+    }
+}
+
+TEST(UnicodeTest, DecodeErrorReportsEncodingOffsetAndReason) {
+    const auto input = std::string_view{"a\xE4\xBD"};
+    try {
+        (void)decode(input);
+        FAIL() << "Expected a Unicode decoding exception";
+    } catch (const LogConfig::Exception &error) {
+        const auto message = std::string_view{error.what()};
+        EXPECT_NE(message.find("UTF-8"), std::string_view::npos);
+        EXPECT_NE(message.find("code-unit offset 1"), std::string_view::npos);
+        EXPECT_NE(message.find("truncated sequence"), std::string_view::npos);
+    }
+}
+
+TEST(UnicodeTest, DecodeOneRejectsEmptyInputButAcceptsNul) {
+    EXPECT_THROW(decode_one(std::string_view{}), LogConfig::Exception);
+    EXPECT_THROW(decode_one(std::u16string_view{}), LogConfig::Exception);
+    EXPECT_THROW(decode_one(std::u32string_view{}), LogConfig::Exception);
+    EXPECT_EQ(decode_one(std::string_view{"\0", 1}), Rune{});
+    EXPECT_TRUE(decode(std::string_view{}).empty());
+}
+
+TEST(UnicodeTest, OwningTemporaryCanBeDecoded) {
+    EXPECT_EQ(decode(std::string{"你好"}), (Unicode{U'你', U'好'}));
+}
+
+TEST(UnicodeTest, DecodedStorageCannotBeBorrowedFromTemporaries) {
+    static_assert(CanBorrowRunes<UnicodeWithOffset &> && CanBorrowRunes<const UnicodeWithOffset &>);
+    static_assert(CanBorrowOffsets<UnicodeWithOffset &> && CanBorrowOffsets<const UnicodeWithOffset &>);
+    static_assert(!CanBorrowRunes<UnicodeWithOffset> && !CanBorrowRunes<const UnicodeWithOffset>);
+    static_assert(!CanBorrowOffsets<UnicodeWithOffset> && !CanBorrowOffsets<const UnicodeWithOffset>);
+}
+
+TEST(UnicodeTest, OffsetCountRejectsUnrepresentableLengthsWithoutAllocating) {
+    EXPECT_EQ(detail::checked_offset_count(0), 1u);
+    EXPECT_THROW(detail::checked_offset_count(std::numeric_limits<size_t>::max()), LogConfig::Exception);
+    if constexpr (std::numeric_limits<size_t>::max() > std::numeric_limits<uint32_t>::max()) {
+        const auto limit = static_cast<size_t>(std::numeric_limits<uint32_t>::max());
+        EXPECT_EQ(detail::checked_offset_count(limit), limit + 1);
+        EXPECT_THROW(detail::checked_offset_count(limit + 1), LogConfig::Exception);
+    }
+}
+
+TEST(UnicodeTest, SourceEncodingRejectsInvalidRuneRanges) {
+    const auto source = std::string_view{"abc"};
+    const auto offsets = std::array<uint32_t, 4>{0, 1, 2, 3};
+    EXPECT_THROW(encode(source, offsets, WordRange{2, 1}), LogConfig::Exception);
+    EXPECT_THROW(encode(source, offsets, WordRange{0, 4}), LogConfig::Exception);
+    EXPECT_THROW(encode(source, std::span<const uint32_t>{}, WordRange{0, 0}), LogConfig::Exception);
+}
+
+TEST(UnicodeTest, SourceEncodingRejectsInvalidCodeUnitOffsets) {
+    const auto source = std::string_view{"abc"};
+    const auto reversed = std::array<uint32_t, 2>{2, 1};
+    const auto oversized = std::array<uint32_t, 2>{0, 4};
+    EXPECT_THROW(encode(source, reversed, WordRange{0, 1}), LogConfig::Exception);
+    EXPECT_THROW(encode(source, oversized, WordRange{0, 1}), LogConfig::Exception);
+}
+
+TEST(UnicodeTest, EmptySourceCanBeEncodedWithItsSentinel) {
+    const auto offsets = std::array<uint32_t, 1>{0};
+    EXPECT_TRUE(encode(std::string_view{}, offsets, WordRange{0, 0}).empty());
 }
 
 // ─── decode_with_source: UTF-8 ──────────────────────────────────────────────

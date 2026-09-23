@@ -3,6 +3,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/test")
 ADD_EXECUTABLE(test_neo.run
     ../gtest_main.cpp
     unicode_test.cpp
+    traits_test.cpp
     logging_test.cpp
     fileio_test.cpp
     postag_test.cpp

@@ -22,10 +22,7 @@ inline constexpr auto is_debug_build = true;
 // LogLevel represents the severity level of a log message, ranging from debug to fatal.
 enum class LogLevel : uint8_t { LL_DEBUG, LL_INFO, LL_WARNING, LL_ERROR, LL_FATAL };
 
-// Control validation of UTF-8 and UTF-16 input; disabling checks requires well-formed input.
-struct UnicodeConfig {
-    static constexpr auto safe_string_check = true;
-};
+// Unicode input validation is always enabled because it also protects memory access bounds.
 
 // The inline child capacity trades trie node size against hash lookup frequency.
 struct TrieConfig {
