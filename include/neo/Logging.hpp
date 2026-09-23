@@ -22,8 +22,6 @@
 #include <utility>
 
 namespace neo_cppjieba {
-// LogLevel represents the severity level of a log message, ranging from debug to fatal.
-enum class LogLevel : uint8_t { LL_DEBUG, LL_INFO, LL_WARNING, LL_ERROR, LL_FATAL };
 
 namespace detail {
 // LogLevel enum to string mapping for log output.
@@ -52,7 +50,7 @@ inline auto stderr_is_tty() -> bool {
 }
 
 // kCompileTimeMinLevel is a compile-time constant that indicates the minimum log level to be compiled into the binary.
-inline constexpr auto kCompileTimeMinLevel = compile_config::is_debug_build ? LogLevel::LL_DEBUG : LogLevel::LL_INFO;
+inline constexpr auto kCompileTimeMinLevel = LogConfig::min_level;
 inline constexpr auto kNoDebug = !compile_config::is_debug_build;
 
 template <typename Condition>
@@ -102,7 +100,7 @@ inline constexpr auto LOG_MAX_TIME_BUFFER_SIZE = size_t{32};
 
 // LOG_MAX_BUFFER_SIZE is the maximum size of the buffer used to store the formatted log message before writing to
 // stderr.
-inline constexpr auto LOG_MAX_BUFFER_SIZE = size_t{512};
+inline constexpr auto LOG_MAX_BUFFER_SIZE = LogConfig::buffer_size;
 
 // cur_time fills the provided buffer with the current time formatted according to LOG_TIME_FORMAT.
 inline auto cur_time() -> std::array<char, LOG_MAX_TIME_BUFFER_SIZE> {
@@ -135,15 +133,16 @@ inline constexpr auto LOG_PLAIN_PRIVATE_PREFIX_FMT = "{}[pid:{} tid:{:04x}]<{}> 
 template <LogLevel Level, LogConfiguration Config, typename... Args>
 inline auto log_impl(std::format_string<LogEvalType<Args>...> fmt, const std::source_location &loc,
                      Args &&...args) noexcept(Level == LogLevel::LL_FATAL) -> void {
-    if constexpr (Level < kCompileTimeMinLevel) {
+    if constexpr (Level < Config::min_level && Level < LogLevel::LL_ERROR) {
         return;
     }
 
+    constexpr auto buffer_size = Config::buffer_size;
     constexpr auto color_prefix_fmt =
         Config::show_source_location ? LOG_COLOR_PREFIX_FMT : LOG_COLOR_PRIVATE_PREFIX_FMT;
     constexpr auto plain_prefix_fmt =
         Config::show_source_location ? LOG_PLAIN_PREFIX_FMT : LOG_PLAIN_PRIVATE_PREFIX_FMT;
-    auto buffer = std::array<char, LOG_MAX_BUFFER_SIZE>{};
+    auto buffer = std::array<char, buffer_size>{};
     const auto time_buf = cur_time();
     const auto tid_hash = std::hash<std::thread::id>{}(std::this_thread::get_id());
     const auto use_color = stderr_is_tty();
@@ -152,26 +151,25 @@ inline auto log_impl(std::format_string<LogEvalType<Args>...> fmt, const std::so
 
     size_t prefix_len = 0;
     if (use_color) {
-        const auto it =
-            std::format_to_n(buffer.begin(), LOG_MAX_BUFFER_SIZE, color_prefix_fmt, time_buf.data(), pid, tid_short,
-                             log_level_color(Level), log_level_name(Level), loc.file_name(), loc.line());
+        const auto it = std::format_to_n(buffer.begin(), buffer_size, color_prefix_fmt, time_buf.data(), pid, tid_short,
+                                         log_level_color(Level), log_level_name(Level), loc.file_name(), loc.line());
         prefix_len = static_cast<size_t>(it.out - buffer.data());
     } else {
-        const auto it = std::format_to_n(buffer.begin(), LOG_MAX_BUFFER_SIZE, plain_prefix_fmt, time_buf.data(), pid,
-                                         tid_short, log_level_name(Level), loc.file_name(), loc.line());
+        const auto it = std::format_to_n(buffer.begin(), buffer_size, plain_prefix_fmt, time_buf.data(), pid, tid_short,
+                                         log_level_name(Level), loc.file_name(), loc.line());
         prefix_len = static_cast<size_t>(it.out - buffer.data());
     }
 
-    const auto result = std::format_to_n(buffer.begin() + prefix_len, LOG_MAX_BUFFER_SIZE - prefix_len, fmt,
+    const auto result = std::format_to_n(buffer.begin() + prefix_len, buffer_size - prefix_len, fmt,
                                          eval_log_arg(std::forward<Args>(args))...);
     auto total = static_cast<size_t>(result.out - buffer.data());
 
-    if (total < LOG_MAX_BUFFER_SIZE) {
+    if (total < buffer_size) {
         buffer[total] = '\n';
         total += 1;
     } else {
-        buffer[LOG_MAX_BUFFER_SIZE - 1] = '\n';
-        total = LOG_MAX_BUFFER_SIZE;
+        buffer[buffer_size - 1] = '\n';
+        total = buffer_size;
     }
 
     std::fwrite(buffer.data(), sizeof(char), total, stderr);
@@ -179,12 +177,12 @@ inline auto log_impl(std::format_string<LogEvalType<Args>...> fmt, const std::so
         std::fflush(stderr);
         if (use_color) {
             // Build a plain version for the exception message (no ANSI codes).
-            auto plain = std::array<char, LOG_MAX_BUFFER_SIZE>{};
-            const auto pit = std::format_to_n(plain.begin(), LOG_MAX_BUFFER_SIZE, plain_prefix_fmt, time_buf.data(),
-                                              pid, tid_short, log_level_name(Level), loc.file_name(), loc.line());
+            auto plain = std::array<char, buffer_size>{};
+            const auto pit = std::format_to_n(plain.begin(), buffer_size, plain_prefix_fmt, time_buf.data(), pid,
+                                              tid_short, log_level_name(Level), loc.file_name(), loc.line());
             const auto plain_prefix = static_cast<size_t>(pit.out - plain.data());
             const auto msg_len = total - prefix_len;
-            const auto copy_len = std::min(msg_len, LOG_MAX_BUFFER_SIZE - plain_prefix);
+            const auto copy_len = std::min(msg_len, buffer_size - plain_prefix);
             std::copy_n(buffer.data() + prefix_len, copy_len, plain.data() + plain_prefix);
             throw typename Config::Exception{std::string{plain.data(), plain_prefix + copy_len}};
         }

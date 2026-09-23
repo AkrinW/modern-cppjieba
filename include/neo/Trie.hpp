@@ -2,6 +2,7 @@
 
 #include "neo/Traits.hpp"
 
+#include "Config.hpp"
 #include "Dag.hpp"
 #include "PosTag.hpp"
 #include "TrieStats.hpp"
@@ -11,6 +12,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <queue>
 #include <span>
@@ -73,7 +75,9 @@ class Trie {
     /// Fanout threshold below which a node stores children in an inline array
     /// (linear scan, zero heap allocation) rather than an unordered_map (hash lookup).
     /// From jieba.dict stats: ~99 % of nodes have fanout ≤ 8.
-    static constexpr auto kFlatThreshold = size_t{3};
+    static constexpr auto kFlatThreshold = TrieConfig::flat_threshold;
+    static_assert(kFlatThreshold <= std::numeric_limits<uint8_t>::max(),
+                  "TrieConfig::flat_threshold must fit the inline child count");
 
     /// Inline fixed-capacity array of ChildPair — replaces std::vector to avoid
     /// per-node heap allocation for the ~99 % of nodes with low fanout.

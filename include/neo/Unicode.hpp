@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Config.hpp"
 #include "Traits.hpp"
 
 #include <array>
@@ -14,7 +15,7 @@ namespace neo_cppjieba {
 // SAFE_STRING_CHECK is a compile-time constant that indicates whether to perform safety checks on input strings during
 // decoding. Setting it to TRUE enables checks for valid UTF-8/UTF-16 sequences, while FALSE may skip these checks for
 // performance at the risk of undefined behavior on invalid input.
-inline constexpr auto SAFE_STRING_CHECK = true;
+inline constexpr auto SAFE_STRING_CHECK = UnicodeConfig::safe_string_check;
 
 // Rune is a Unicode code point, every single Unicode character is represented by a Rune. using char32_t to fixed width
 // of Rune to 4 bytes, which can represent all Unicode code points.

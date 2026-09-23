@@ -3,6 +3,7 @@
 #include "neo/Logging.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -163,40 +164,110 @@ public:
 // Keep public diagnostics while selecting the application's exception type.
 struct ProjectLogConfig {
     static constexpr auto show_source_location = true;
+    static constexpr auto min_level = LogConfig::min_level;
+    static constexpr auto buffer_size = LogConfig::buffer_size;
     using Exception = ProjectError;
 };
 
 // Suppress source locations independently of the build mode and exception type.
 struct PrivateLogConfig {
     static constexpr auto show_source_location = false;
+    static constexpr auto min_level = LogConfig::min_level;
+    static constexpr auto buffer_size = LogConfig::buffer_size;
     using Exception = ProjectError;
 };
 
 // An incomplete configuration must be rejected at the logging API boundary.
 struct MissingExceptionConfig {
     static constexpr auto show_source_location = true;
+    static constexpr auto min_level = LogConfig::min_level;
+    static constexpr auto buffer_size = LogConfig::buffer_size;
 };
 
 // An exception alias alone does not specify the source location policy.
 struct MissingSourceLocationConfig {
+    static constexpr auto min_level = LogConfig::min_level;
+    static constexpr auto buffer_size = LogConfig::buffer_size;
     using Exception = ProjectError;
 };
 
 // A constructible message type still needs to be an exception.
 struct InvalidExceptionConfig {
     static constexpr auto show_source_location = true;
+    static constexpr auto min_level = LogConfig::min_level;
+    static constexpr auto buffer_size = LogConfig::buffer_size;
     using Exception = std::string;
 };
 
 // An integer switch must not implicitly satisfy the boolean configuration contract.
 struct IntegerSourceLocationConfig {
     static constexpr auto show_source_location = 1;
+    static constexpr auto min_level = LogConfig::min_level;
+    static constexpr auto buffer_size = LogConfig::buffer_size;
     using Exception = ProjectError;
 };
 
 // An uninitialized constant declaration cannot supply a compile-time policy value.
 struct NonConstantSourceLocationConfig {
     static const bool show_source_location;
+    static constexpr auto min_level = LogConfig::min_level;
+    static constexpr auto buffer_size = LogConfig::buffer_size;
+    using Exception = ProjectError;
+};
+
+// A high threshold filters ordinary messages without disabling failures.
+struct HighThresholdLogConfig {
+    static constexpr auto show_source_location = false;
+    static constexpr auto min_level = LogLevel::LL_FATAL;
+    static constexpr auto buffer_size = LogConfig::buffer_size;
+    using Exception = ProjectError;
+};
+
+// A smaller record exercises bounded output with an explicitly enabled log level.
+struct SmallBufferLogConfig {
+    static constexpr auto show_source_location = false;
+    static constexpr auto min_level = LogLevel::LL_DEBUG;
+    static constexpr auto buffer_size = std::size_t{128};
+    using Exception = ProjectError;
+};
+
+// A larger record preserves messages that exceed the default buffer capacity.
+struct LargeBufferLogConfig {
+    static constexpr auto show_source_location = false;
+    static constexpr auto min_level = LogLevel::LL_DEBUG;
+    static constexpr auto buffer_size = std::size_t{1024};
+    using Exception = ProjectError;
+};
+
+// An out-of-range threshold cannot name a supported severity.
+struct InvalidLogLevelConfig {
+    static constexpr auto show_source_location = false;
+    static constexpr auto min_level = static_cast<LogLevel>(255);
+    static constexpr auto buffer_size = LogConfig::buffer_size;
+    using Exception = ProjectError;
+};
+
+// A runtime threshold cannot control compile-time filtering.
+struct NonConstantLogLevelConfig {
+    static constexpr auto show_source_location = false;
+    static const LogLevel min_level;
+    static constexpr auto buffer_size = LogConfig::buffer_size;
+    using Exception = ProjectError;
+};
+
+// A log record needs at least one byte for its terminating newline.
+struct EmptyBufferLogConfig {
+    static constexpr auto show_source_location = false;
+    static constexpr auto min_level = LogConfig::min_level;
+    static constexpr auto buffer_size = std::size_t{0};
+    using Exception = ProjectError;
+};
+
+// A runtime capacity cannot size the stack-allocated log record.
+struct NonConstantBufferLogConfig {
+    static constexpr auto show_source_location = false;
+    static constexpr auto min_level = LogConfig::min_level;
+    static const std::size_t buffer_size;
     using Exception = ProjectError;
 };
 
@@ -571,6 +642,10 @@ TEST(LoggingTest, LoggingApisRejectInvalidConfigurations) {
     static_assert(rejected.template operator()<InvalidExceptionConfig>());
     static_assert(rejected.template operator()<IntegerSourceLocationConfig>());
     static_assert(rejected.template operator()<NonConstantSourceLocationConfig>());
+    static_assert(rejected.template operator()<InvalidLogLevelConfig>());
+    static_assert(rejected.template operator()<NonConstantLogLevelConfig>());
+    static_assert(rejected.template operator()<EmptyBufferLogConfig>());
+    static_assert(rejected.template operator()<NonConstantBufferLogConfig>());
 }
 
 TEST(LoggingTest, AssertCheckRejectsInvalidPredicates) {
@@ -778,4 +853,73 @@ TEST(LoggingTest, LogFatalTerminatesWhenLazyArgumentThrows) {
             log<LogLevel::LL_FATAL>("{}", []() -> int { throw std::runtime_error{"lazy diagnostic failed"}; });
         },
         ::testing::ExitedWithCode(73), "");
+}
+
+TEST(LoggingTest, ConfiguredThresholdSkipsLazyOrdinaryLogs) {
+    auto calls = 0;
+    const auto output = capture_stderr([&] {
+        log<LogLevel::LL_DEBUG, HighThresholdLogConfig>("{}", [&] { return ++calls; });
+        log<LogLevel::LL_INFO, HighThresholdLogConfig>("{}", [&] { return ++calls; });
+        log<LogLevel::LL_WARNING, HighThresholdLogConfig>("{}", [&] { return ++calls; });
+    });
+    EXPECT_EQ(calls, 0);
+    EXPECT_TRUE(output.empty());
+}
+
+TEST(LoggingTest, ErrorThrowsRegardlessOfConfiguredThreshold) {
+    auto calls = 0;
+    const auto output = capture_stderr([&] {
+        EXPECT_THROW((log<LogLevel::LL_ERROR, HighThresholdLogConfig>("error: {}", [&] { return ++calls; })),
+                     ProjectError);
+    });
+    EXPECT_EQ(calls, 1);
+    EXPECT_NE(output.find("error: 1"), std::string::npos);
+}
+
+TEST(LoggingTest, FailedCheckThrowsRegardlessOfConfiguredThreshold) {
+    EXPECT_THROW(check<HighThresholdLogConfig>(false, "check remains enabled"), ProjectError);
+}
+
+TEST(LoggingTest, FatalTerminatesWithConfiguredThreshold) {
+    EXPECT_EXIT(
+        {
+            std::set_terminate([] { std::_Exit(73); });
+            (log<LogLevel::LL_FATAL, HighThresholdLogConfig>("fatal remains enabled"));
+        },
+        ::testing::ExitedWithCode(73), "fatal remains enabled");
+}
+
+TEST(LoggingTest, ExplicitDebugThresholdEnablesDebugInBothBuildModes) {
+    const auto output = capture_stderr([] { log<LogLevel::LL_DEBUG, SmallBufferLogConfig>("explicit debug"); });
+    EXPECT_NE(output.find("explicit debug"), std::string::npos);
+}
+
+TEST(LoggingTest, LogTruncatesAtConfiguredBufferCapacity) {
+    const auto message = std::string(256, 'x');
+    const auto output = capture_stderr([&] { log<LogLevel::LL_INFO, SmallBufferLogConfig>("{}", message); });
+    ASSERT_EQ(output.size(), SmallBufferLogConfig::buffer_size);
+    EXPECT_EQ(output.back(), '\n');
+}
+
+TEST(LoggingTest, LargerConfiguredBufferPreservesLongMessages) {
+    const auto message = std::string(600, 'x');
+    const auto output = capture_stderr([&] { log<LogLevel::LL_INFO, LargeBufferLogConfig>("{}", message); });
+    EXPECT_NE(output.find(message), std::string::npos);
+}
+
+TEST(LoggingTest, ErrorUsesConfiguredBufferCapacity) {
+    const auto message = std::string(256, 'x');
+    const auto output = capture_stderr([&] {
+        try {
+            log<LogLevel::LL_ERROR, SmallBufferLogConfig>("{}", message);
+            FAIL() << "Expected ProjectError";
+        } catch (const ProjectError &e) {
+            const auto diagnostic = std::string_view{e.what()};
+            ASSERT_FALSE(diagnostic.empty());
+            EXPECT_LE(diagnostic.size(), SmallBufferLogConfig::buffer_size);
+            EXPECT_EQ(diagnostic.back(), '\n');
+        }
+    });
+    ASSERT_EQ(output.size(), SmallBufferLogConfig::buffer_size);
+    EXPECT_EQ(output.back(), '\n');
 }

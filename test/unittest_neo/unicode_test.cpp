@@ -1,4 +1,5 @@
 #include "gtest/gtest.h"
+#include "neo/Config.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
 
@@ -8,6 +9,30 @@
 #include <string>
 
 using namespace neo_cppjieba;
+
+TEST(UnicodeWithSourceTest, SafetyChecksRejectTruncatedUtf8) {
+    if constexpr (!UnicodeConfig::safe_string_check) {
+        GTEST_SKIP() << "Unicode safety checks are disabled";
+    }
+    const auto input = std::string{"a\xE4\xBD"};
+    EXPECT_TRUE(decode(input).empty());
+    const auto result = decode_with_offset(input);
+    EXPECT_TRUE(result.runes.empty());
+    ASSERT_EQ(result.offsets.size(), 1u);
+    EXPECT_EQ(result.offsets.front(), 0u);
+}
+
+TEST(UnicodeWithSourceTest, SafetyChecksRejectTruncatedUtf16) {
+    if constexpr (!UnicodeConfig::safe_string_check) {
+        GTEST_SKIP() << "Unicode safety checks are disabled";
+    }
+    const auto input = std::u16string{u'a', char16_t{0xD800}};
+    EXPECT_TRUE(decode(input).empty());
+    const auto result = decode_with_offset(input);
+    EXPECT_TRUE(result.runes.empty());
+    ASSERT_EQ(result.offsets.size(), 1u);
+    EXPECT_EQ(result.offsets.front(), 0u);
+}
 
 // ─── decode_with_source: UTF-8 ──────────────────────────────────────────────
 

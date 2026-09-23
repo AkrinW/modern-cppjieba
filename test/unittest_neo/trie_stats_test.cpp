@@ -1,4 +1,5 @@
 #include "gtest/gtest.h"
+#include "neo/Config.hpp"
 #include "neo/FileIO.hpp"
 #include "neo/StringUtil.hpp"
 #include "neo/Trie.hpp"
@@ -6,14 +7,38 @@
 
 #include "test_paths.h"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <print>
 #include <ranges>
+#include <span>
 #include <string>
 #include <vector>
 
 using namespace neo_cppjieba;
+
+TEST(TrieStatsTest, FindsWordsAcrossConfiguredFanoutThreshold) {
+    const auto fanouts = std::array{TrieConfig::flat_threshold, TrieConfig::flat_threshold + 1};
+    for (const auto fanout : fanouts) {
+        auto keys = std::vector<Unicode>{};
+        auto values = std::vector<DictUnit>{};
+        keys.reserve(fanout);
+        values.reserve(fanout);
+        for (auto i = std::size_t{0}; i < fanout; ++i) {
+            keys.push_back(Unicode{static_cast<Rune>(U'\u4E00' + i)});
+            values.push_back({static_cast<float>(i + 1), PosTag{"n"}});
+        }
+        auto trie = Trie{};
+        trie.build(keys, values);
+        for (auto i = std::size_t{0}; i < keys.size(); ++i) {
+            const auto found = trie.find(std::span<const Rune>{keys[i]});
+            EXPECT_FLOAT_EQ(found.weight, values[i].weight);
+            EXPECT_EQ(found.tag, values[i].tag);
+        }
+        EXPECT_FALSE(trie.find(U"\u9FFF").has_value());
+    }
+}
 
 /// Helper: load jieba.dict.utf8 and build a neo Trie.
 /// Format per line: "word freq tag"  (space-delimited, UTF-8).
