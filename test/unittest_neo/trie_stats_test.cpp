@@ -45,8 +45,8 @@ TEST(TrieStatsTest, FindsWordsAcrossConfiguredFanoutThreshold) {
 namespace {
 static auto build_jieba_trie() -> std::pair<Trie, size_t> {
     auto dict_path = std::string(DICT_DIR) + "/jieba.dict.utf8";
-    auto mf = get_map_file(dict_path);
-    auto content = mf.content();
+    auto file = read_file(dict_path);
+    auto content = file.content();
 
     // Collect entries: word, freq, tag
     struct RawEntry {

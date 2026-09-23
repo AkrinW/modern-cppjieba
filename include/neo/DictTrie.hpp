@@ -99,7 +99,7 @@ private:
     //
     // Key performance improvements over the original DictTrie::Init:
     //
-    //   1. mmap + zero-copy parsing (MappedFile / lines_view / split_view)
+    //   1. buffered reads + zero-copy parsing (FileBuffer / lines_view / split_view)
     //      instead of ifstream + getline + limonp::Split.
     //
     //   2. Weight statistics computed on raw int frequencies:
@@ -181,7 +181,7 @@ private:
     // e.g.  "AT&T 3 nz",  "我们 � r"
 
     auto load_main_dict(std::string_view path, std::vector<RawEntry> &entries, std::vector<int> &freqs) -> void {
-        auto file = get_map_file(path);
+        auto file = read_file(path);
         auto line = get_line_view(file.content());
 
         for (auto &&line_view : line) {
@@ -217,7 +217,7 @@ private:
     ///   2 fields — "word tag"        → default weight, explicit tag
     ///   3 fields — "word freq tag"   → weight from freq, explicit tag
     auto load_user_dict_file(std::string_view path, std::vector<RawEntry> &entries) -> void {
-        auto file = get_map_file(path);
+        auto file = read_file(path);
         auto line = get_line_view(file.content());
         for (auto &&one_line : line) {
             if (one_line.empty()) {

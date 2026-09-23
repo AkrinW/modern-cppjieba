@@ -35,8 +35,8 @@ namespace {
 
 /// Build a large UTF-8 test string by concatenating all dictionary words.
 auto build_test_string(const std::string &dict_path) -> std::string {
-    auto mf = get_map_file(dict_path);
-    auto content = mf.content();
+    auto file = read_file(dict_path);
+    auto content = file.content();
 
     auto result = std::string{};
     result.reserve(content.size());

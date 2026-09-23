@@ -87,7 +87,7 @@ struct HMModel {
 private:
     // ── Loading ──────────────────────────────────────────────────────────
     auto load(std::string_view model_path) -> void {
-        auto file = get_map_file(model_path);
+        auto file = read_file(model_path);
         auto lines = get_line_view(file.content());
 
         // Collect non-comment, non-empty lines.

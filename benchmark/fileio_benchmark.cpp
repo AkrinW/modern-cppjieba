@@ -17,7 +17,7 @@
 
 using namespace neo_cppjieba;
 
-// ─── Performance comparison: old (ifstream+getline) vs new (mmap+views) ──────
+// ─── Performance comparison: old (ifstream+getline) vs new (read+views) ──────
 
 // Helper: high-resolution timer
 using hrc = std::chrono::high_resolution_clock;
@@ -58,14 +58,14 @@ static auto BenchOldMethod(const std::string &path, int iterations) -> std::chro
     return total / iterations;
 }
 
-// New method: MappedFile + lines_view + split_view — zero-copy
+// New method: FileBuffer + lines_view + split_view — parsing without further copies
 static auto BenchNewMethod(const std::string &path, int iterations) -> std::chrono::microseconds {
     auto total = std::chrono::microseconds::zero();
 
     for (int i = 0; i < iterations; ++i) {
         auto start = hrc::now();
 
-        auto file = get_map_file(path);
+        auto file = read_file(path);
         auto content = file.content();
 
         auto line_count = size_t{0};
@@ -120,7 +120,7 @@ static auto run_benchmark() -> void {
 
     // Warm up filesystem cache
     {
-        auto _ = get_map_file(path);
+        auto _ = read_file(path);
     }
     {
         auto ifs = std::ifstream{path.c_str()};
@@ -140,7 +140,7 @@ static auto run_benchmark() -> void {
                  "  │  FileIO Performance (jieba.dict.utf8, 349K lines) │\n"
                  "  ├───────────────────────────────────────────────────┤\n"
                  "  │  Old (ifstream+getline+Split) : %6ld µs           │\n"
-                 "  │  New (mmap+lines_view+split)  : %6ld µs           │\n"
+                 "  │  New (read+lines_view+split)  : %6ld µs           │\n"
                  "  │  Speedup                      : %5.2fx            │\n"
                  "  └───────────────────────────────────────────────────┘\n\n",
                  static_cast<long>(old_avg.count()), static_cast<long>(new_avg.count()), speedup);
