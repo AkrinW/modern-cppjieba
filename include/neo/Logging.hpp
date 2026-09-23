@@ -128,6 +128,8 @@ inline constexpr auto LOG_COLOR_PRIVATE_PREFIX_FMT =
     "\033[90m{}\033[0m[\033[90mpid:{} tid:{:04x}\033[0m]{}<{}>\033[0m ";
 inline constexpr auto LOG_PLAIN_PRIVATE_PREFIX_FMT = "{}[pid:{} tid:{:04x}]<{}> ";
 
+// Fatal logs and failed assertions invoke the terminate handler.
+
 // log_impl is the internal function that performs the actual logging. It formats the log message and writes it to
 // stderr.
 template <LogLevel Level, LogConfiguration Config, typename... Args>
@@ -247,27 +249,28 @@ inline auto check(Condition &&condition, const std::source_location &loc = std::
 
 // assert_check evaluates a predicate lambda only in debug builds (NDEBUG not defined).
 // In release builds the lambda is never invoked, avoiding side-effect evaluation.
+// Failed assertions terminate; valid predicates can also be checked during constant evaluation.
 template <LogConfiguration Config = LogConfig, detail::CheckPredicate F, typename... Args>
-inline auto assert_check(F &&predicate,
-                         std::type_identity_t<detail::LogFormatString<Config, detail::LogEvalType<Args>...>> fmt,
-                         Args &&...args) -> void {
+constexpr auto assert_check(F &&predicate,
+                            std::type_identity_t<detail::LogFormatString<Config, detail::LogEvalType<Args>...>> fmt,
+                            Args &&...args) -> void {
     if constexpr (detail::kNoDebug) {
         return;
     } else {
         if (!detail::eval_check_condition(std::forward<F>(predicate))) [[unlikely]] {
-            detail::log_impl<LogLevel::LL_ERROR, Config>(fmt.fmt, fmt.loc, std::forward<Args>(args)...);
+            detail::log_impl<LogLevel::LL_FATAL, Config>(fmt.fmt, fmt.loc, std::forward<Args>(args)...);
         }
     }
 }
 
-// Preserve the debug-only throwing check when no diagnostic message is supplied.
+// Apply the same debug-only terminating assertion when no diagnostic message is supplied.
 template <LogConfiguration Config = LogConfig, detail::CheckPredicate F>
-inline auto assert_check(F &&predicate, const std::source_location &loc = std::source_location::current()) -> void {
+constexpr auto assert_check(F &&predicate, const std::source_location &loc = std::source_location::current()) -> void {
     if constexpr (detail::kNoDebug) {
         return;
     } else {
         if (!detail::eval_check_condition(std::forward<F>(predicate))) [[unlikely]] {
-            detail::log_impl<LogLevel::LL_ERROR, Config>("",
+            detail::log_impl<LogLevel::LL_FATAL, Config>("",
                                                          Config::show_source_location ? loc : std::source_location{});
         }
     }

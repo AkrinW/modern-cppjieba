@@ -1,4 +1,5 @@
 #include "gtest/gtest.h"
+#include "neo/Config.hpp"
 #include "neo/PosTag.hpp"
 
 #include "test_paths.h"
@@ -7,10 +8,25 @@
 #include <fstream>
 #include <set>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 using namespace neo_cppjieba;
+
+namespace {
+
+// Check which value categories may borrow a tag's character storage.
+template <typename T>
+concept CanBorrowTagData = requires(T &&tag) { std::forward<T>(tag).data(); };
+
+// Check which value categories may borrow a view of a tag.
+template <typename T>
+concept CanBorrowTagView = requires(T &&tag) { std::forward<T>(tag).to_string_view(); };
+
+} // namespace
 
 // ─── PosTag basic tests ─────────────────────────────────────────────────────
 
@@ -23,7 +39,7 @@ TEST(PosTagTest, DefaultIsEmpty) {
 }
 
 TEST(PosTagTest, ConstructFromStringView) {
-    auto tag = PosTag{"nr"};
+    const auto tag = PosTag{std::string_view{"nr"}};
     EXPECT_FALSE(tag.empty());
     EXPECT_EQ(tag.size(), 2u);
     EXPECT_EQ(tag.to_string(), "nr");
@@ -35,10 +51,52 @@ TEST(PosTagTest, ConstructMaxLength) {
     EXPECT_EQ(tag.to_string(), "nrfg");
 }
 
-TEST(PosTagTest, TruncatesLongerThan4) {
-    auto tag = PosTag{"abcde"};
-    EXPECT_EQ(tag.size(), 4u);
-    EXPECT_EQ(tag.to_string(), "abcd");
+TEST(PosTagTest, RejectsStringViewLongerThanMaxLength) {
+    EXPECT_THROW((void)PosTag{std::string_view{"abcde"}}, LogConfig::Exception);
+}
+
+TEST(PosTagTest, RejectsCStringLongerThanMaxLength) {
+    EXPECT_THROW((void)PosTag{"abcde"}, LogConfig::Exception);
+}
+
+TEST(PosTagTest, RejectsNulBytesInStringView) {
+    const auto embedded_nul = std::string_view{"n\0r", 3};
+    const auto leading_nul = std::string_view{"\0n", 2};
+    const auto trailing_nul = std::string_view{"n\0", 2};
+    EXPECT_THROW((void)PosTag{embedded_nul}, LogConfig::Exception);
+    EXPECT_THROW((void)PosTag{leading_nul}, LogConfig::Exception);
+    EXPECT_THROW((void)PosTag{trailing_nul}, LogConfig::Exception);
+}
+
+TEST(PosTagTest, RejectsNullCString) {
+    const char *input = nullptr;
+    EXPECT_THROW((void)PosTag{input}, LogConfig::Exception);
+}
+
+TEST(PosTagTest, AcceptsEmptyStringView) {
+    const auto tag = PosTag{std::string_view{}};
+    EXPECT_TRUE(tag.empty());
+    EXPECT_TRUE(tag.to_string_view().empty());
+    EXPECT_EQ(tag, PosTag{});
+}
+
+TEST(PosTagTest, ValidConstructionRemainsConstantEvaluable) {
+    constexpr auto tag = PosTag{std::string_view{"nrfg"}};
+    constexpr auto c_string_tag = PosTag{"nr"};
+    constexpr auto empty_tag = PosTag{std::string_view{}};
+    static_assert(tag.size() == PosTag::MaxLength);
+    static_assert(tag == std::string_view{"nrfg"});
+    static_assert(c_string_tag == pos::nr);
+    static_assert(empty_tag.empty());
+    EXPECT_EQ(tag, pos::nrfg);
+}
+
+TEST(PosTagTest, InputConstructorsAllowExceptions) {
+    static_assert(!std::is_nothrow_constructible_v<PosTag, std::string_view>);
+    static_assert(!std::is_nothrow_constructible_v<PosTag, const char *>);
+    static_assert(std::is_nothrow_default_constructible_v<PosTag>);
+    static_assert(std::is_nothrow_copy_constructible_v<PosTag>);
+    static_assert(std::is_nothrow_copy_assignable_v<PosTag>);
 }
 
 TEST(PosTagTest, Equality) {
@@ -55,6 +113,20 @@ TEST(PosTagTest, CompareWithStringView) {
     EXPECT_TRUE(tag != std::string_view("ad"));
 }
 
+TEST(PosTagTest, LongerStringViewDoesNotCompareEqualToPrefix) {
+    const auto tag = PosTag{"abcd"};
+    const auto longer = std::string_view{"abcde"};
+    EXPECT_FALSE(tag == longer);
+    EXPECT_TRUE(tag != longer);
+}
+
+TEST(PosTagTest, StringViewWithNulDoesNotCompareEqualToTag) {
+    const auto tag = PosTag{"n"};
+    const auto padded = std::string_view{"n\0", 2};
+    EXPECT_FALSE(tag == padded);
+    EXPECT_TRUE(tag != padded);
+}
+
 TEST(PosTagTest, ExplicitStringConversion) {
     auto tag = PosTag{"ad"};
     auto s = tag.to_string();
@@ -67,6 +139,22 @@ TEST(PosTagTest, ToStringView) {
     EXPECT_EQ(sv, "nrt");
     // The view points directly into the PosTag's internal storage.
     EXPECT_EQ(sv.data(), tag.data());
+}
+
+TEST(PosTagTest, BorrowedStorageRequiresLvalue) {
+    static_assert(CanBorrowTagData<PosTag &>);
+    static_assert(CanBorrowTagData<const PosTag &>);
+    static_assert(!CanBorrowTagData<PosTag>);
+    static_assert(!CanBorrowTagData<const PosTag>);
+    static_assert(CanBorrowTagView<PosTag &>);
+    static_assert(CanBorrowTagView<const PosTag &>);
+    static_assert(!CanBorrowTagView<PosTag>);
+    static_assert(!CanBorrowTagView<const PosTag>);
+}
+
+TEST(PosTagTest, TemporaryCanProduceOwningString) {
+    const auto text = PosTag{"nr"}.to_string();
+    EXPECT_EQ(text, "nr");
 }
 
 TEST(PosTagTest, PredefinedConstants) {
@@ -129,7 +217,7 @@ protected:
         ASSERT_FALSE(entries_.empty()) << "Dictionary is empty";
     }
 };
-}
+} // namespace
 
 // Every tag in jieba.dict.utf8 must be ≤ 4 characters (fits in PosTag).
 TEST_F(PosTagDictTest, AllTagsFitInPosTag) {

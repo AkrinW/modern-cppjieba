@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Logging.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace neo_cppjieba {
 
@@ -42,17 +45,22 @@ public:
     explicit constexpr PosTag() noexcept : data_{} {
     }
 
-    /// Construct from a string_view. Only the first 4 characters are stored.
-    /// If the input is longer than 4 characters, it is silently truncated.
-    explicit constexpr PosTag(std::string_view sv) noexcept : data_{} {
-        auto len = sv.size() < MaxLength ? sv.size() : MaxLength;
-        for (auto i = size_t{0}; i < len; ++i) {
+    /// Construct from a string_view containing at most 4 characters and no NUL bytes.
+    /// Invalid input throws; the valid path remains usable during constant evaluation.
+    explicit constexpr PosTag(std::string_view sv) : data_{} {
+        if (sv.size() > MaxLength) [[unlikely]] {
+            check(false, "POS tag length {} exceeds the maximum of {} bytes", sv.size(), MaxLength);
+        }
+        if (sv.find('\0') != std::string_view::npos) [[unlikely]] {
+            check(false, "POS tag must not contain NUL bytes");
+        }
+        for (auto i = size_t{0}; i < sv.size(); ++i) {
             data_[i] = sv[i];
         }
     }
 
     /// Construct from a C-string literal.
-    explicit constexpr PosTag(const char *s) noexcept : PosTag(std::string_view{s}) {
+    explicit constexpr PosTag(const char *s) : PosTag(checked_c_string(s)) {
     }
 
     /// Check whether the tag is empty (i.e. "").
@@ -72,15 +80,19 @@ public:
 
     /// Return a pointer to the internal character data.
     /// The data is not necessarily null-terminated when size() == MaxLength.
-    [[nodiscard]] constexpr auto data() const noexcept -> const char * {
+    /// Borrowing from a temporary is disabled to avoid dangling pointers.
+    [[nodiscard]] constexpr auto data() const & noexcept -> const char * {
         return data_;
     }
+    [[nodiscard]] constexpr auto data() const && noexcept -> const char * = delete;
 
     /// Return a string_view directly referencing the internal storage (zero-copy).
     /// The returned view is valid as long as this PosTag object is alive.
-    [[nodiscard]] constexpr auto to_string_view() const noexcept -> std::string_view {
+    /// Borrowing from a temporary is disabled to avoid dangling views.
+    [[nodiscard]] constexpr auto to_string_view() const & noexcept -> std::string_view {
         return std::string_view{data_, size()};
     }
+    [[nodiscard]] constexpr auto to_string_view() const && noexcept -> std::string_view = delete;
 
     /// Convert to std::string (explicit, makes a copy).
     [[nodiscard]] auto to_string() const -> std::string {
@@ -94,16 +106,17 @@ public:
     constexpr auto operator!=(const PosTag &other) const noexcept -> bool {
         return raw() != other.raw();
     }
+    /// Ordering follows the packed value, not lexicographical tag order.
     constexpr auto operator<(const PosTag &other) const noexcept -> bool {
         return raw() < other.raw();
     }
 
     /// Compare directly with a string_view.
     constexpr auto operator==(std::string_view sv) const noexcept -> bool {
-        return *this == PosTag(sv);
+        return to_string_view() == sv;
     }
     constexpr auto operator!=(std::string_view sv) const noexcept -> bool {
-        return *this != PosTag(sv);
+        return !(*this == sv);
     }
 
     /// Access the raw packed value (for efficient comparison / switch on raw()).
@@ -116,6 +129,14 @@ public:
     }
 
 private:
+    // Validate the pointer before string_view scans for the terminating NUL.
+    static constexpr auto checked_c_string(const char *s) -> std::string_view {
+        if (s == nullptr) [[unlikely]] {
+            check(false, "POS tag C-string must not be null");
+        }
+        return std::string_view{s};
+    }
+
     alignas(uint32_t) char data_[MaxLength];
 };
 

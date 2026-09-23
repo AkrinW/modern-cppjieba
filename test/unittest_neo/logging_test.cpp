@@ -271,6 +271,11 @@ struct NonConstantBufferLogConfig {
     using Exception = ProjectError;
 };
 
+// Assertion death tests verify the terminate handler is invoked without leaving core dumps.
+auto prepare_assertion_death_test() -> void {
+    std::set_terminate([] { std::_Exit(73); });
+}
+
 // Helper: capture stderr output from a callable.
 auto capture_stderr(auto &&fn) -> std::string {
     // Flush stderr first
@@ -535,34 +540,36 @@ TEST(LoggingTest, AssertCheckTrueWithArgsDoesNotThrow) {
     EXPECT_NO_THROW(assert_check([] { return true; }, "value={}", 42));
 }
 
-TEST(LoggingTest, AssertCheckFalseThrowsInDebug) {
+TEST(LoggingTest, AssertCheckFalseTerminatesInDebug) {
 #ifndef NDEBUG
-    EXPECT_THROW(assert_check([] { return false; }, "assert failed: {}", "bad"), std::runtime_error);
+    EXPECT_EXIT(
+        {
+            prepare_assertion_death_test();
+            assert_check([] { return false; }, "assert failed: {}", "bad");
+        },
+        ::testing::ExitedWithCode(73), "assert failed: bad");
 #endif
 }
 
-TEST(LoggingTest, AssertCheckFalseExceptionContainsMessage) {
+TEST(LoggingTest, AssertCheckFalseDiagnosticContainsMessage) {
 #ifndef NDEBUG
-    try {
-        assert_check([] { return false; }, "assert detail: {}", 789);
-        FAIL() << "Expected std::runtime_error";
-    } catch (const std::runtime_error &e) {
-        auto what = std::string_view{e.what()};
-        EXPECT_NE(what.find("ERROR"), std::string_view::npos);
-        EXPECT_NE(what.find("assert detail: 789"), std::string_view::npos);
-    }
+    EXPECT_EXIT(
+        {
+            prepare_assertion_death_test();
+            assert_check([] { return false; }, "assert detail: {}", 789);
+        },
+        ::testing::ExitedWithCode(73), "FATAL.*assert detail: 789");
 #endif
 }
 
-TEST(LoggingTest, AssertCheckFalseExceptionContainsSourceLocation) {
+TEST(LoggingTest, AssertCheckFalseDiagnosticContainsSourceLocation) {
 #ifndef NDEBUG
-    try {
-        assert_check([] { return false; }, "loc in assert_check");
-        FAIL() << "Expected std::runtime_error";
-    } catch (const std::runtime_error &e) {
-        auto what = std::string_view{e.what()};
-        EXPECT_NE(what.find("logging_test.cpp"), std::string_view::npos);
-    }
+    EXPECT_EXIT(
+        {
+            prepare_assertion_death_test();
+            assert_check([] { return false; }, "loc in assert_check");
+        },
+        ::testing::ExitedWithCode(73), "logging_test.cpp");
 #endif
 }
 
@@ -572,22 +579,25 @@ TEST(LoggingTest, AssertCheckNoArgsTrueDoesNotThrow) {
     EXPECT_NO_THROW(assert_check([] { return true; }));
 }
 
-TEST(LoggingTest, AssertCheckNoArgsFalseThrowsInDebug) {
+TEST(LoggingTest, AssertCheckNoArgsFalseTerminatesInDebug) {
 #ifndef NDEBUG
-    EXPECT_THROW(assert_check([] { return false; }), std::runtime_error);
+    EXPECT_EXIT(
+        {
+            prepare_assertion_death_test();
+            assert_check([] { return false; });
+        },
+        ::testing::ExitedWithCode(73), "FATAL");
 #endif
 }
 
-TEST(LoggingTest, AssertCheckNoArgsFalseExceptionContainsLocation) {
+TEST(LoggingTest, AssertCheckNoArgsFalseDiagnosticContainsLocation) {
 #ifndef NDEBUG
-    try {
-        assert_check([] { return false; });
-        FAIL() << "Expected std::runtime_error";
-    } catch (const std::runtime_error &e) {
-        auto what = std::string_view{e.what()};
-        EXPECT_NE(what.find("ERROR"), std::string_view::npos);
-        EXPECT_NE(what.find("logging_test.cpp"), std::string_view::npos);
-    }
+    EXPECT_EXIT(
+        {
+            prepare_assertion_death_test();
+            assert_check([] { return false; });
+        },
+        ::testing::ExitedWithCode(73), "FATAL.*logging_test.cpp");
 #endif
 }
 
@@ -836,14 +846,57 @@ TEST(LoggingTest, AssertCheckSkipsPredicateAndLazyArgumentsInRelease) {
         return ++argument_calls;
     };
     if constexpr (compile_config::is_debug_build) {
-        EXPECT_THROW(assert_check<PrivateLogConfig>(predicate, "lazy assert: {}", argument), ProjectError);
-        EXPECT_EQ(predicate_calls, 1);
-        EXPECT_EQ(argument_calls, 1);
+        EXPECT_EXIT(
+            {
+                prepare_assertion_death_test();
+                assert_check<PrivateLogConfig>(predicate, "lazy assert: {}, predicate calls: {}", argument,
+                                               [&] { return predicate_calls; });
+            },
+            ::testing::ExitedWithCode(73), "lazy assert: 1, predicate calls: 1");
     } else {
         EXPECT_NO_THROW(assert_check<PrivateLogConfig>(predicate, "lazy assert: {}", argument));
         EXPECT_EQ(predicate_calls, 0);
         EXPECT_EQ(argument_calls, 0);
     }
+}
+
+TEST(LoggingTest, AssertCheckTerminatesWhenLazyArgumentThrows) {
+    if constexpr (compile_config::is_debug_build) {
+        EXPECT_EXIT(
+            {
+                prepare_assertion_death_test();
+                assert_check([] { return false; }, "{}",
+                             []() -> int { throw std::runtime_error{"lazy diagnostic failed"}; });
+            },
+            ::testing::ExitedWithCode(73), "");
+    }
+}
+
+TEST(LoggingTest, AssertCheckTerminatesWithConfiguredThreshold) {
+    if constexpr (compile_config::is_debug_build) {
+        EXPECT_EXIT(
+            {
+                prepare_assertion_death_test();
+                assert_check<HighThresholdLogConfig>([] { return false; }, "assertion remains enabled");
+            },
+            ::testing::ExitedWithCode(73), "FATAL.*assertion remains enabled");
+    }
+}
+
+TEST(LoggingTest, AssertCheckNoArgsSkipsPredicateInRelease) {
+    auto calls = 0;
+    assert_check([&] { return ++calls == 1; });
+    EXPECT_EQ(calls, compile_config::is_debug_build ? 1 : 0);
+}
+
+TEST(LoggingTest, AssertCheckSupportsConstantEvaluation) {
+    constexpr auto valid = [] {
+        assert_check([] { return true; }, "constant assertion: {}", 42);
+        assert_check([] { return true; });
+        return true;
+    }();
+    static_assert(valid);
+    EXPECT_TRUE(valid);
 }
 
 TEST(LoggingTest, LogFatalTerminatesWhenLazyArgumentThrows) {
