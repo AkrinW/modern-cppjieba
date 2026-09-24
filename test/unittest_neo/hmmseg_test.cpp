@@ -8,9 +8,11 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -220,6 +222,82 @@ TEST_F(HMModelTest, UnknownRunesStillProduceContiguousRanges) {
     const auto runes = decode("外𠀀");
     const auto ranges = HMMSegment::cut(model, runes);
     EXPECT_EQ(to_strings(runes, ranges), (std::vector<std::string>{"外", "𠀀"}));
+}
+
+TEST_F(HMModelTest, ViterbiSelectsBestPathWhenInitialScoresAreBelowMinimumProbability) {
+    const auto lines = std::vector<std::string>{
+        "-2e100 -3e100 -3e100 -3e100",
+        "-3e100 0 -3e100 -3e100",
+        "-3e100 -3e100 -3e100 -3e100",
+        "-3e100 -3e100 -3e100 -3e100",
+        "-3e100 -3e100 -3e100 -3e100",
+        "甲:-2e100,乙:-3e100",
+        "甲:-3e100,乙:0",
+        "甲:-3e100,乙:-3e100",
+        "甲:-3e100,乙:-3e100",
+    };
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    const auto runes = decode("甲乙");
+    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲乙"}));
+}
+
+TEST_F(HMModelTest, ViterbiPreservesPathOrderingAsAccumulatedScoresFallBelowMinimumProbability) {
+    const auto lines = std::vector<std::string>{
+        "0 -3.14e100 -3.14e100 -2e100",
+        "-3.14e100 0 0 -3.14e100",
+        "0 -3.14e100 -3.14e100 0",
+        "-3.14e100 -0.25e100 0 -3.14e100",
+        "0 -3.14e100 -3.14e100 0",
+        "甲:-1e100,乙:-1e100,丙:-1e100,丁:-1e100",
+        "甲:-1e100,乙:-1e100,丙:-1e100,丁:-1e100",
+        "甲:-1e100,乙:-1e100,丙:-1e100,丁:-1e100",
+        "甲:-1e100,乙:-1e100,丙:-1e100,丁:-1e100",
+    };
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    const auto runes = decode("甲乙丙丁");
+    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲乙", "丙丁"}));
+}
+
+TEST_F(HMModelTest, StoredMinimumEmissionIsNotTreatedAsAnAbsentRune) {
+    const auto lines = std::vector<std::string>{
+        "0 -3.14e100 -3.14e100 -3.14e100",
+        "-3.14e100 0 -3.14e100 -3.14e100",
+        "-3.14e100 -3.14e100 -3.14e100 -3.14e100",
+        "-3.14e100 -3.14e100 -3.14e100 -3.14e100",
+        "-3.14e100 -3.14e100 -3.14e100 -3.14e100",
+        "甲:-3.14e100,乙:-3.14e100",
+        "甲:-3.14e100,乙:0",
+        "甲:-3.14e100,乙:-3.14e100",
+        "甲:-3.14e100,乙:-3.14e100",
+    };
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    const auto runes = decode("甲乙");
+    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲乙"}));
+}
+
+TEST_F(HMModelTest, UnknownRunesSeparateKnownWordsWithoutAffectingLaterScores) {
+    const auto lines = std::vector<std::string>{
+        "0 -100 -100 -100", "-100 0 -100 -100", "0 -100 -100 -100", "-100 -100 -100 -100", "0 -100 -100 -100",
+        "甲:0,乙:0",        "甲:0,乙:0",        "甲:0,乙:0",        "甲:0,乙:0",
+    };
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    const auto runes = decode("甲乙𠀀甲乙，外甲乙A12");
+    const auto words = HMMSegment::cut(model, runes);
+    EXPECT_EQ(to_strings(runes, words), (std::vector<std::string>{"甲乙", "𠀀", "甲乙", "，", "外", "甲乙", "A12"}));
+    EXPECT_EQ(words, (std::vector<WordRange>{{0, 2}, {2, 3}, {3, 5}, {5, 6}, {6, 7}, {7, 9}, {9, 12}}));
+}
+
+TEST_F(HMModelTest, HmmSegmentationPreservesOffsetsAtWordRangeLimit) {
+    const auto model = HMModel{model_path()};
+    const auto runes = decode("AB，𠀀");
+    constexpr auto limit = std::numeric_limits<uint32_t>::max();
+    auto words = std::vector<WordRange>{};
+    detail::hmm_cut_append(model, runes, words, limit - 4);
+    EXPECT_EQ(words, (std::vector<WordRange>{{limit - 4, limit - 2}, {limit - 2, limit - 1}, {limit - 1, limit}}));
 }
 
 TEST(HMMSegmentTest, EmptyInput) {

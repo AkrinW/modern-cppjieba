@@ -2,12 +2,14 @@
 
 #include "Dag.hpp"
 #include "DictTrie.hpp"
+#include "Logging.hpp"
 #include "StringUtil.hpp"
 #include "Unicode.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -23,6 +25,7 @@ namespace neo_cppjieba {
 /// dictionaries. The DictTrie is taken as a const reference parameter.
 struct FullSegment {
     [[nodiscard]] static auto cut(const DictTrie &dict, std::span<const Rune> runes) -> std::vector<WordRange> {
+        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "FullSegment: input exceeds the word-range limit");
         auto range = std::vector<WordRange>{};
         range.reserve(runes.size() / 2);
         auto segments = get_pre_filter_separators(runes);
@@ -43,12 +46,15 @@ private:
     /// Emit all dictionary matches inside one separator-free segment, plus uncovered single-rune fallbacks.
     static auto cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
                                 uint32_t pos) -> void {
+        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                     "FullSegment: global word offsets overflow");
         if (runes.empty()) {
             return;
         }
 
         auto dag = dict.find_dag(runes);
         auto n = dag.size();
+        assert_check([&] { return n == runes.size(); }, "FullSegment: DAG size must match the rune span");
 
         // max_covered tracks the furthest rune position covered by previously emitted dictionary words; used to decide
         // whether to emit single-char fallback tokens.
@@ -57,6 +63,8 @@ private:
         for (auto i = size_t{0}; i < n; ++i) {
             auto edges = dag.get_edges(i);
             auto edge_count = edges.size();
+            assert_check([&] { return !edges.empty() && edges.front().next_pos == i + 1; },
+                         "FullSegment: each DAG position must start with a single-rune edge");
 
             if (edge_count == 1) {
                 // Only one edge means this position has no longer dictionary match.
@@ -69,6 +77,8 @@ private:
                 // Multiple edges means there are overlapping dictionary words starting here.
                 // Full mode keeps every longer match so downstream callers can decide how to use them.
                 for (auto j = size_t{1}; j < edge_count; ++j) {
+                    assert_check([&] { return edges[j - 1].next_pos < edges[j].next_pos && edges[j].next_pos <= n; },
+                                 "FullSegment: DAG edge targets must increase within the rune span");
                     result.push_back(WordRange{pos + static_cast<uint32_t>(i), pos + edges[j].next_pos});
                 }
 

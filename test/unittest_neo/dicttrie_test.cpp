@@ -1,11 +1,16 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/DictTrie.hpp"
+#include "neo/FullSegment.hpp"
+#include "neo/HMModel.hpp"
 #include "neo/MPSegment.hpp"
+#include "neo/MixSegment.hpp"
+#include "neo/QuerySegment.hpp"
 
 #include "test_paths.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -203,6 +208,90 @@ TEST_F(DictTrieInputTest, MpSegmentationStillEmitsUnknownRunes) {
     const auto runes = decode("𠮷外");
     const auto words = MPSegment::cut(trie, runes);
     EXPECT_EQ(to_strings(runes, words), (std::vector<std::string>{"𠮷", "外"}));
+}
+
+TEST_F(DictTrieInputTest, SingleEntryWordSurvivesAllSegmentationModes) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲乙 1 n\n"));
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{DICT_DIR "/hmm_model.utf8"};
+    const auto runes = decode("𠮷，甲乙甲乙。");
+    const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {4, 6}, {6, 7}};
+
+    EXPECT_EQ(MPSegment::cut(trie, runes), expected);
+    EXPECT_EQ(FullSegment::cut(trie, runes), expected);
+    EXPECT_EQ(MixSegment<true>::cut(trie, model, runes), expected);
+    EXPECT_EQ(MixSegment<false>::cut(trie, model, runes), expected);
+    EXPECT_EQ(QuerySegment<true>::cut(trie, model, runes), expected);
+    EXPECT_EQ(QuerySegment<false>::cut(trie, model, runes), expected);
+}
+
+TEST_F(DictTrieInputTest, MpSegmentationKeepsLowFrequencyUserWordWithSingleEntryMainDictionary) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "主词 10 n\n"));
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 1 n\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲乙");
+    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲乙"}));
+}
+
+TEST_F(DictTrieInputTest, MpSegmentationPrefersDictionaryWordOverUnknownRunesOnEqualScores) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "主词 2 n\n基础 2 n\n"));
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 1 n\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲乙");
+    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲乙"}));
+}
+
+TEST_F(DictTrieInputTest, MpSegmentationPreservesEqualScoreOrderBetweenKnownWords) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲 2 n\n乙 2 n\n"));
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 1 n\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲乙");
+    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲", "乙"}));
+}
+
+TEST_F(DictTrieInputTest, MpSegmentationAcceptsPositiveUserWordWeights) {
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 60 n\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲乙");
+    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲乙"}));
+}
+
+TEST_F(DictTrieInputTest, MpSegmentationPreservesOffsetsAtWordRangeLimit) {
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("外，𠮷");
+    constexpr auto limit = std::numeric_limits<uint32_t>::max();
+    auto words = std::vector<WordRange>{};
+    detail::mp_cut_append(trie, runes, words, limit - 3);
+    EXPECT_EQ(words, (std::vector<WordRange>{{limit - 3, limit - 2}, {limit - 2, limit - 1}, {limit - 1, limit}}));
+}
+
+TEST_F(DictTrieInputTest, QueryDagIncludesFinalBigramAndTrigramAfterASeparator) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "abcd 1000 eng\n"));
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "ab 1 eng\nbc 1 eng\ncd 1 eng\nabc 1 eng\nbcd 1 eng\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{DICT_DIR "/hmm_model.utf8"};
+    const auto runes = decode("𠮷，abcd");
+    const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {3, 5}, {4, 6}, {2, 5}, {3, 6}, {2, 6}};
+
+    EXPECT_EQ(QuerySegment<true>::cut(trie, model, runes), expected);
+    EXPECT_EQ(QuerySegment<false>::cut(trie, model, runes), expected);
+}
+
+TEST_F(DictTrieInputTest, QueryHmmIncludesFinalBigramAndTrigramAfterASeparator) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "a 100 eng\nb 100 eng\nc 100 eng\nd 100 eng\n"));
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "ab 1 eng\nbc 1 eng\ncd 1 eng\nabc 1 eng\nbcd 1 eng\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{DICT_DIR "/hmm_model.utf8"};
+    const auto runes = decode("𠮷，abcd");
+    const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {3, 5}, {4, 6}, {2, 5}, {3, 6}, {2, 6}};
+
+    EXPECT_EQ(QuerySegment<true>::cut(trie, model, runes), expected);
 }
 
 // ─── Construction ────────────────────────────────────────────────────────────

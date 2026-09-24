@@ -3,12 +3,14 @@
 #include "DictTrie.hpp"
 #include "HMMSegment.hpp"
 #include "HMModel.hpp"
+#include "Logging.hpp"
 #include "MPSegment.hpp"
 #include "StringUtil.hpp"
 #include "Unicode.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -32,6 +34,7 @@ template <bool hmm = true>
 struct MixSegment {
     [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes)
         -> std::vector<WordRange> {
+        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "MixSegment: input exceeds the word-range limit");
         auto result = std::vector<WordRange>{};
         result.reserve(runes.size() / 2);
         cut(dict, model, runes, result);
@@ -42,6 +45,8 @@ private:
     /// Append mix-mode segmentation results while preserving separator runes as standalone tokens.
     static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
                     std::vector<WordRange> &result, uint32_t pos = 0) -> void {
+        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                     "MixSegment: global word offsets overflow");
         auto segments = get_pre_filter_separators(runes);
         auto segment_pos = pos;
         // First text segment before the first separator.
@@ -59,6 +64,8 @@ private:
     /// Perform mix-mode segmentation on a separator-free Unicode rune sequence.
     static auto cut_one_segment(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
                                 std::span<const Rune> runes, uint32_t pos) -> void {
+        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                     "MixSegment: global word offsets overflow");
         if (runes.empty()) {
             return;
         }
@@ -71,6 +78,10 @@ private:
     static auto append_mix_words(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
                                  const std::vector<WordRange> &mp_words, std::span<const Rune> runes, uint32_t pos)
         -> void {
+        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                     "MixSegment: global word offsets overflow");
+        assert_check([&] { return detail::valid_segment_partition(mp_words, runes.size()); },
+                     "MixSegment: MP words must cover the rune span exactly once");
         if constexpr (!hmm) {
             for (const auto &word : mp_words) {
                 result.push_back(WordRange{pos + word.begin, pos + word.end});
@@ -96,6 +107,7 @@ private:
                 ++j;
             }
 
+            assert_check([&] { return i < j; }, "MixSegment: HMM input must contain at least one MP word");
             auto run_begin = mp_words[i].begin;
             auto run_end = mp_words[j - 1].end;
             detail::hmm_cut_append(model, runes.subspan(run_begin, run_end - run_begin), result, pos + run_begin);
