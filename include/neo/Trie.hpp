@@ -1,22 +1,19 @@
 #pragma once
 
-#include "neo/Traits.hpp"
+#include "third_party/gtl.hpp"
 
-#include "Config.hpp"
 #include "Dag.hpp"
 #include "Logging.hpp"
 #include "PosTag.hpp"
+#include "Traits.hpp"
 #include "TrieStats.hpp"
 #include "Unicode.hpp"
 
-#include <array>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <memory>
-#include <queue>
 #include <span>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -42,336 +39,185 @@ struct DictUnit {
 static_assert(sizeof(DictUnit) == 8, "DictUnit must be exactly 8 bytes");
 static_assert(alignof(DictUnit) == 4);
 
-/// A compact Trie with contiguous node layout and adaptive child storage.
-///
-/// Design goals:
-///   1. All TrieNode objects live in a single flat std::vector<Node> — no per-node
-///      heap allocation for the nodes themselves. This gives good spatial locality
-///      when traversing from parent to child, especially with BFS-ordered indices.
-///   2. Child storage adapts to fanout:
-///        • Flat mode (≤ kFlatThreshold children): a sorted std::vector<ChildPair>
-///          is scanned linearly — cache-friendly and avoids hash overhead.
-///        • Map mode  (> kFlatThreshold children): std::unordered_map<Rune, ChildEntry>
-///          for O(1) amortized lookup on high-fanout nodes (e.g. the root).
-///      The threshold is chosen so that ~99 % of nodes use the flat path.
-///   3. DictUnit is stored inline in the ChildEntry (on the parent's edge),
-///      so the final lookup step reads the value directly — no extra node deref.
-///      A valid entry is distinguished by `DictUnit::has_value()` (weight > 0).
-///      The former weight restriction above is superseded: zero is valid; kMissingWordWeight marks absence.
-///   4. Nodes are BFS-ordered so that shallow levels (frequently accessed) cluster
-///      at the front of the vector.
-///
+/// A read-only character trie with direct BMP root transitions and one flat hash table.
+/// Each transition carries its dictionary value and a filter for the child's outgoing runes.
 class Trie {
-    /// Payload stored per edge. Carries the child index and an inline DictUnit
-    /// so that find() can return the value without dereferencing the child node.
-    struct ChildEntry {
-        int32_t child_index{-1}; // index of the child node in the nodes_ vector; -1 means no child
+    /// A negative child marks an absent root slot; zero marks a terminal edge without a child node.
+    struct Entry {
+        int32_t child{-1};
+        uint32_t filter{0};
         DictUnit value{};
     };
+    static_assert(sizeof(Entry) == 16);
 
-    /// A (rune, entry) pair used in the flat-array storage path.
-    struct ChildPair {
-        Rune rune{};
-        ChildEntry entry{};
-    };
+    using Transitions = gtl::flat_hash_map<uint64_t, Entry>;
+    static constexpr size_t kRootTableLimit = 0x10000;
 
-    /// Fanout threshold below which a node stores children in an inline array
-    /// (linear scan, zero heap allocation) rather than an unordered_map (hash lookup).
-    /// From jieba.dict stats: ~99 % of nodes have fanout ≤ 8.
-    static constexpr auto kFlatThreshold = TrieConfig::flat_threshold;
-    static_assert(kFlatThreshold <= std::numeric_limits<uint8_t>::max(),
-                  "TrieConfig::flat_threshold must fit the inline child count");
+    std::vector<Entry> root_;
+    Transitions transitions_;
+    size_t node_count_{0};
 
-    /// Inline fixed-capacity array of ChildPair — replaces std::vector to avoid
-    /// per-node heap allocation for the ~99 % of nodes with low fanout.
-    /// sizeof = kFlatThreshold * sizeof(ChildPair) + padding ≈ 132 bytes.
-    struct FlatChildren {
-        std::array<ChildPair, kFlatThreshold> data_{};
-        uint8_t size_{0};
+    /// Keep all rune bits separate from the parent id; root transitions use parent id zero.
+    [[nodiscard]] static constexpr auto transition_key(int32_t parent, Rune rune) noexcept -> uint64_t {
+        assert_check([&] { return parent >= 0; }, "Trie: negative transition parent");
+        return (static_cast<uint64_t>(parent) << 32) | static_cast<uint32_t>(rune);
+    }
 
-        auto push_back(const ChildPair &p) noexcept -> void {
-            assert_check([this] { return size_ < kFlatThreshold; }, "Trie: inline child capacity exceeded");
-            data_[size_] = p;
-            ++size_;
+    /// Collisions only add a table lookup; both 16-bit halves must match before probing.
+    [[nodiscard]] static constexpr auto child_bits(Rune rune) noexcept -> uint32_t {
+        const uint32_t hash = static_cast<uint32_t>(rune) * uint32_t{0x9E3779B1};
+        return (uint32_t{1} << (hash >> 28)) | (uint32_t{1} << (16 + ((hash >> 24) & 15)));
+    }
+
+    [[nodiscard]] auto find_root(Rune rune) const noexcept -> const Entry * {
+        assert_check([this] { return node_count_ > 0; }, "Trie: root lookup on an empty trie");
+        if (rune < root_.size()) {
+            const auto &entry = root_[rune];
+            return entry.child >= 0 ? &entry : nullptr;
         }
-        [[nodiscard]] auto size() const noexcept -> size_t {
-            return size_;
-        }
-        [[nodiscard]] auto begin() const noexcept -> const ChildPair * {
-            return data_.data();
-        }
-        [[nodiscard]] auto end() const noexcept -> const ChildPair * {
-            return data_.data() + size_;
-        }
-    };
+        const auto it = transitions_.find(transition_key(0, rune));
+        return it != transitions_.end() ? &it->second : nullptr;
+    }
 
-    using MapChildren = std::unordered_map<Rune, ChildEntry>;
-
-    struct Node {
-        enum class Kind : uint8_t { Flat, Map };
-
-        union {
-            FlatChildren flat;
-            MapChildren map;
-        };
-        Kind kind;
-
-        explicit Node() noexcept : flat{}, kind{Kind::Flat} {
-        }
-
-        ~Node() {
-            if (kind == Kind::Map) {
-                map.~MapChildren();
-            }
-        }
-
-        Node(Node &&o) noexcept : kind{o.kind} {
-            if (kind == Kind::Flat) {
-                flat = o.flat;
-            } else {
-                std::construct_at(&map, std::move(o.map));
-            }
-        }
-
-        auto operator=(Node &&o) noexcept -> Node & {
-            if (this != &o) {
-                if (kind == Kind::Map) {
-                    map.~MapChildren();
-                }
-                kind = o.kind;
-                if (kind == Kind::Flat) {
-                    flat = o.flat;
-                } else {
-                    std::construct_at(&map, std::move(o.map));
-                }
-            }
-            return *this;
-        }
-
-        Node(const Node &) = delete;
-        auto operator=(const Node &) -> Node & = delete;
-
-        auto set_flat(const FlatChildren &f) noexcept -> void {
-            if (kind == Kind::Map) {
-                map.~MapChildren();
-            }
-            flat = f;
-            kind = Kind::Flat;
-        }
-
-        auto set_map(MapChildren &&m) noexcept -> void {
-            if (kind == Kind::Map) {
-                map.~MapChildren();
-            }
-            std::construct_at(&map, std::move(m));
-            kind = Kind::Map;
-        }
-
-        /// Look up a child by rune. Returns nullptr if not found.
-        [[nodiscard]] auto find_child(Rune r) const noexcept -> const ChildEntry * {
-            if (kind == Kind::Flat) {
-                for (const auto &p : flat) {
-                    if (p.rune == r) {
-                        return &p.entry;
-                    }
-                }
-                return nullptr;
-            }
-            if (auto it = map.find(r); it != map.end()) {
-                return &it->second;
-            }
+    [[nodiscard]] auto find_child(const Entry &parent, Rune rune) const noexcept -> const Entry * {
+        assert_check([&] { return parent.child >= 0 && static_cast<size_t>(parent.child) < node_count_; },
+                     "Trie: invalid transition parent");
+        const auto bits = child_bits(rune);
+        if ((parent.filter & bits) != bits) {
+            assert_check(
+                [&] { return parent.child == 0 || !transitions_.contains(transition_key(parent.child, rune)); },
+                "Trie: child filter rejected an existing rune");
             return nullptr;
         }
+        assert_check([&] { return parent.child > 0; }, "Trie: terminal edge has a nonempty child filter");
+        const auto it = transitions_.find(transition_key(parent.child, rune));
+        return it != transitions_.end() ? &it->second : nullptr;
+    }
 
-        /// Number of children.
-        [[nodiscard]] auto child_count() const noexcept -> size_t {
-            return kind == Kind::Flat ? flat.size() : map.size();
-        }
-
-        /// Check if this node uses flat storage.
-        [[nodiscard]] auto is_flat() const noexcept -> bool {
-            return kind == Kind::Flat;
-        }
-    };
-
-    std::vector<Node> nodes_;
-
-public:
-    explicit Trie() = default;
-
-    /// Build the trie from parallel arrays of keys and values.
-    ///
-    /// Each key is a Unicode sequence (vector<Rune>); each value is a DictUnit.
-    /// Empty keys are silently skipped. Duplicate keys: last value wins.
-    ///
-    /// The internal layout is produced in three phases:
-    ///   1. Insert all keys into a temporary dynamic tree (vector-based, indexed).
-    ///      The DictUnit is stored on the *edge leading to* the terminal node,
-    ///      i.e. in the parent's map entry for the last Rune.
-    ///   2. BFS over the tree to assign contiguous indices (improves cache locality).
-    ///   3. Copy into the flat nodes_ vector with remapped child indices,
-    ///      choosing flat-array or hash-map storage per node based on fanout.
-    auto build(std::span<const Unicode> keys, std::span<const DictUnit> values) -> void {
-        assert_check([&] { return keys.size() == values.size(); }, "Trie: keys and values must have equal sizes");
-        nodes_.clear();
-
-        if (keys.empty()) {
-            return;
-        }
-
-        // ── Phase 1: Build a temporary tree with lazy node allocation ────
-        //
-        // Temporary nodes always use unordered_map for efficient insertion.
-        // An edge's child_index is -1 when no child node has been needed yet.
-        // A child node is only materialized when a subsequent key must traverse
-        // through that edge, keeping the total node count minimal.
-
-        auto temp = std::vector<MapChildren>{};
-        check(keys.size() <= temp.max_size() / 2, "Trie: too many keys to reserve temporary nodes: {}", keys.size());
-        temp.reserve(keys.size() * 2); // rough estimate
-        temp.emplace_back();           // root at index 0
-
-        for (auto i = size_t{0}; i < keys.size(); ++i) {
-            if (keys[i].empty()) {
-                continue;
+    /// The returned reference is consumed before the next insertion, which may rehash the table.
+    auto ensure_transition(int32_t parent, Rune rune) -> Entry & {
+        if (parent == 0 && rune < kRootTableLimit) {
+            assert_check([&] { return rune < root_.size(); }, "Trie: root table does not cover a dictionary rune");
+            auto &entry = root_[rune];
+            if (entry.child < 0) {
+                entry.child = 0;
             }
+            return entry;
+        }
+        return transitions_.try_emplace(transition_key(parent, rune), Entry{0, 0, {}}).first->second;
+    }
 
-            auto cur = int32_t{0};
-
-            // Traverse / insert all runes except the last — these need child nodes.
-            for (auto j = size_t{0}; j + 1 < keys[i].size(); ++j) {
-                assert_check([&] { return cur >= 0 && static_cast<size_t>(cur) < temp.size(); },
-                             "Trie: invalid temporary node index {}", cur);
-                auto &&r = keys[i][j];
-                auto &map = temp[cur];
-                auto it = map.find(r);
-                if (it == map.end()) {
-                    check(std::in_range<int32_t>(temp.size()), "Trie: node count exceeds the supported index range");
-                    cur = static_cast<int32_t>(temp.size());
-                    map.emplace(r, ChildEntry{cur});
-                    temp.emplace_back();
-                } else {
-                    if (it->second.child_index < 0) {
-                        // Lazy materialization: allocate a child node now.
-                        assert_check([&] { return it->second.child_index == -1; }, "Trie: invalid lazy child index");
-                        check(std::in_range<int32_t>(temp.size()),
-                              "Trie: node count exceeds the supported index range");
-                        it->second.child_index = static_cast<int32_t>(temp.size());
-                        temp.emplace_back();
-                    }
-                    cur = it->second.child_index;
-                }
-            }
-
-            // Last rune: only need an edge with the value, no child node required.
-            assert_check([&] { return cur >= 0 && static_cast<size_t>(cur) < temp.size(); },
-                         "Trie: invalid terminal parent index {}", cur);
-            auto &&last_rune = keys[i].back();
-            auto &map = temp[cur];
-            auto it = map.find(last_rune);
-            if (it == map.end()) {
-                map.insert({last_rune, ChildEntry{-1, values[i]}});
-            } else {
+    auto insert_word(std::span<const Rune> key, DictUnit value, std::vector<uint32_t> &filters) -> void {
+        auto parent = int32_t{0};
+        for (size_t i = 0; i < key.size(); ++i) {
+            assert_check([&] { return parent >= 0 && static_cast<size_t>(parent) < filters.size(); },
+                         "Trie: invalid build node index");
+            auto &entry = ensure_transition(parent, key[i]);
+            filters[parent] |= child_bits(key[i]);
+            if (i + 1 == key.size()) {
                 // Superseded by the last-value-wins policy; only the value is replaced.
                 // assert_check([&] { return !it->second.value.has_value(); },
                 //              "Trie: duplicate dictionary key"); // duplicate key should not have a value already
-                it->second.value = values[i];
+                entry.value = value;
+                return;
             }
-        }
-
-        // ── Phase 2: BFS to assign contiguous indices ────────────────────
-        //
-        // Only follow edges with child_index >= 0 (materialized child nodes).
-
-        auto n = temp.size();
-        auto bfs_order = std::vector<uint32_t>{};
-        bfs_order.reserve(n);
-        bfs_order.push_back(0);
-
-        auto new_index = std::vector<int32_t>(n, -1);
-        new_index[0] = 0;
-
-        for (auto front = size_t{0}; front < bfs_order.size(); ++front) {
-            for (auto &&[key, entry] : temp[bfs_order[front]]) {
-                assert_check([&] { return entry.child_index >= -1; }, "Trie: invalid child index sentinel");
-                if (entry.child_index >= 0) {
-                    assert_check([&] { return static_cast<size_t>(entry.child_index) < n; },
-                                 "Trie: child index {} exceeds {} temporary nodes", entry.child_index, n);
-                    assert_check([&] { return new_index[entry.child_index] == -1 && bfs_order.size() < n; },
-                                 "Trie: temporary nodes must form a tree");
-                    new_index[entry.child_index] = static_cast<int32_t>(bfs_order.size());
-                    bfs_order.push_back(static_cast<uint32_t>(entry.child_index));
-                }
+            if (entry.child == 0) {
+                // Lazy materialization: allocate a child node now.
+                check(std::in_range<int32_t>(filters.size()), "Trie: node count exceeds the supported index range");
+                entry.child = static_cast<int32_t>(filters.size());
+                filters.push_back(0);
             }
-        }
-        assert_check([&] { return bfs_order.size() == n; }, "Trie: unreachable temporary nodes");
-
-        // ── Phase 3: Populate flat nodes_ with remapped indices ──────────
-        //
-        // Per-node decision: if fanout ≤ kFlatThreshold → flat array,
-        // otherwise → unordered_map.  ~99 % of nodes take the flat path.
-        // Edges with child_index == -1 keep -1 (no remapping needed).
-
-        nodes_.resize(n);
-        for (auto i = size_t{0}; i < n; ++i) {
-            auto &t = temp[bfs_order[i]];
-            auto &node = nodes_[i];
-
-            if (t.size() <= kFlatThreshold) {
-                auto flat = FlatChildren{};
-                for (auto &&[rune, old_entry] : t) {
-                    auto new_child = old_entry.child_index >= 0 ? new_index[old_entry.child_index] : int32_t{-1};
-                    flat.push_back(ChildPair{rune, ChildEntry{new_child, old_entry.value}});
-                }
-                node.set_flat(flat);
-            } else {
-                auto map = MapChildren{};
-                map.reserve(t.size() * 4);
-                for (auto &&[rune, old_entry] : t) {
-                    auto new_child = old_entry.child_index >= 0 ? new_index[old_entry.child_index] : int32_t{-1};
-                    map.emplace(rune, ChildEntry{new_child, old_entry.value});
-                }
-                node.set_map(std::move(map));
-            }
+            parent = entry.child;
         }
     }
 
-    /// Find the DictUnit for an exact key match.
-    ///
-    /// @param key  a span of Runes representing the lookup key
-    /// @return     pointer to the stored DictUnit if found; nullptr otherwise.
-    ///             The pointer remains valid until the trie is rebuilt or destroyed.
-    ///
-    /// The value is fetched directly from the last ChildEntry in the map lookup,
-    /// avoiding an extra nodes_[child_index] dereference for the terminal node.
+    auto build_storage(std::span<const Unicode> keys, std::span<const DictUnit> values) -> void {
+        if (keys.empty()) {
+            return;
+        }
+        size_t root_extent = 0;
+        size_t word_count = 0;
+        for (const auto &key : keys) {
+            if (key.empty()) {
+                continue;
+            }
+            ++word_count;
+            if (key.front() < kRootTableLimit) {
+                root_extent = std::max(root_extent, static_cast<size_t>(key.front()) + 1);
+            }
+        }
+        root_.resize(root_extent);
+        transitions_.reserve(word_count);
+        auto filters = std::vector<uint32_t>{0};
+        check(word_count <= filters.max_size(), "Trie: too many dictionary words to reserve build nodes");
+        filters.reserve(word_count);
+        for (size_t i = 0; i < keys.size(); ++i) {
+            insert_word(keys[i], values[i], filters);
+        }
+        const auto set_filter = [&](Entry &entry) {
+            assert_check(
+                [&] {
+                    return entry.child >= -1 && (entry.child < 0 || static_cast<size_t>(entry.child) < filters.size());
+                },
+                "Trie: invalid built child index");
+            if (entry.child > 0) {
+                entry.filter = filters[entry.child];
+                assert_check([&] { return entry.filter != 0; }, "Trie: materialized node has no children");
+            }
+        };
+        for (auto &entry : root_) {
+            set_filter(entry);
+        }
+        for (auto &[key, entry] : transitions_) {
+            set_filter(entry);
+        }
+        node_count_ = filters.size();
+    }
+
+public:
+    explicit Trie() = default;
+    Trie(const Trie &) = delete;
+    auto operator=(const Trie &) -> Trie & = delete;
+
+    Trie(Trie &&other) noexcept
+        : root_{std::move(other.root_)}, transitions_{std::move(other.transitions_)},
+          node_count_{std::exchange(other.node_count_, 0)} {
+    }
+
+    auto operator=(Trie &&other) noexcept -> Trie & {
+        if (this != &other) {
+            root_ = std::move(other.root_);
+            transitions_ = std::move(other.transitions_);
+            node_count_ = std::exchange(other.node_count_, 0);
+        }
+        return *this;
+    }
+
+    /// Build from parallel key/value arrays. Empty keys are skipped; duplicate keys use the last value.
+    /// Publish only a complete trie, so allocation or size failures leave the previous dictionary intact.
+    auto build(std::span<const Unicode> keys, std::span<const DictUnit> values) -> void {
+        assert_check([&] { return keys.size() == values.size(); }, "Trie: keys and values must have equal sizes");
+        auto next = Trie{};
+        next.build_storage(keys, values);
+        *this = std::move(next);
+    }
+
+    /// Find an exact key, returning its dictionary payload by value.
     [[nodiscard]] auto find(std::span<const Rune> key) const -> DictUnit {
-        if (nodes_.empty() || key.empty()) {
-            return DictUnit{};
+        if (empty() || key.empty()) {
+            return {};
         }
-
-        auto cur = int32_t{0}; // start at root
-        const auto *last_entry = static_cast<const ChildEntry *>(nullptr);
-
-        for (auto i = size_t{0}; i < key.size(); ++i) {
-            assert_check([&] { return cur >= -1 && (cur < 0 || static_cast<size_t>(cur) < nodes_.size()); },
-                         "Trie: invalid lookup node index {}", cur);
-            if (cur < 0) {
-                return DictUnit{}; // previous edge had no child node
-            }
-            last_entry = nodes_[cur].find_child(key[i]);
-            if (!last_entry) {
-                return DictUnit{};
-            }
-            cur = last_entry->child_index;
+        const auto *entry = find_root(key.front());
+        for (size_t i = 1; entry && i < key.size(); ++i) {
+            entry = find_child(*entry, key[i]);
         }
-
-        return last_entry->value;
+        return entry ? entry->value : DictUnit{};
     }
 
     /// Convenience overload: decode any StringLike input (UTF-8, UTF-16, …) then look up.
     template <StringLike T>
     [[nodiscard]] auto find(const T &input) const -> DictUnit {
-        auto unicode = decode(input);
+        const auto unicode = decode(input);
         return find(std::span<const Rune>{unicode});
     }
 
@@ -379,200 +225,141 @@ public:
     /// Returns a Dag containing offsets and edges.
     [[nodiscard]] auto find_dag(std::span<const Rune> sentence) const -> Dag {
         auto dag = Dag{};
-        auto n = sentence.size();
+        const auto n = sentence.size();
         check(n <= std::numeric_limits<uint32_t>::max() && n < std::numeric_limits<size_t>::max(),
               "Trie: sentence has {} runes, exceeding the supported DAG index range", n);
         dag.offsets.resize(n + 1);
-
-        if (nodes_.empty() || n == 0) {
+        if (empty() || n == 0) {
             return dag;
         }
 
+        // Every rune contributes a single-rune edge, even when no dictionary word matches.
+        dag.edges.reserve(n);
+
         // We accumulate the edges directly into a flat vector.
-        for (auto i = size_t{0}; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i) {
             check(dag.edges.size() <= std::numeric_limits<uint32_t>::max(),
                   "Trie: DAG edge count exceeds the supported offset range");
             dag.offsets[i] = static_cast<uint32_t>(dag.edges.size());
-            auto cur = int32_t{0}; // start at root
 
             // In typical jieba, an edge for length-1 (single character) is always added first,
             // even if it does not form a word (weight = 0.0f).
             // The former zero sentinel is now kMissingWordWeight; known zero weights are retained.
-            const auto *last_entry = nodes_[cur].find_child(sentence[i]);
-            if (last_entry && last_entry->value.has_value()) {
-                dag.edges.push_back(DagEdge{static_cast<uint32_t>(i + 1), last_entry->value.weight});
-            } else {
-                dag.edges.push_back(DagEdge{static_cast<uint32_t>(i + 1), kMissingWordWeight});
-            }
-
-            if (last_entry) {
-                cur = last_entry->child_index;
-                assert_check([&] { return cur >= -1; }, "Trie: invalid DAG child index sentinel");
-                if (cur >= 0) {
-                    for (auto j = i + 1; j < n; ++j) {
-                        assert_check([&] { return static_cast<size_t>(cur) < nodes_.size(); },
-                                     "Trie: invalid DAG node index {}", cur);
-                        last_entry = nodes_[cur].find_child(sentence[j]);
-                        if (!last_entry) {
-                            break;
-                        }
-                        cur = last_entry->child_index;
-                        assert_check([&] { return cur >= -1; }, "Trie: invalid DAG child index sentinel");
-                        if (last_entry->value.has_value()) {
-                            dag.edges.push_back(DagEdge{static_cast<uint32_t>(j + 1), last_entry->value.weight});
-                        }
-                        if (cur < 0) {
-                            break;
-                        }
-                    }
+            const auto *entry = find_root(sentence[i]);
+            dag.edges.push_back({static_cast<uint32_t>(i + 1), entry ? entry->value.weight : kMissingWordWeight});
+            for (size_t j = i + 1; entry && j < n; ++j) {
+                entry = find_child(*entry, sentence[j]);
+                if (entry && entry->value.has_value()) {
+                    dag.edges.push_back({static_cast<uint32_t>(j + 1), entry->value.weight});
                 }
             }
         }
         check(dag.edges.size() <= std::numeric_limits<uint32_t>::max(),
               "Trie: DAG edge count exceeds the supported offset range");
         dag.offsets[n] = static_cast<uint32_t>(dag.edges.size());
-
         return dag;
     }
 
     template <StringLike T>
     [[nodiscard]] auto find_dag(const T &input) const -> Dag {
-        auto unicode = decode(input);
+        const auto unicode = decode(input);
         return find_dag(std::span<const Rune>{unicode});
     }
 
     /// Return the total number of nodes in the trie (including the root).
     [[nodiscard]] auto node_count() const noexcept -> size_t {
-        return nodes_.size();
+        return node_count_;
     }
 
     /// Check whether the trie is empty (has not been built, or built with no keys).
     [[nodiscard]] auto empty() const noexcept -> bool {
-        return nodes_.empty();
+        return node_count_ == 0;
     }
 
-    /// Collect structural statistics of the trie.
-    ///
-    /// Performs a BFS traversal over the node vector, computing depth,
-    /// branching factor, memory usage, and hash-map health metrics.
+    /// Reconstruct parent/depth information only when statistics are requested.
+    /// Parent ids precede child ids, so a linear pass suffices without retained node objects.
     [[nodiscard]] auto collect_stats() const -> TrieStats {
         auto stats = TrieStats{};
-        auto n = nodes_.size();
-        stats.node_count = n;
-
-        if (n == 0) {
+        stats.node_count = node_count_;
+        if (empty()) {
             return stats;
         }
 
-        // ── BFS to compute depths ────────────────────────────────────────
-
-        auto depth = std::vector<size_t>(n, 0);
-        auto bfs = std::queue<uint32_t>{};
-        bfs.push(0);
+        /// Temporary metadata for the cold statistics traversal.
+        struct NodeInfo {
+            size_t depth{0};
+            size_t fanout{0};
+            int32_t parent{-1};
+        };
+        auto nodes = std::vector<NodeInfo>(node_count_);
+        const auto visit = [&](int32_t parent, const Entry &entry) {
+            assert_check([&] { return parent >= 0 && static_cast<size_t>(parent) < node_count_; },
+                         "Trie: invalid statistics parent");
+            assert_check([&] { return entry.child >= 0; }, "Trie: absent transition in statistics");
+            ++nodes[parent].fanout;
+            ++stats.edge_count;
+            stats.value_count += entry.value.has_value();
+            if (entry.child == 0) {
+                ++stats.lazy_edge_count;
+                return;
+            }
+            assert_check([&] { return parent < entry.child && static_cast<size_t>(entry.child) < node_count_; },
+                         "Trie: child ids must follow their parents");
+            assert_check([&] { return nodes[entry.child].parent == -1; }, "Trie: statistics revisited a node");
+            nodes[entry.child].parent = parent;
+        };
+        for (const auto &entry : root_) {
+            if (entry.child >= 0) {
+                visit(0, entry);
+                ++stats.direct_root_edge_count;
+            }
+        }
+        for (const auto &[key, entry] : transitions_) {
+            visit(static_cast<int32_t>(key >> 32), entry);
+        }
+        stats.hashed_edge_count = transitions_.size();
 
         size_t total_depth = 0;
         size_t total_leaf_depth = 0;
-
-        while (!bfs.empty()) {
-            auto cur = bfs.front();
-            bfs.pop();
-            assert_check([&] { return cur < n; }, "Trie: invalid statistics node index {}", cur);
-
-            const auto &node = nodes_[cur];
-            auto fanout = node.child_count();
-
-            stats.edge_count += fanout;
-
-            // Helper lambda that processes each (rune, entry) pair.
-            auto visit_child = [&](Rune /*rune*/, const ChildEntry &entry) {
-                assert_check([&] { return entry.child_index >= -1; }, "Trie: invalid statistics child index sentinel");
-                if (entry.value.has_value()) {
-                    ++stats.value_count;
-                }
-                if (entry.child_index >= 0) {
-                    auto ci = static_cast<uint32_t>(entry.child_index);
-                    assert_check([&] { return cur < ci && ci < n; }, "Trie: child indices must follow BFS order");
-                    assert_check([&] { return depth[ci] == 0; }, "Trie: statistics traversal revisited a child node");
-                    depth[ci] = depth[cur] + 1;
-                    bfs.push(ci);
-                } else {
-                    ++stats.lazy_edge_count;
-                }
-            };
-
-            if (node.is_flat()) {
-                ++stats.flat_node_count;
-                for (auto &&p : node.flat) {
-                    visit_child(p.rune, p.entry);
-                }
-            } else {
-                ++stats.map_node_count;
-                for (auto &&[rune, entry] : node.map) {
-                    visit_child(rune, entry);
-                }
-                if (!node.map.empty()) {
-                    stats.avg_load_factor += node.map.load_factor();
-                    stats.total_bucket_count += node.map.bucket_count();
-                }
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            auto &node = nodes[i];
+            if (i > 0) {
+                assert_check([&] { return node.parent >= 0 && static_cast<size_t>(node.parent) < i; },
+                             "Trie: unreachable statistics node");
+                node.depth = nodes[node.parent].depth + 1;
             }
-
-            total_depth += depth[cur];
-
-            if (fanout == 0) {
+            total_depth += node.depth;
+            if (node.fanout == 0) {
                 ++stats.leaf_count;
-                total_leaf_depth += depth[cur];
+                total_leaf_depth += node.depth;
             }
-
-            if (depth[cur] > stats.max_depth) {
-                stats.max_depth = depth[cur];
+            stats.max_depth = std::max(stats.max_depth, node.depth);
+            stats.max_fanout = std::max(stats.max_fanout, node.fanout);
+            if (node.depth >= stats.depth_histogram.size()) {
+                stats.depth_histogram.resize(node.depth + 1, 0);
             }
-            if (fanout > stats.max_fanout) {
-                stats.max_fanout = fanout;
+            ++stats.depth_histogram[node.depth];
+            if (node.fanout >= stats.fanout_histogram.size()) {
+                stats.fanout_histogram.resize(node.fanout + 1, 0);
             }
-
-            if (depth[cur] >= stats.depth_histogram.size()) {
-                stats.depth_histogram.resize(depth[cur] + 1, 0);
-            }
-            ++stats.depth_histogram[depth[cur]];
-
-            if (fanout >= stats.fanout_histogram.size()) {
-                stats.fanout_histogram.resize(fanout + 1, 0);
-            }
-            ++stats.fanout_histogram[fanout];
+            ++stats.fanout_histogram[node.fanout];
         }
-
-        // ── Averages ─────────────────────────────────────────────────────
-
-        assert_check([&] { return stats.flat_node_count <= n && stats.map_node_count == n - stats.flat_node_count; },
-                     "Trie: statistics traversal must visit every node exactly once");
-        assert_check([&] { return stats.leaf_count <= n; }, "Trie: leaf count exceeds the node count");
-        stats.avg_depth = n > 0 ? static_cast<double>(total_depth) / static_cast<double>(n) : 0.0;
-        stats.avg_leaf_depth =
-            stats.leaf_count > 0 ? static_cast<double>(total_leaf_depth) / static_cast<double>(stats.leaf_count) : 0.0;
-
-        size_t non_leaf = n - stats.leaf_count;
-        stats.avg_fanout = non_leaf > 0 ? static_cast<double>(stats.edge_count) / static_cast<double>(non_leaf) : 0.0;
-        stats.avg_load_factor =
-            stats.map_node_count > 0 ? stats.avg_load_factor / static_cast<double>(stats.map_node_count) : 0.0;
-
-        // ── Memory estimation ────────────────────────────────────────────
-        constexpr auto node_struct_size = sizeof(Node);
-        constexpr auto map_pair_size = sizeof(std::pair<const Rune, ChildEntry>);
-        constexpr auto map_element_overhead = map_pair_size + 24;
-        constexpr auto bucket_overhead = 8;
-
-        stats.node_vector_bytes = node_struct_size * n;
-
-        size_t map_edge_count = 0;
-        for (size_t f = kFlatThreshold + 1; f < stats.fanout_histogram.size(); ++f) {
-            map_edge_count += stats.fanout_histogram[f] * f;
+        stats.avg_depth = static_cast<double>(total_depth) / static_cast<double>(node_count_);
+        if (stats.leaf_count > 0) {
+            stats.avg_leaf_depth = static_cast<double>(total_leaf_depth) / static_cast<double>(stats.leaf_count);
         }
-
-        size_t map_heap_bytes = map_edge_count * map_element_overhead + stats.total_bucket_count * bucket_overhead;
-
-        stats.hashmap_overhead_bytes = map_heap_bytes;
-        stats.total_estimated_bytes = stats.node_vector_bytes + stats.hashmap_overhead_bytes;
-
+        const auto non_leaf_count = node_count_ - stats.leaf_count;
+        if (non_leaf_count > 0) {
+            stats.avg_fanout = static_cast<double>(stats.edge_count) / static_cast<double>(non_leaf_count);
+        }
+        stats.transition_capacity = transitions_.capacity();
+        stats.transition_load_factor = transitions_.load_factor();
+        stats.root_table_bytes = root_.capacity() * sizeof(Entry);
+        if (stats.transition_capacity > 0) {
+            // Include slot payloads, control bytes, and an upper bound for SIMD/padding overhead.
+            stats.transition_table_bytes = stats.transition_capacity * (sizeof(Transitions::value_type) + 1) + 32;
+        }
+        stats.total_estimated_bytes = stats.root_table_bytes + stats.transition_table_bytes;
         return stats;
     }
 };

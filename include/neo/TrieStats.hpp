@@ -19,7 +19,7 @@ struct TrieStats {
     // ── Basic counts ─────────────────────────────────────────────────────
     size_t node_count = 0;  ///< Total number of nodes (including root).
     size_t edge_count = 0;  ///< Total number of edges (sum of all children sizes).
-    size_t value_count = 0; ///< Number of ChildEntries that carry a DictUnit value.
+    size_t value_count = 0; ///< Number of transitions that carry a DictUnit value.
     size_t leaf_count = 0;  ///< Nodes with zero children.
 
     // ── Depth (distance from root) ───────────────────────────────────────
@@ -34,37 +34,40 @@ struct TrieStats {
     std::vector<size_t> fanout_histogram; ///< fanout_histogram[f] = #nodes with f children.
 
     // ── Memory estimation (bytes) ────────────────────────────────────────
-    size_t node_vector_bytes = 0;      ///< sizeof(Node) * node_count  (the vector storage).
-    size_t hashmap_overhead_bytes = 0; ///< Estimated heap used by all unordered_maps.
-    size_t total_estimated_bytes = 0;  ///< node_vector_bytes + hashmap_overhead_bytes.
+    size_t root_table_bytes = 0;       ///< Storage for direct BMP root transitions.
+    size_t transition_table_bytes = 0; ///< Estimated flat hash table slots and control bytes.
+    size_t total_estimated_bytes = 0;  ///< root_table_bytes + transition_table_bytes.
 
     // ── Hash map health ──────────────────────────────────────────────────
-    double avg_load_factor = 0.0;  ///< Average load_factor() across all hash-map nodes.
-    size_t total_bucket_count = 0; ///< Sum of bucket_count() across all hash-map nodes.
+    double transition_load_factor = 0.0; ///< Load factor of the shared transition table.
+    size_t transition_capacity = 0;      ///< Number of slots in the shared transition table.
 
     // ── Lazy insert savings ───────────────────────────────────────────────
-    size_t lazy_edge_count = 0; ///< Edges with child_index == -1 (no child node allocated).
+    size_t lazy_edge_count = 0; ///< Terminal edges without a materialized child node.
 
     // ── Hybrid storage ───────────────────────────────────────────────────
-    size_t flat_node_count = 0; ///< Nodes using flat-array children.
-    size_t map_node_count = 0;  ///< Nodes using hash-map children.
+    size_t direct_root_edge_count = 0; ///< Root transitions stored in the BMP table.
+    size_t hashed_edge_count = 0;      ///< Other transitions stored in the flat hash table.
 
     /// Pretty-print the stats to a string.
     [[nodiscard]] auto to_string() const -> std::string {
         assert_check([this] { return leaf_count <= node_count; }, "TrieStats: leaf count exceeds the node count");
         assert_check([this] { return value_count <= edge_count && lazy_edge_count <= edge_count; },
                      "TrieStats: inconsistent edge counts");
-        assert_check([this] { return flat_node_count <= node_count && map_node_count == node_count - flat_node_count; },
-                     "TrieStats: storage counts must cover all nodes");
         assert_check(
             [this] {
-                return node_vector_bytes <= total_estimated_bytes
-                       && hashmap_overhead_bytes == total_estimated_bytes - node_vector_bytes;
+                return direct_root_edge_count <= edge_count && hashed_edge_count == edge_count - direct_root_edge_count;
+            },
+            "TrieStats: storage counts must cover all transitions");
+        assert_check(
+            [this] {
+                return root_table_bytes <= total_estimated_bytes
+                       && transition_table_bytes == total_estimated_bytes - root_table_bytes;
             },
             "TrieStats: inconsistent memory estimates");
         assert_check([this] { return std::isfinite(avg_depth) && std::isfinite(avg_leaf_depth); },
                      "TrieStats: non-finite depth statistics");
-        assert_check([this] { return std::isfinite(avg_fanout) && std::isfinite(avg_load_factor); },
+        assert_check([this] { return std::isfinite(avg_fanout) && std::isfinite(transition_load_factor); },
                      "TrieStats: non-finite branching or load statistics");
         std::string s;
         s.reserve(2048);
@@ -99,8 +102,8 @@ struct TrieStats {
 
         s += "├─────────────────────────────────────────────────┤\n";
 
-        line("Node vector bytes", node_vector_bytes);
-        line("HashMap overhead bytes", hashmap_overhead_bytes);
+        line("Direct root bytes", root_table_bytes);
+        line("Transition table bytes", transition_table_bytes);
         line("Total estimated bytes", total_estimated_bytes);
         s += std::format("  {:<30}  {:>9.2f} MB\n", "Total estimated",
                          static_cast<double>(total_estimated_bytes) / (1024.0 * 1024.0));
@@ -111,10 +114,10 @@ struct TrieStats {
 
         s += "├─────────────────────────────────────────────────┤\n";
 
-        line("Total bucket count", total_bucket_count);
-        line("Avg load factor (map nodes)", avg_load_factor);
-        line("Flat node count", flat_node_count);
-        line("Map node count", map_node_count);
+        line("Hash table capacity", transition_capacity);
+        line("Hash table load factor", transition_load_factor);
+        line("Direct root edges", direct_root_edge_count);
+        line("Hashed edges", hashed_edge_count);
 
         s += "├─────────────────────────────────────────────────┤\n";
 

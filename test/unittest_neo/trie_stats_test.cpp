@@ -10,10 +10,13 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <map>
 #include <print>
+#include <random>
 #include <ranges>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace neo_cppjieba;
@@ -98,7 +101,7 @@ TEST(TrieStatsTest, CountsZeroWeightDictionaryEntries) {
     EXPECT_EQ(trie.collect_stats().value_count, 2u);
 }
 
-TEST(TrieTest, PreservesPrefixValuesWhenTemporaryNodesGrow) {
+TEST(TrieTest, PreservesPrefixValuesWhenTransitionTableGrows) {
     const auto keys = std::vector<Unicode>{{U'a'}, Unicode(512, U'a'), {U'a', U'b'}};
     const auto values = std::vector<DictUnit>{{-1.0f, PosTag{"n"}}, {-2.0f, PosTag{"n"}}, {-3.0f, PosTag{"v"}}};
     auto trie = Trie{};
@@ -158,8 +161,8 @@ TEST(TrieStatsTest, EmptyKeysProduceRootOnlyStatistics) {
     EXPECT_FALSE(stats.to_string().empty());
 }
 
-TEST(TrieStatsTest, FindsWordsAcrossConfiguredFanoutThreshold) {
-    const auto fanouts = std::array{TrieConfig::flat_threshold, TrieConfig::flat_threshold + 1};
+TEST(TrieStatsTest, FindsWordsAcrossSmallAndLargeFanouts) {
+    const auto fanouts = std::array<size_t, 3>{1, 4, 64};
     for (const auto fanout : fanouts) {
         auto keys = std::vector<Unicode>{};
         auto values = std::vector<DictUnit>{};
@@ -178,6 +181,212 @@ TEST(TrieStatsTest, FindsWordsAcrossConfiguredFanoutThreshold) {
         }
         EXPECT_FALSE(trie.find(U"\u9FFF").has_value());
     }
+}
+
+TEST(TrieTest, FindsHighFanoutChildrenAcrossUnicodeRange) {
+    const auto boundary_runes = std::array{U'\0', U'中', U'\U0001F600', U'\U0010FFFF'};
+    const auto fanout = boundary_runes.size() + 4;
+    auto keys = std::vector<Unicode>{};
+    auto values = std::vector<DictUnit>{};
+    keys.reserve(2 * fanout);
+    values.reserve(2 * fanout);
+    for (auto i = size_t{0}; i < fanout; ++i) {
+        const auto rune = i < boundary_runes.size() ? boundary_runes[i] : static_cast<Rune>(U'\u4E00' + i);
+        keys.push_back({rune});
+        keys.push_back({U'词', rune});
+        values.push_back({static_cast<float>(i), PosTag{"n"}});
+        values.push_back({-static_cast<float>(i), PosTag{"v"}});
+    }
+    auto trie = Trie{};
+    trie.build(keys, values);
+    for (auto i = size_t{0}; i < keys.size(); ++i) {
+        const auto found = trie.find(std::span<const Rune>{keys[i]});
+        ASSERT_TRUE(found.has_value());
+        EXPECT_FLOAT_EQ(found.weight, values[i].weight);
+        EXPECT_EQ(found.tag, values[i].tag);
+    }
+    EXPECT_FALSE(trie.find("词").has_value());
+    EXPECT_FALSE(trie.find("词外").has_value());
+    EXPECT_FALSE(trie.find("𠮷").has_value());
+    EXPECT_FALSE(trie.find("词𠮷").has_value());
+}
+
+TEST(TrieTest, HighFanoutDagPreservesMatchingPrefixesAndUnknownRunes) {
+    auto keys = std::vector<Unicode>{};
+    auto values = std::vector<DictUnit>{};
+    const auto fanout = size_t{32};
+    keys.reserve(fanout);
+    values.reserve(fanout);
+    for (auto i = size_t{0}; i < fanout; ++i) {
+        keys.push_back({U'词', static_cast<Rune>(U'\U00020000' + i)});
+        values.push_back({static_cast<float>(i), PosTag{}});
+    }
+    auto trie = Trie{};
+    trie.build(keys, values);
+    for (auto i = size_t{0}; i <= fanout; ++i) {
+        const auto sentence = Unicode{U'词', static_cast<Rune>(U'\U00020000' + i), U'外'};
+        const auto dag = trie.find_dag(std::span<const Rune>{sentence});
+        ASSERT_EQ(dag.size(), 3u);
+        const auto prefixes = dag.get_edges(0);
+        ASSERT_EQ(prefixes.size(), i < fanout ? 2u : 1u);
+        EXPECT_EQ(prefixes[0].next_pos, 1u);
+        EXPECT_EQ(prefixes[0].weight, kMissingWordWeight);
+        if (i < fanout) {
+            EXPECT_EQ(prefixes[1].next_pos, 2u);
+            EXPECT_FLOAT_EQ(prefixes[1].weight, values[i].weight);
+        }
+        for (auto pos = size_t{1}; pos < sentence.size(); ++pos) {
+            const auto edges = dag.get_edges(pos);
+            ASSERT_EQ(edges.size(), 1u);
+            EXPECT_EQ(edges[0].next_pos, pos + 1);
+            EXPECT_EQ(edges[0].weight, kMissingWordWeight);
+        }
+    }
+}
+
+TEST(TrieTest, DistinguishesRootTableBoundaryAndSupplementaryRunes) {
+    const auto keys = std::vector<Unicode>{{U'\0'},         {U'\uFFFF'},        {U'\U00010000'},
+                                           {U'\U0010FFFF'}, {U'\uFFFF', U'中'}, {U'\U00010000', U'中'}};
+    const auto values = std::vector<DictUnit>{{0.0f, PosTag{}},  {-1.0f, PosTag{}}, {-2.0f, PosTag{}},
+                                              {-3.0f, PosTag{}}, {-4.0f, PosTag{}}, {-5.0f, PosTag{}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+    for (size_t i = 0; i < keys.size(); ++i) {
+        const auto found = trie.find(std::span<const Rune>{keys[i]});
+        ASSERT_TRUE(found.has_value());
+        EXPECT_FLOAT_EQ(found.weight, values[i].weight);
+    }
+    EXPECT_FALSE(trie.find(U"\U00010001").has_value());
+    EXPECT_FALSE(trie.find(U"\U0010FFFF中").has_value());
+}
+
+TEST(TrieTest, TerminalWordsDoNotReuseRootTransitions) {
+    const auto keys = std::vector<Unicode>{decode("𠮷"), decode("😀"), decode("中")};
+    const auto values = std::vector<DictUnit>{{0.0f, PosTag{}}, {-1.0f, PosTag{}}, {-2.0f, PosTag{}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+    EXPECT_FALSE(trie.find("𠮷😀").has_value());
+    EXPECT_FALSE(trie.find("中𠮷").has_value());
+    const auto dag = trie.find_dag("𠮷😀中");
+    ASSERT_EQ(dag.size(), 3u);
+    for (size_t i = 0; i < dag.size(); ++i) {
+        const auto edges = dag.get_edges(i);
+        ASSERT_EQ(edges.size(), 1u);
+        EXPECT_EQ(edges.front().next_pos, i + 1);
+        EXPECT_FLOAT_EQ(edges.front().weight, values[i].weight);
+    }
+}
+
+TEST(TrieTest, RebuildReplacesDirectAndHashedWords) {
+    const auto old_keys = std::vector<Unicode>{decode("中"), decode("𠮷中")};
+    const auto old_values = std::vector<DictUnit>{{0.0f, PosTag{}}, {-1.0f, PosTag{}}};
+    const auto new_keys = std::vector<Unicode>{decode("新词")};
+    const auto new_values = std::vector<DictUnit>{{-2.0f, PosTag{"n"}}};
+    auto trie = Trie{};
+    trie.build(old_keys, old_values);
+    trie.build(new_keys, new_values);
+    EXPECT_FALSE(trie.find("中").has_value());
+    EXPECT_FALSE(trie.find("𠮷中").has_value());
+    EXPECT_FLOAT_EQ(trie.find("新词").weight, -2.0f);
+    EXPECT_EQ(trie.collect_stats().value_count, 1u);
+    trie.build(std::span<const Unicode>{}, std::span<const DictUnit>{});
+    EXPECT_TRUE(trie.empty());
+    EXPECT_FALSE(trie.find("新词").has_value());
+    EXPECT_EQ(trie.collect_stats().total_estimated_bytes, 0u);
+}
+
+TEST(TrieTest, MovedFromTrieCanBeQueriedAndRebuilt) {
+    const auto keys = std::vector<Unicode>{decode("𠮷中")};
+    const auto values = std::vector<DictUnit>{{0.0f, PosTag{"n"}}};
+    auto source = Trie{};
+    source.build(keys, values);
+    const auto moved = Trie{std::move(source)};
+    EXPECT_FLOAT_EQ(moved.find("𠮷中").weight, 0.0f);
+    EXPECT_TRUE(source.empty());
+    EXPECT_EQ(source.node_count(), 0u);
+    EXPECT_FALSE(source.find("𠮷中").has_value());
+    EXPECT_TRUE(source.find_dag("𠮷中").edges.empty());
+    EXPECT_EQ(source.collect_stats().edge_count, 0u);
+    source.build(keys, values);
+    EXPECT_FLOAT_EQ(source.find("𠮷中").weight, 0.0f);
+}
+
+TEST(TrieTest, DagMatchesIndependentDictionaryAcrossSharedUnicodePrefixes) {
+    const auto alphabet = std::array{U'\0', U'a', U'b', U'中', U'词', U'𠮷', U'😀', U'\uFFFF', U'\U00010000'};
+    auto rng = std::mt19937{42};
+    auto keys = std::vector<Unicode>{};
+    auto values = std::vector<DictUnit>{};
+    auto expected = std::map<std::u32string, DictUnit>{};
+    keys.reserve(600);
+    values.reserve(600);
+    for (size_t i = 0; i < 600; ++i) {
+        auto key = Unicode{};
+        const auto length = size_t{1} + rng() % 6;
+        key.reserve(length);
+        for (size_t j = 0; j < length; ++j) {
+            key.push_back(alphabet[rng() % alphabet.size()]);
+        }
+        const auto value = DictUnit{-static_cast<float>(i % 13), PosTag{"n"}};
+        expected[std::u32string{key.begin(), key.end()}] = value;
+        keys.push_back(std::move(key));
+        values.push_back(value);
+    }
+    auto trie = Trie{};
+    trie.build(keys, values);
+    for (const auto &[key, value] : expected) {
+        const auto found = trie.find(std::span<const Rune>{key});
+        EXPECT_FLOAT_EQ(found.weight, value.weight);
+        EXPECT_EQ(found.tag, value.tag);
+        const auto dag = trie.find_dag(std::span<const Rune>{key});
+        ASSERT_EQ(dag.size(), key.size());
+        for (size_t i = 0; i < key.size(); ++i) {
+            auto expected_edges = std::vector<DagEdge>{};
+            auto prefix = std::u32string{};
+            for (size_t j = i; j < key.size(); ++j) {
+                prefix.push_back(key[j]);
+                const auto match = expected.find(prefix);
+                if (j == i || match != expected.end()) {
+                    expected_edges.push_back({static_cast<uint32_t>(j + 1),
+                                              match != expected.end() ? match->second.weight : kMissingWordWeight});
+                }
+            }
+            const auto actual = dag.get_edges(i);
+            ASSERT_EQ(actual.size(), expected_edges.size());
+            for (size_t j = 0; j < actual.size(); ++j) {
+                EXPECT_EQ(actual[j].next_pos, expected_edges[j].next_pos);
+                EXPECT_FLOAT_EQ(actual[j].weight, expected_edges[j].weight);
+            }
+        }
+    }
+}
+
+TEST(TrieStatsTest, AccountsForDirectAndHashedTransitions) {
+    const auto keys = std::vector<Unicode>{decode("a"), decode("ab"), decode("𠮷"), decode("𠮷中")};
+    const auto values = std::vector<DictUnit>(keys.size(), DictUnit{0.0f, PosTag{}});
+    auto trie = Trie{};
+    trie.build(keys, values);
+    const auto stats = trie.collect_stats();
+    EXPECT_EQ(stats.node_count, 3u);
+    EXPECT_EQ(stats.edge_count, 4u);
+    EXPECT_EQ(stats.direct_root_edge_count, 1u);
+    EXPECT_EQ(stats.hashed_edge_count, 3u);
+    EXPECT_GT(stats.root_table_bytes, 0u);
+    EXPECT_LT(stats.root_table_bytes, 4096u);
+    EXPECT_GT(stats.transition_table_bytes, 0u);
+    EXPECT_EQ(stats.total_estimated_bytes, stats.root_table_bytes + stats.transition_table_bytes);
+    EXPECT_FALSE(stats.to_string().empty());
+}
+
+TEST(TrieStatsTest, SupplementaryRootsNeedNoBmpTable) {
+    const auto keys = std::vector<Unicode>{decode("𠮷")};
+    const auto values = std::vector<DictUnit>{{0.0f, PosTag{}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+    const auto stats = trie.collect_stats();
+    EXPECT_EQ(stats.root_table_bytes, 0u);
+    EXPECT_EQ(stats.direct_root_edge_count, 0u);
+    EXPECT_EQ(stats.hashed_edge_count, 1u);
+    EXPECT_FLOAT_EQ(trie.find("𠮷").weight, 0.0f);
 }
 
 /// Helper: load jieba.dict.utf8 and build a neo Trie.
@@ -373,6 +582,6 @@ TEST(TrieStatsTest, JiebaDict) {
     EXPECT_FALSE(stats.fanout_histogram.empty());
 
     // Average load factor should be between 0 and 1 (healthy hash maps).
-    EXPECT_GT(stats.avg_load_factor, 0.0);
-    EXPECT_LE(stats.avg_load_factor, 1.0);
+    EXPECT_GT(stats.transition_load_factor, 0.0);
+    EXPECT_LE(stats.transition_load_factor, 1.0);
 }

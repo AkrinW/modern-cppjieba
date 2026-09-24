@@ -24,11 +24,6 @@ enum class LogLevel : uint8_t { LL_DEBUG, LL_INFO, LL_WARNING, LL_ERROR, LL_FATA
 
 // Unicode input validation is always enabled because it also protects memory access bounds.
 
-// The inline child capacity trades trie node size against hash lookup frequency.
-struct TrieConfig {
-    static constexpr auto flat_threshold = std::size_t{3};
-};
-
 // Log failures use an application exception that accepts the formatted message.
 template <typename Exception>
 concept LogException = std::derived_from<Exception, std::exception> && std::constructible_from<Exception, std::string>;
