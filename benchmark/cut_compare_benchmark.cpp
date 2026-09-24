@@ -269,20 +269,20 @@ auto run(int argc, char *argv[]) -> int {
     const auto results = std::array{
         run_shared_method(
             "MIX", RustCutMethod::Mix, mix_old,
-            [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::MIX>(s); }, rust, lines, rounds,
+            [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::MIX); }, rust, lines, rounds,
             samples),
         run_shared_method(
             "MP", RustCutMethod::Mp, mp_old,
-            [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::MIX, false>(s); }, rust, lines, rounds,
-            samples),
+            [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::MIX_NO_HMM); }, rust, lines,
+            rounds, samples),
         run_shared_method(
             "FULL", RustCutMethod::Full, full_old,
-            [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::FULL>(s); }, rust, lines, rounds,
+            [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::FULL); }, rust, lines, rounds,
             samples),
         run_shared_method(
             "SEARCH", RustCutMethod::Search, search_old,
-            [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::SEARCH>(s); }, rust, lines, rounds,
-            samples),
+            [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::SEARCH); }, rust, lines,
+            rounds, samples),
     };
     std::printf("\nMedian summary (ms; borrowed tokens have a different output contract)\n");
     std::printf("%-8s %10s %10s %10s %10s %10s %10s %12s\n", "Method", "Old", "Neo", "FFI copy", "FFI view", "RS owned",
@@ -300,7 +300,7 @@ auto run(int argc, char *argv[]) -> int {
             old.CutHMM(s, words);
             return words;
         },
-        [&](const std::string &s) { return neo.cut<neo_cppjieba::CutMethod::HMM>(s); }, lines, rounds, samples);
+        [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::HMM); }, lines, rounds, samples);
     return 0;
 }
 

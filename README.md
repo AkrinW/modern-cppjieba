@@ -54,11 +54,38 @@ target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 int main() {
     const auto jieba = neo_cppjieba::Jieba{
         "dict/jieba.dict.utf8", "dict/hmm_model.utf8", "dict/user.dict.utf8"};
-    for (const auto &word : jieba.cut<neo_cppjieba::CutMethod::MIX>("我来到北京清华大学")) {
-        std::println("{}", word);
+    for (const auto token : jieba.cut("我来到北京清华大学", neo_cppjieba::CutMode::MIX)) {
+        std::println("{}", token.word);
     }
 }
 ```
+
+`cut(text, mode)` 返回借用原文的 token，每个 token 提供 `word` 视图及
+`position.runes`、`position.source` 两套半开区间。源区间以输入的编码单元计数：UTF-8 为字节，
+UTF-16 为 `char16_t` 单元，宽字符串为 `wchar_t` 单元。rune 区间始终按 Unicode 码点计数。
+原文需要在使用视图期间保持有效且稳定；接口拒绝直接借用临时 owning string，但无法检查显式构造的悬垂 `string_view`。
+
+| 入口 | 输出与所有权 |
+| --- | --- |
+| `cut(text, mode)` | 自有位置数组，借用原文 |
+| `cut_into(text, mode, out, decoded)` | 替换并复用调用方的源区间、token 位置或字符串数组 |
+| `cut_each(text, mode, emit, decoded)` | 调用返回 `void` 的 visitor，逐词交付 `TokenView` |
+| `cut_owned(text, mode)` | 持有整段原文和位置数组；传入 string 移动值可转移其存储 |
+| `cut_strings(text, mode)` | 每个词都有独立的字符串存储 |
+| `cut_runes(runes, mode)` / `cut_runes_into(runes, mode, out)` | 合法预解码输入，返回或填写 `WordRange` |
+
+`CutMode` 显式区分 `MIX`、`MIX_NO_HMM`、`MP`、`FULL`、`SEARCH`、`SEARCH_NO_HMM`、`HMM`。
+Unicode 解码和编码使用 `Unicode.hpp` 的自由函数。已有 `CutMethod` 模板入口和 Jieba 静态编码包装已移除。
+
+`Token.hpp` 定义 token 区间、视图及结果容器；`Unicode.hpp` 负责解码；`Jieba.hpp` 负责模式选择和输出转换。
+高频调用直接复用 `UnicodeWithOffset decoded`，其中的 `runes` 和 `offsets` 各自保留容量，
+需要释放内存时赋值为 `UnicodeWithOffset{}`。`decode_with_offset_into(text, decoded)` 也使用同一套校验与缓冲复用逻辑。
+
+输入不能借用输出数组或解码缓冲的存储。同一份解码缓冲须由调用方独占使用，visitor 内嵌套分词应使用另一份缓冲；
+这里没有内部锁或重入状态。visitor 异常直接传播，已执行的副作用不回滚，解码缓冲仍可用于下一次调用。
+
+输出数组独立于解码缓冲。现有分词器仍先生成内部 rune 区间，`cut_each` 随后逐词调用 visitor；
+DAG、DP、HMM 的内部缓冲尚未复用。拥有原文的结果通过偏移访问文本，移动结果后应重新取得视图。
 
 ## 单元测试
 

@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <span>
 #include <string>
@@ -81,6 +82,11 @@ auto decode(const T &input) -> Unicode;
 // for each code point, enabling fast re-encoding via UnicodeWithOffset.
 template <StringLike T>
 auto decode_with_offset(const T &input) -> UnicodeWithOffset;
+
+// Replace runes and source offsets while retaining the destination buffers' capacity.
+// Input must not alias either destination buffer. A failed decode leaves reusable, partial output.
+template <StringLike T>
+auto decode_with_offset_into(const T &input, UnicodeWithOffset &out) -> void;
 
 // encode_one encodes a single Rune into a string of the target CharT encoding.
 template <CharType CharT = char>
@@ -400,11 +406,20 @@ inline auto valid_decoded_offsets(const UnicodeWithOffset &decoded, size_t sourc
 // Compile out offset recording for callers that only need decoded runes.
 enum class OffsetMode { Omit, Record };
 
+// Decoding clears and may reallocate its output, so it cannot read from that same allocation.
+template <CodeUnit CharT, typename Value>
+auto overlaps_decode_buffer(std::span<const CharT> input, const std::vector<Value> &output) -> bool {
+    if (input.empty() || output.empty()) {
+        return false;
+    }
+    const auto less = std::less<const void *>{};
+    return less(input.data(), output.data() + output.size()) && less(output.data(), input.data() + input.size());
+}
+
 // Share traversal and validation between both public decoding APIs.
 template <OffsetMode Mode, CodeUnit CharT>
-auto decode_impl(std::span<const CharT> input)
-    -> std::conditional_t<Mode == OffsetMode::Record, UnicodeWithOffset, Unicode> {
-    auto result = std::conditional_t<Mode == OffsetMode::Record, UnicodeWithOffset, Unicode>{};
+auto decode_into_impl(std::span<const CharT> input,
+                      std::conditional_t<Mode == OffsetMode::Record, UnicodeWithOffset, Unicode> &result) -> void {
     auto &runes = [&]() -> Unicode & {
         if constexpr (Mode == OffsetMode::Record) {
             return result.runes;
@@ -412,7 +427,12 @@ auto decode_impl(std::span<const CharT> input)
             return result;
         }
     }();
+    assert_check([&] { return !overlaps_decode_buffer(input, runes); }, "Decoding input aliases its rune buffer");
+    runes.clear();
     if constexpr (Mode == OffsetMode::Record) {
+        assert_check([&] { return !overlaps_decode_buffer(input, result.offsets); },
+                     "Decoding input aliases its offset buffer");
+        result.offsets.clear();
         result.offsets.reserve(checked_offset_count(input.size()));
     }
     runes.reserve(input.size()); // reserve enough space to avoid multiple allocations
@@ -430,6 +450,14 @@ auto decode_impl(std::span<const CharT> input)
         result.offsets.push_back(static_cast<uint32_t>(input.size()));
         assert_check([&] { return valid_decoded_offsets(result, input.size()); }, "Invalid generated Unicode offsets");
     }
+}
+
+// One-shot decoding shares the same validation as callers that reuse their buffers.
+template <OffsetMode Mode, CodeUnit CharT>
+auto decode_impl(std::span<const CharT> input)
+    -> std::conditional_t<Mode == OffsetMode::Record, UnicodeWithOffset, Unicode> {
+    auto result = std::conditional_t<Mode == OffsetMode::Record, UnicodeWithOffset, Unicode>{};
+    decode_into_impl<Mode>(input, result);
     return result;
 }
 } // namespace detail
@@ -456,6 +484,11 @@ inline auto decode(const T &input) -> Unicode {
 template <StringLike T>
 inline auto decode_with_offset(const T &input) -> UnicodeWithOffset {
     return detail::decode_impl<detail::OffsetMode::Record>(as_code_units(input));
+}
+
+template <StringLike T>
+inline auto decode_with_offset_into(const T &input, UnicodeWithOffset &out) -> void {
+    detail::decode_into_impl<detail::OffsetMode::Record>(as_code_units(input), out);
 }
 
 template <CharType CharT>

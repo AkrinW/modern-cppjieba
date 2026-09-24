@@ -253,7 +253,7 @@ auto main(int argc, char *argv[]) -> int {
             old_jieba.Cut(s, w);
             return w;
         },
-        [&](const std::string &s) { return jieba.cut<neo_cppjieba::CutMethod::MIX>(s); }, lines);
+        [&](const std::string &s) { return jieba.cut_strings(s, neo_cppjieba::CutMode::MIX); }, lines);
 
     all_ok &= verify_method(
         "MP",
@@ -262,7 +262,7 @@ auto main(int argc, char *argv[]) -> int {
             old_jieba.CutSmall(s, w, 99);
             return w;
         },
-        [&](const std::string &s) { return jieba.cut<neo_cppjieba::CutMethod::MP>(s); }, lines);
+        [&](const std::string &s) { return jieba.cut_strings(s, neo_cppjieba::CutMode::MP); }, lines);
 
     all_ok &= verify_method(
         "HMM",
@@ -271,7 +271,7 @@ auto main(int argc, char *argv[]) -> int {
             old_jieba.CutHMM(s, w);
             return w;
         },
-        [&](const std::string &s) { return jieba.cut<neo_cppjieba::CutMethod::HMM>(s); }, lines);
+        [&](const std::string &s) { return jieba.cut_strings(s, neo_cppjieba::CutMode::HMM); }, lines);
 
     all_ok &= verify_method(
         "FULL",
@@ -280,7 +280,7 @@ auto main(int argc, char *argv[]) -> int {
             old_jieba.CutAll(s, w);
             return w;
         },
-        [&](const std::string &s) { return jieba.cut<neo_cppjieba::CutMethod::FULL>(s); }, lines);
+        [&](const std::string &s) { return jieba.cut_strings(s, neo_cppjieba::CutMode::FULL); }, lines);
 
     all_ok &= verify_method(
         "SEARCH",
@@ -289,7 +289,7 @@ auto main(int argc, char *argv[]) -> int {
             old_jieba.CutForSearch(s, w);
             return w;
         },
-        [&](const std::string &s) { return jieba.cut<neo_cppjieba::CutMethod::SEARCH>(s); }, lines);
+        [&](const std::string &s) { return jieba.cut_strings(s, neo_cppjieba::CutMode::SEARCH); }, lines);
 
     std::printf("\n");
     if (!all_ok) {
@@ -305,31 +305,31 @@ auto main(int argc, char *argv[]) -> int {
 
     auto neo_mix = bench_cut_unicode(
         "Neo MIX  (MP + HMM)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut<neo_cppjieba::CutMethod::MIX>(u); }, all_unicodes,
+        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::MIX); }, all_unicodes,
         total_runes, ROUNDS);
     print_report(neo_mix);
 
     auto neo_mp = bench_cut_unicode(
         "Neo MP   (dictionary-only)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut<neo_cppjieba::CutMethod::MP>(u); }, all_unicodes,
+        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::MP); }, all_unicodes,
         total_runes, ROUNDS);
     print_report(neo_mp);
 
     auto neo_hmm = bench_cut_unicode(
         "Neo HMM  (Viterbi only)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut<neo_cppjieba::CutMethod::HMM>(u); }, all_unicodes,
+        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::HMM); }, all_unicodes,
         total_runes, ROUNDS);
     print_report(neo_hmm);
 
     auto neo_full = bench_cut_unicode(
         "Neo FULL (all dictionary words)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut<neo_cppjieba::CutMethod::FULL>(u); }, all_unicodes,
+        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::FULL); }, all_unicodes,
         total_runes, ROUNDS);
     print_report(neo_full);
 
     auto neo_search = bench_cut_unicode(
         "Neo SEARCH (MIX + sub-word)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut<neo_cppjieba::CutMethod::SEARCH>(u); }, all_unicodes,
+        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::SEARCH); }, all_unicodes,
         total_runes, ROUNDS);
     print_report(neo_search);
 
@@ -369,7 +369,7 @@ auto main(int argc, char *argv[]) -> int {
     std::printf("  Old Jieba vs Neo Jieba (string → cut → strings, %zu rounds)\n", ROUNDS);
     std::printf("═══════════════════════════════════════════════════════\n\n");
 
-    using CM = neo_cppjieba::CutMethod;
+    using CM = neo_cppjieba::CutMode;
 
     // ── MIX ──
     auto old_mix_r = bench_cut_string(
@@ -383,7 +383,8 @@ auto main(int argc, char *argv[]) -> int {
     print_report(old_mix_r);
 
     auto neo_mix_str = bench_cut_string(
-        "Neo Jieba.cut<MIX>", [&](const std::string &s) { return jieba.cut<CM::MIX>(s); }, lines, total_runes, ROUNDS);
+        "Neo Jieba.cut_strings(MIX)", [&](const std::string &s) { return jieba.cut_strings(s, CM::MIX); }, lines,
+        total_runes, ROUNDS);
     print_report(neo_mix_str);
 
     // ── MP ──
@@ -398,7 +399,8 @@ auto main(int argc, char *argv[]) -> int {
     print_report(old_mp_r);
 
     auto neo_mp_str = bench_cut_string(
-        "Neo Jieba.cut<MP>", [&](const std::string &s) { return jieba.cut<CM::MP>(s); }, lines, total_runes, ROUNDS);
+        "Neo Jieba.cut_strings(MP)", [&](const std::string &s) { return jieba.cut_strings(s, CM::MP); }, lines,
+        total_runes, ROUNDS);
     print_report(neo_mp_str);
 
     // ── HMM ──
@@ -413,7 +415,8 @@ auto main(int argc, char *argv[]) -> int {
     print_report(old_hmm_r);
 
     auto neo_hmm_str = bench_cut_string(
-        "Neo Jieba.cut<HMM>", [&](const std::string &s) { return jieba.cut<CM::HMM>(s); }, lines, total_runes, ROUNDS);
+        "Neo Jieba.cut_strings(HMM)", [&](const std::string &s) { return jieba.cut_strings(s, CM::HMM); }, lines,
+        total_runes, ROUNDS);
     print_report(neo_hmm_str);
 
     // ── FULL ──
@@ -428,8 +431,8 @@ auto main(int argc, char *argv[]) -> int {
     print_report(old_full_r);
 
     auto neo_full_str = bench_cut_string(
-        "Neo Jieba.cut<FULL>", [&](const std::string &s) { return jieba.cut<CM::FULL>(s); }, lines, total_runes,
-        ROUNDS);
+        "Neo Jieba.cut_strings(FULL)", [&](const std::string &s) { return jieba.cut_strings(s, CM::FULL); }, lines,
+        total_runes, ROUNDS);
     print_report(neo_full_str);
 
     // ── SEARCH ──
@@ -444,8 +447,8 @@ auto main(int argc, char *argv[]) -> int {
     print_report(old_query_r);
 
     auto neo_search_str = bench_cut_string(
-        "Neo Jieba.cut<SEARCH>", [&](const std::string &s) { return jieba.cut<CM::SEARCH>(s); }, lines, total_runes,
-        ROUNDS);
+        "Neo Jieba.cut_strings(SEARCH)", [&](const std::string &s) { return jieba.cut_strings(s, CM::SEARCH); }, lines,
+        total_runes, ROUNDS);
     print_report(neo_search_str);
 
     // ── Old vs Neo summary table ─────────────────────────────────────────

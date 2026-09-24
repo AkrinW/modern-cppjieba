@@ -161,6 +161,36 @@ class UnicodeCharacterTest : public ::testing::Test {};
 using UnicodeCharacterTypes = ::testing::Types<char, char8_t, char16_t, char32_t, wchar_t>;
 TYPED_TEST_SUITE(UnicodeCharacterTest, UnicodeCharacterTypes);
 
+TYPED_TEST(UnicodeCharacterTest, DecodeIntoReplacesContentsAndRetainsCapacity) {
+    auto buffer = decode_with_offset("old text");
+    buffer.runes.reserve(64);
+    buffer.offsets.reserve(64);
+    const auto rune_capacity = buffer.runes.capacity();
+    const auto offset_capacity = buffer.offsets.capacity();
+    const auto input = sample_text<TypeParam>();
+    const auto expected = decode_with_offset(input);
+    decode_with_offset_into(input, buffer);
+    EXPECT_EQ(buffer.runes, expected.runes);
+    EXPECT_EQ(buffer.offsets, expected.offsets);
+    EXPECT_EQ(buffer.runes.capacity(), rune_capacity);
+    EXPECT_EQ(buffer.offsets.capacity(), offset_capacity);
+}
+
+TEST(UnicodeWithSourceTest, EmptyDecodeIntoReplacesPreviousContentWithSentinel) {
+    auto buffer = decode_with_offset("中国");
+    decode_with_offset_into(std::string_view{}, buffer);
+    EXPECT_TRUE(buffer.runes.empty());
+    EXPECT_EQ(buffer.offsets, (std::vector<uint32_t>{0}));
+}
+
+TEST(UnicodeWithSourceTest, DecodeIntoCanReuseBuffersAfterInvalidInput) {
+    auto buffer = UnicodeWithOffset{};
+    EXPECT_THROW(decode_with_offset_into(std::string_view{"中\xE4\xB8"}, buffer), LogConfig::Exception);
+    decode_with_offset_into("😀", buffer);
+    EXPECT_EQ(buffer.runes, (Unicode{U'😀'}));
+    EXPECT_EQ(buffer.offsets, (std::vector<uint32_t>{0, 4}));
+}
+
 TYPED_TEST(UnicodeCharacterTest, MatchesKnownEncodedUnitsAndSourceOffsets) {
     const auto input = sample_text<TypeParam>();
     const auto expected = Unicode{U'A', U'\0', U'中', U'😀'};
