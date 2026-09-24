@@ -2,11 +2,15 @@
 
 #include "Logging.hpp"
 
+#include <array>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
+#include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 namespace neo_cppjieba {
 
@@ -14,9 +18,10 @@ namespace neo_cppjieba {
 // it add error checking and throws an exception if parsing fails.
 template <typename T>
 constexpr auto decode_value(std::string_view sv) -> T {
+    check(!sv.empty(), "cannot parse a value from an empty string");
     auto val = T{};
     auto &&[ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), val);
-    check(ec == std::errc{}, "failed to parse value from '{}'", sv);
+    check(ec == std::errc{} && ptr == sv.data() + sv.size(), "failed to parse value from '{}'", sv);
     return val;
 }
 
@@ -61,6 +66,8 @@ public:
 
         // Compute the current line on dereference: strip trailing \n (and \r\n) from [cur_, next_).
         constexpr auto operator*() const noexcept -> std::string_view {
+            assert_check([this] { return cur_ != nullptr && next_ > cur_ && next_ <= end_; },
+                         "lines_view: cannot dereference an exhausted or invalid iterator");
             const auto *e = next_;
             if (*(e - 1) == '\n') {
                 --e;
@@ -161,6 +168,10 @@ public:
         // Compute the current field on dereference.
         // If next_field_ is nullptr (last field), end = data_end_; otherwise end = next_field_ - 1.
         constexpr auto operator*() const noexcept -> std::string_view {
+            assert_check([this] { return cur_ != nullptr && cur_ <= data_end_; },
+                         "split_view: cannot dereference an exhausted or invalid iterator");
+            assert_check([this] { return next_field_ == nullptr || (cur_ < next_field_ && next_field_ <= data_end_); },
+                         "split_view: invalid next field boundary");
             const auto *end = (next_field_ == nullptr) ? data_end_ : next_field_ - 1;
             return std::string_view{cur_, static_cast<size_t>(end - cur_)};
         }
@@ -268,6 +279,8 @@ inline constexpr auto DEFAULT_SEPARATORS = std::array<char32_t, 5>{
 // it is tested to be a speedup for pre-filtering when compared with iterator method, avoids repeated boundary searches
 // and improves cache locality. produces reusable indices for downstream slicing without re-scanning.
 inline auto get_pre_filter_separators(std::span<const char32_t> runes, std::vector<uint32_t> &out) -> void {
+    check(runes.size() <= std::numeric_limits<uint32_t>::max(),
+          "Separator input has {} runes, exceeding the supported index range", runes.size());
     auto n = static_cast<uint32_t>(runes.size());
     out.clear();
     out.reserve(n / 8); // heuristic: ~12.5% separators
@@ -285,6 +298,8 @@ inline auto get_pre_filter_separators(std::span<const char32_t> runes, std::vect
 // so I think as a parameter input is more efficient because it maybe reuse same memory avoiding allocations when call
 // many time. but in some case maybe more convenient to return a new vector directly, so provide both interface anyway.
 inline auto get_pre_filter_separators(std::span<const char32_t> runes) -> std::vector<uint32_t> {
+    check(runes.size() <= std::numeric_limits<uint32_t>::max(),
+          "Separator input has {} runes, exceeding the supported index range", runes.size());
     auto out = std::vector<uint32_t>{};
     auto n = static_cast<uint32_t>(runes.size());
     out.reserve(n / 8); // heuristic: ~12.5% separators

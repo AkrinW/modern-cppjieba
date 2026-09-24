@@ -4,13 +4,142 @@
 #include "test_paths.h"
 
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <limits>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 
 using namespace neo_cppjieba;
 
 inline constexpr auto DICT_FILE = std::string_view{TEST_DATA_DIR "/extra_dict/jieba.dict.small.utf8"};
 inline constexpr auto USER_DICT_FILE = std::string_view{TEST_DATA_DIR "/userdict.utf8"};
+
+namespace {
+
+// Each dictionary validation test owns its input files in an isolated temporary directory.
+class DictTrieInputTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        auto pattern = (std::filesystem::temp_directory_path() / "neo-dict-trie-XXXXXX").string();
+        ASSERT_NE(::mkdtemp(pattern.data()), nullptr);
+        directory_ = std::move(pattern);
+        write_file("main.dict", "主词 10 n\n基础 20 n\n");
+    }
+
+    void TearDown() override {
+        if (!directory_.empty()) {
+            auto error = std::error_code{};
+            std::filesystem::remove_all(directory_, error);
+            EXPECT_FALSE(error) << error.message();
+        }
+    }
+
+    [[nodiscard]] auto file_path(std::string_view name) const -> std::string {
+        return (directory_ / name).string();
+    }
+
+    void write_file(std::string_view name, std::string_view content) const {
+        auto output = std::ofstream{file_path(name), std::ios::binary};
+        ASSERT_TRUE(output.is_open());
+        output << content;
+        output.close();
+        ASSERT_TRUE(output.good());
+    }
+
+    std::filesystem::path directory_;
+};
+
+} // namespace
+
+TEST_F(DictTrieInputTest, RejectsMainDictionaryLinesWithMissingFields) {
+    for (const auto line : {"词\n", "词 10\n"}) {
+        ASSERT_NO_FATAL_FAILURE(write_file("main.dict", line));
+        EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
+                     LogConfig::Exception);
+    }
+}
+
+TEST_F(DictTrieInputTest, RejectsMainDictionaryLinesWithExtraFields) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词 10 n extra\n"));
+    EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
+                 LogConfig::Exception);
+}
+
+TEST_F(DictTrieInputTest, RejectsNonPositiveMainFrequenciesEvenWhenSumIsPositive) {
+    for (const auto content : {"词 0 n\n基础 20 n\n", "词 -1 n\n基础 20 n\n"}) {
+        ASSERT_NO_FATAL_FAILURE(write_file("main.dict", content));
+        EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
+                     LogConfig::Exception);
+    }
+}
+
+TEST_F(DictTrieInputTest, RejectsMainFrequencyWithTrailingCharacters) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词 10oops n\n基础 20 n\n"));
+    EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
+                 LogConfig::Exception);
+}
+
+TEST_F(DictTrieInputTest, RejectsEmptyMainFrequency) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词  n\n基础 20 n\n"));
+    EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
+                 LogConfig::Exception);
+}
+
+TEST_F(DictTrieInputTest, RejectsEmptyMainDictionary) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", ""));
+    EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
+                 LogConfig::Exception);
+}
+
+TEST_F(DictTrieInputTest, AcceptsEmptyTagAndWindowsLineEndings) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "主词 10 \r\n\r\n基础 20 n\r\n"));
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto word = trie.find("主词");
+    ASSERT_TRUE(word.has_value());
+    EXPECT_TRUE(word.tag.empty());
+    EXPECT_FLOAT_EQ(word.weight, std::log(10.0f / 30.0f));
+    EXPECT_FALSE(trie.find("缺词").has_value());
+    EXPECT_FALSE(trie.find("").has_value());
+}
+
+TEST_F(DictTrieInputTest, RejectsExtraUserDictionaryFields) {
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 5 n extra\n"));
+    EXPECT_THROW(
+        (DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian}),
+        LogConfig::Exception);
+}
+
+TEST_F(DictTrieInputTest, RejectsNegativeUserFrequency) {
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 -1 n\n"));
+    EXPECT_THROW(
+        (DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian}),
+        LogConfig::Exception);
+}
+
+TEST_F(DictTrieInputTest, RejectsUserFrequencyWithTrailingCharacters) {
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 5oops n\n"));
+    EXPECT_THROW(
+        (DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian}),
+        LogConfig::Exception);
+}
+
+TEST_F(DictTrieInputTest, ZeroUserFrequencyUsesDefaultWeight) {
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 0 n\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto word = trie.find("新词");
+    ASSERT_TRUE(word.has_value());
+    EXPECT_FLOAT_EQ(word.weight, trie.user_word_default_weight());
+}
+
+TEST_F(DictTrieInputTest, RejectsUnknownWeightOption) {
+    const auto invalid = static_cast<DictTrie::UserWordWeightOption>(255);
+    EXPECT_THROW((DictTrie{file_path("main.dict"), "", invalid}), LogConfig::Exception);
+}
 
 // ─── Construction ────────────────────────────────────────────────────────────
 
@@ -207,6 +336,24 @@ TEST(DagTest, EmptyDag) {
 
     auto runes = Unicode{};
     EXPECT_EQ(dag.to_string(runes), "");
+}
+
+TEST(DagTest, MaximumVertexIndexReturnsNoEdges) {
+    const auto dag = Dag{{0, 1}, {{1, -1.0f}}};
+    EXPECT_TRUE(dag.get_edges(std::numeric_limits<size_t>::max()).empty());
+    EXPECT_TRUE(dag.get_edges(dag.size()).empty());
+    EXPECT_TRUE(Dag{}.get_edges(std::numeric_limits<size_t>::max()).empty());
+}
+
+TEST(DagTest, VertexWithoutEdgesReturnsAnEmptySpan) {
+    const auto dag = Dag{{0, 0}, {}};
+    EXPECT_TRUE(dag.get_edges(0).empty());
+}
+
+TEST(DagTest, FormatsSupplementaryUnicodeUsingRuneIndices) {
+    const auto dag = Dag{{0, 1, 1}, {{2, -1.0f}}};
+    const auto runes = decode("𠮷中");
+    EXPECT_EQ(dag.to_string(runes, ", "), "𠮷中(-1)");
 }
 
 TEST(DagTest, SizeMismatchReturnsEmpty) {

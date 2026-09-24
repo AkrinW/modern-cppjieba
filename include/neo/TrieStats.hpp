@@ -1,8 +1,14 @@
 #pragma once
 
+#include "Logging.hpp"
+
+#include <cmath>
 #include <cstddef>
 #include <format>
 #include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace neo_cppjieba {
@@ -45,6 +51,21 @@ struct TrieStats {
 
     /// Pretty-print the stats to a string.
     [[nodiscard]] auto to_string() const -> std::string {
+        assert_check([this] { return leaf_count <= node_count; }, "TrieStats: leaf count exceeds the node count");
+        assert_check([this] { return value_count <= edge_count && lazy_edge_count <= edge_count; },
+                     "TrieStats: inconsistent edge counts");
+        assert_check([this] { return flat_node_count <= node_count && map_node_count == node_count - flat_node_count; },
+                     "TrieStats: storage counts must cover all nodes");
+        assert_check(
+            [this] {
+                return node_vector_bytes <= total_estimated_bytes
+                       && hashmap_overhead_bytes == total_estimated_bytes - node_vector_bytes;
+            },
+            "TrieStats: inconsistent memory estimates");
+        assert_check([this] { return std::isfinite(avg_depth) && std::isfinite(avg_leaf_depth); },
+                     "TrieStats: non-finite depth statistics");
+        assert_check([this] { return std::isfinite(avg_fanout) && std::isfinite(avg_load_factor); },
+                     "TrieStats: non-finite branching or load statistics");
         std::string s;
         s.reserve(2048);
 

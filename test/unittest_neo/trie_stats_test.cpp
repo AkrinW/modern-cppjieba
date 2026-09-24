@@ -18,6 +18,66 @@
 
 using namespace neo_cppjieba;
 
+TEST(TrieTest, PreservesPrefixValuesWhenTemporaryNodesGrow) {
+    const auto keys = std::vector<Unicode>{{U'a'}, Unicode(512, U'a'), {U'a', U'b'}};
+    const auto values = std::vector<DictUnit>{{-1.0f, PosTag{"n"}}, {-2.0f, PosTag{"n"}}, {-3.0f, PosTag{"v"}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+    for (auto i = size_t{0}; i < keys.size(); ++i) {
+        const auto found = trie.find(std::span<const Rune>{keys[i]});
+        EXPECT_FLOAT_EQ(found.weight, values[i].weight);
+        EXPECT_EQ(found.tag, values[i].tag);
+    }
+    EXPECT_FALSE(trie.find("aa").has_value());
+    EXPECT_FALSE(trie.find("abc").has_value());
+    EXPECT_FALSE(trie.collect_stats().to_string().empty());
+}
+
+TEST(TrieTest, EmptyTrieProducesDagWithoutEdges) {
+    const auto trie = Trie{};
+    const auto dag = trie.find_dag("𠮷中");
+    ASSERT_EQ(dag.size(), 2u);
+    EXPECT_TRUE(dag.get_edges(0).empty());
+    EXPECT_TRUE(dag.get_edges(1).empty());
+}
+
+TEST(TrieTest, DagIncludesUnknownRunesAndMatchingPrefixes) {
+    const auto keys = std::vector<Unicode>{decode("𠮷"), decode("𠮷中")};
+    const auto values = std::vector<DictUnit>{{-1.0f, PosTag{"n"}}, {-2.0f, PosTag{"n"}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+    const auto dag = trie.find_dag("𠮷中外");
+    ASSERT_EQ(dag.size(), 3u);
+    const auto matches = dag.get_edges(0);
+    ASSERT_EQ(matches.size(), 2u);
+    EXPECT_EQ(matches[0].next_pos, 1u);
+    EXPECT_FLOAT_EQ(matches[0].weight, -1.0f);
+    EXPECT_EQ(matches[1].next_pos, 2u);
+    EXPECT_FLOAT_EQ(matches[1].weight, -2.0f);
+    const auto unknown = dag.get_edges(2);
+    ASSERT_EQ(unknown.size(), 1u);
+    EXPECT_EQ(unknown[0].next_pos, 3u);
+    EXPECT_FLOAT_EQ(unknown[0].weight, 0.0f);
+}
+
+TEST(TrieStatsTest, FormatsDefaultStatistics) {
+    const auto stats = TrieStats{};
+    EXPECT_FALSE(stats.to_string().empty());
+}
+
+TEST(TrieStatsTest, EmptyKeysProduceRootOnlyStatistics) {
+    const auto keys = std::vector<Unicode>(2);
+    const auto values = std::vector<DictUnit>(2);
+    auto trie = Trie{};
+    trie.build(keys, values);
+    const auto stats = trie.collect_stats();
+    EXPECT_EQ(stats.node_count, 1u);
+    EXPECT_EQ(stats.edge_count, 0u);
+    EXPECT_EQ(stats.leaf_count, 1u);
+    EXPECT_EQ(stats.avg_depth, 0.0);
+    EXPECT_FALSE(stats.to_string().empty());
+}
+
 TEST(TrieStatsTest, FindsWordsAcrossConfiguredFanoutThreshold) {
     const auto fanouts = std::array{TrieConfig::flat_threshold, TrieConfig::flat_threshold + 1};
     for (const auto fanout : fanouts) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Logging.hpp"
 #include "StringUtil.hpp"
 #include "Unicode.hpp"
 
@@ -26,10 +27,12 @@ struct Dag {
 
     /// Return the outgoing edges from vertex `i`.
     [[nodiscard]] auto get_edges(size_t i) const -> std::span<const DagEdge> {
-        if (i + 1 >= offsets.size()) {
+        if (i >= size()) {
             return {};
         }
-        return {edges.data() + offsets[i], edges.data() + offsets[i + 1]};
+        assert_check([&] { return offsets[i] <= offsets[i + 1] && offsets[i + 1] <= edges.size(); },
+                     "Dag: invalid edge offsets for rune {}", i);
+        return std::span<const DagEdge>{edges}.subspan(offsets[i], offsets[i + 1] - offsets[i]);
     }
 
     /// Number of rune positions in this DAG (i.e. sentence length).
@@ -56,6 +59,8 @@ struct Dag {
         auto first = true;
         for (auto i = size_t{0}; i < n; ++i) {
             for (auto &&edge : get_edges(i)) {
+                assert_check([&] { return i < edge.next_pos && edge.next_pos <= n; },
+                             "Dag: invalid edge from rune {} to {} for {} runes", i, edge.next_pos, n);
                 if (!first) {
                     result.append(sep);
                 }

@@ -4,12 +4,12 @@
 
 #include "Config.hpp"
 #include "Dag.hpp"
+#include "Logging.hpp"
 #include "PosTag.hpp"
 #include "TrieStats.hpp"
 #include "Unicode.hpp"
 
 #include <array>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -17,6 +17,7 @@
 #include <queue>
 #include <span>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace neo_cppjieba {
@@ -87,7 +88,7 @@ class Trie {
         uint8_t size_{0};
 
         auto push_back(const ChildPair &p) noexcept -> void {
-            assert(size_ < kFlatThreshold);
+            assert_check([this] { return size_ < kFlatThreshold; }, "Trie: inline child capacity exceeded");
             data_[size_] = p;
             ++size_;
         }
@@ -209,7 +210,7 @@ public:
     ///   3. Copy into the flat nodes_ vector with remapped child indices,
     ///      choosing flat-array or hash-map storage per node based on fanout.
     auto build(std::span<const Unicode> keys, std::span<const DictUnit> values) -> void {
-        assert(keys.size() == values.size());
+        assert_check([&] { return keys.size() == values.size(); }, "Trie: keys and values must have equal sizes");
         nodes_.clear();
 
         if (keys.empty()) {
@@ -224,6 +225,7 @@ public:
         // through that edge, keeping the total node count minimal.
 
         auto temp = std::vector<MapChildren>{};
+        check(keys.size() <= temp.max_size() / 2, "Trie: too many keys to reserve temporary nodes: {}", keys.size());
         temp.reserve(keys.size() * 2); // rough estimate
         temp.emplace_back();           // root at index 0
 
@@ -236,16 +238,22 @@ public:
 
             // Traverse / insert all runes except the last — these need child nodes.
             for (auto j = size_t{0}; j + 1 < keys[i].size(); ++j) {
+                assert_check([&] { return cur >= 0 && static_cast<size_t>(cur) < temp.size(); },
+                             "Trie: invalid temporary node index {}", cur);
                 auto &&r = keys[i][j];
                 auto &map = temp[cur];
                 auto it = map.find(r);
                 if (it == map.end()) {
+                    check(std::in_range<int32_t>(temp.size()), "Trie: node count exceeds the supported index range");
                     cur = static_cast<int32_t>(temp.size());
                     map.emplace(r, ChildEntry{cur});
                     temp.emplace_back();
                 } else {
                     if (it->second.child_index < 0) {
                         // Lazy materialization: allocate a child node now.
+                        assert_check([&] { return it->second.child_index == -1; }, "Trie: invalid lazy child index");
+                        check(std::in_range<int32_t>(temp.size()),
+                              "Trie: node count exceeds the supported index range");
                         it->second.child_index = static_cast<int32_t>(temp.size());
                         temp.emplace_back();
                     }
@@ -254,13 +262,16 @@ public:
             }
 
             // Last rune: only need an edge with the value, no child node required.
+            assert_check([&] { return cur >= 0 && static_cast<size_t>(cur) < temp.size(); },
+                         "Trie: invalid terminal parent index {}", cur);
             auto &&last_rune = keys[i].back();
             auto &map = temp[cur];
             auto it = map.find(last_rune);
             if (it == map.end()) {
                 map.insert({last_rune, ChildEntry{-1, values[i]}});
             } else {
-                assert(it->second.value.has_value() == false); // duplicate key should not have a value already
+                assert_check([&] { return !it->second.value.has_value(); },
+                             "Trie: duplicate dictionary key"); // duplicate key should not have a value already
                 it->second.value = values[i];
             }
         }
@@ -279,12 +290,18 @@ public:
 
         for (auto front = size_t{0}; front < bfs_order.size(); ++front) {
             for (auto &&[key, entry] : temp[bfs_order[front]]) {
+                assert_check([&] { return entry.child_index >= -1; }, "Trie: invalid child index sentinel");
                 if (entry.child_index >= 0) {
+                    assert_check([&] { return static_cast<size_t>(entry.child_index) < n; },
+                                 "Trie: child index {} exceeds {} temporary nodes", entry.child_index, n);
+                    assert_check([&] { return new_index[entry.child_index] == -1 && bfs_order.size() < n; },
+                                 "Trie: temporary nodes must form a tree");
                     new_index[entry.child_index] = static_cast<int32_t>(bfs_order.size());
                     bfs_order.push_back(static_cast<uint32_t>(entry.child_index));
                 }
             }
         }
+        assert_check([&] { return bfs_order.size() == n; }, "Trie: unreachable temporary nodes");
 
         // ── Phase 3: Populate flat nodes_ with remapped indices ──────────
         //
@@ -333,6 +350,8 @@ public:
         const auto *last_entry = static_cast<const ChildEntry *>(nullptr);
 
         for (auto i = size_t{0}; i < key.size(); ++i) {
+            assert_check([&] { return cur >= -1 && (cur < 0 || static_cast<size_t>(cur) < nodes_.size()); },
+                         "Trie: invalid lookup node index {}", cur);
             if (cur < 0) {
                 return DictUnit{}; // previous edge had no child node
             }
@@ -358,6 +377,8 @@ public:
     [[nodiscard]] auto find_dag(std::span<const Rune> sentence) const -> Dag {
         auto dag = Dag{};
         auto n = sentence.size();
+        check(n <= std::numeric_limits<uint32_t>::max() && n < std::numeric_limits<size_t>::max(),
+              "Trie: sentence has {} runes, exceeding the supported DAG index range", n);
         dag.offsets.resize(n + 1);
 
         if (nodes_.empty() || n == 0) {
@@ -366,6 +387,8 @@ public:
 
         // We accumulate the edges directly into a flat vector.
         for (auto i = size_t{0}; i < n; ++i) {
+            check(dag.edges.size() <= std::numeric_limits<uint32_t>::max(),
+                  "Trie: DAG edge count exceeds the supported offset range");
             dag.offsets[i] = static_cast<uint32_t>(dag.edges.size());
             auto cur = int32_t{0}; // start at root
 
@@ -380,13 +403,17 @@ public:
 
             if (last_entry) {
                 cur = last_entry->child_index;
+                assert_check([&] { return cur >= -1; }, "Trie: invalid DAG child index sentinel");
                 if (cur >= 0) {
                     for (auto j = i + 1; j < n; ++j) {
+                        assert_check([&] { return static_cast<size_t>(cur) < nodes_.size(); },
+                                     "Trie: invalid DAG node index {}", cur);
                         last_entry = nodes_[cur].find_child(sentence[j]);
                         if (!last_entry) {
                             break;
                         }
                         cur = last_entry->child_index;
+                        assert_check([&] { return cur >= -1; }, "Trie: invalid DAG child index sentinel");
                         if (last_entry->value.has_value()) {
                             dag.edges.push_back(DagEdge{static_cast<uint32_t>(j + 1), last_entry->value.weight});
                         }
@@ -397,6 +424,8 @@ public:
                 }
             }
         }
+        check(dag.edges.size() <= std::numeric_limits<uint32_t>::max(),
+              "Trie: DAG edge count exceeds the supported offset range");
         dag.offsets[n] = static_cast<uint32_t>(dag.edges.size());
 
         return dag;
@@ -443,6 +472,7 @@ public:
         while (!bfs.empty()) {
             auto cur = bfs.front();
             bfs.pop();
+            assert_check([&] { return cur < n; }, "Trie: invalid statistics node index {}", cur);
 
             const auto &node = nodes_[cur];
             auto fanout = node.child_count();
@@ -451,11 +481,14 @@ public:
 
             // Helper lambda that processes each (rune, entry) pair.
             auto visit_child = [&](Rune /*rune*/, const ChildEntry &entry) {
+                assert_check([&] { return entry.child_index >= -1; }, "Trie: invalid statistics child index sentinel");
                 if (entry.value.has_value()) {
                     ++stats.value_count;
                 }
                 if (entry.child_index >= 0) {
                     auto ci = static_cast<uint32_t>(entry.child_index);
+                    assert_check([&] { return cur < ci && ci < n; }, "Trie: child indices must follow BFS order");
+                    assert_check([&] { return depth[ci] == 0; }, "Trie: statistics traversal revisited a child node");
                     depth[ci] = depth[cur] + 1;
                     bfs.push(ci);
                 } else {
@@ -506,6 +539,9 @@ public:
 
         // ── Averages ─────────────────────────────────────────────────────
 
+        assert_check([&] { return stats.flat_node_count <= n && stats.map_node_count == n - stats.flat_node_count; },
+                     "Trie: statistics traversal must visit every node exactly once");
+        assert_check([&] { return stats.leaf_count <= n; }, "Trie: leaf count exceeds the node count");
         stats.avg_depth = n > 0 ? static_cast<double>(total_depth) / static_cast<double>(n) : 0.0;
         stats.avg_leaf_depth =
             stats.leaf_count > 0 ? static_cast<double>(total_leaf_depth) / static_cast<double>(stats.leaf_count) : 0.0;

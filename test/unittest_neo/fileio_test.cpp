@@ -7,11 +7,13 @@
 #include <array>
 #include <cerrno>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <span>
 #include <string>
@@ -25,6 +27,61 @@
 #include <sys/stat.h>
 
 using namespace neo_cppjieba;
+
+TEST(StringUtilTest, DecodeValueConsumesTheEntireInteger) {
+    const auto invalid = std::array<std::string_view, 4>{"12abc", "12 ", "12.5", std::string_view{"12\0", 3}};
+    for (const auto input : invalid) {
+        EXPECT_THROW(decode_value<int>(input), LogConfig::Exception) << input;
+    }
+}
+
+TEST(StringUtilTest, DecodeValueConsumesTheEntireFloat) {
+    EXPECT_THROW(decode_value<double>("1.25x"), LogConfig::Exception);
+}
+
+TEST(StringUtilTest, DecodeValueRejectsEmptyInput) {
+    EXPECT_THROW(decode_value<int>(std::string_view{}), LogConfig::Exception);
+    EXPECT_THROW(decode_value<double>(""), LogConfig::Exception);
+}
+
+TEST(StringUtilTest, DecodeValueRejectsOutOfRangeInput) {
+    EXPECT_THROW(decode_value<int64_t>("9223372036854775808"), LogConfig::Exception);
+    EXPECT_THROW(decode_value<double>("1e10000"), LogConfig::Exception);
+}
+
+TEST(StringUtilTest, DecodeValueAcceptsCompleteNumbers) {
+    EXPECT_EQ(decode_value<int>("-42"), -42);
+    EXPECT_EQ(decode_value<uint64_t>("18446744073709551615"), std::numeric_limits<uint64_t>::max());
+    EXPECT_DOUBLE_EQ(decode_value<double>("1.25e-2"), 0.0125);
+}
+
+TEST(StringUtilTest, EncodeValueRoundTripsNumericLimits) {
+    for (const auto value : {std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()}) {
+        EXPECT_EQ(decode_value<int64_t>(encode_value(value)), value);
+    }
+    for (const auto value : {std::numeric_limits<double>::lowest(), std::numeric_limits<double>::max()}) {
+        EXPECT_DOUBLE_EQ(decode_value<double>(encode_value(value)), value);
+    }
+}
+
+TEST(StringUtilTest, SeparatorIndicesCountRunesAndIncludeEndSentinel) {
+    const auto text = std::u32string_view{U"𠮷，中 。"};
+    const auto runes = std::span<const char32_t>{text};
+    const auto expected = std::vector<uint32_t>{1, 3, 4, 5};
+    auto indices = std::vector<uint32_t>{99};
+    get_pre_filter_separators(runes, indices);
+    EXPECT_EQ(indices, expected);
+    EXPECT_EQ(get_pre_filter_separators(runes), expected);
+}
+
+TEST(StringUtilTest, EmptySeparatorInputResetsOutputToEndSentinel) {
+    const auto runes = std::span<const char32_t>{};
+    const auto expected = std::vector<uint32_t>{0};
+    auto indices = std::vector<uint32_t>{1, 2, 3};
+    get_pre_filter_separators(runes, indices);
+    EXPECT_EQ(indices, expected);
+    EXPECT_EQ(get_pre_filter_separators(runes), expected);
+}
 
 // ─── lines_view tests ────────────────────────────────────────────────────────
 

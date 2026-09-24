@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string_view>
 #include <unordered_set>
@@ -120,10 +121,15 @@ private:
         auto freqs = std::vector<int>{}; // parallel to entries (main dict only)
         load_main_dict(dict_path, entries, freqs);
         check(!entries.empty(), "DictTrie: main dictionary is empty: {}", dict_path);
+        assert_check([&] { return entries.size() == freqs.size(); },
+                     "DictTrie: main dictionary entries and frequencies must have equal sizes");
 
         // ── Phase 2: Compute statistics on integer frequencies ───────────
         auto freq_sum = int64_t{0};
         for (auto f : freqs) {
+            assert_check([=] { return f > 0; }, "DictTrie: unchecked main dictionary frequency {}", f);
+            check(f <= std::numeric_limits<int64_t>::max() - freq_sum,
+                  "DictTrie: frequency sum exceeds the supported range: {}", dict_path);
             freq_sum += f;
         }
         check(freq_sum > 0, "DictTrie: frequency sum must be positive");
@@ -142,12 +148,16 @@ private:
 
         // Convert selected int frequencies to log-weights
         auto to_weight = [&](int f) -> float {
+            assert_check([&] { return f > 0 && std::isfinite(freq_sum_) && freq_sum_ > 0.0f; },
+                         "DictTrie: invalid frequency normalization");
             return std::log(f / freq_sum_);
         };
 
         min_weight_ = to_weight(min_freq);
         max_weight_ = to_weight(max_freq);
         median_weight_ = to_weight(median_freq);
+        assert_check([&] { return min_weight_ <= median_weight_ && median_weight_ <= max_weight_; },
+                     "DictTrie: inconsistent weight statistics");
         set_user_default_weight(opt);
 
         // ── Phase 3: Load user dictionary entries ────────────────────────
@@ -183,20 +193,28 @@ private:
     auto load_main_dict(std::string_view path, std::vector<RawEntry> &entries, std::vector<int> &freqs) -> void {
         auto file = read_file(path);
         auto line = get_line_view(file.content());
+        auto line_number = size_t{0};
 
         for (auto &&line_view : line) {
+            ++line_number;
             if (line_view.empty()) {
                 continue;
             }
 
             auto sv = get_split_view(line_view, ' ');
             auto it = sv.begin();
+            const auto end = sv.end();
 
+            assert_check([&] { return it != end; }, "DictTrie: a nonempty line must contain a field");
             auto word_sv = *it;
             ++it;
+            check(it != end, "DictTrie: missing frequency at {}:{}", path, line_number);
             auto freq_sv = *it;
             ++it;
+            check(it != end, "DictTrie: missing tag at {}:{}", path, line_number);
             auto tag_sv = *it;
+            ++it;
+            check(it == end, "DictTrie: expected exactly 3 fields at {}:{}", path, line_number);
 
             auto word = decode(word_sv);
             if (word.empty()) {
@@ -204,6 +222,7 @@ private:
             }
 
             auto freq = decode_value<int>(freq_sv);
+            check(freq > 0, "DictTrie: frequency must be positive at {}:{}, got {}", path, line_number, freq);
 
             entries.push_back(RawEntry{std::move(word), freq, PosTag{tag_sv}});
             freqs.push_back(freq);
@@ -252,7 +271,10 @@ private:
             if (it != end) {
                 // 3 fields: word  freq  tag
                 freq = decode_value<int>(second);
+                check(freq >= 0, "DictTrie: user dictionary frequency must not be negative: '{}'", line);
                 tag = PosTag{*it};
+                ++it;
+                check(it == end, "DictTrie: expected at most 3 user dictionary fields: '{}'", line);
             } else {
                 // 2 fields: word  tag
                 tag = PosTag{second};
@@ -278,6 +300,10 @@ private:
             }
             case UserWordWeightOption::WordWeightMax: {
                 user_word_default_weight_ = max_weight_;
+                break;
+            }
+            default: {
+                check(false, "DictTrie: invalid user word weight option {}", static_cast<uint8_t>(opt));
                 break;
             }
         }
