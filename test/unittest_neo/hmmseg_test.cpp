@@ -345,6 +345,46 @@ TEST_F(HMModelTest, ViterbiPreservesWordBoundariesAcrossLongRuns) {
     EXPECT_EQ(HMMSegment::cut(model, runes), expected);
 }
 
+TEST_F(HMModelTest, ViterbiReconstructsLongWordsAndSingletonsAcrossAllStates) {
+    const auto lines = std::vector<std::string>{
+        "0 -100 -100 0",
+        "-100 -100 0 -100",
+        "0 -100 -100 0",
+        "-100 0 0 -100",
+        "0 -100 -100 0",
+        "甲:0,乙:-100,丙:-100,丁:-100,𠮷:-100",
+        "甲:-100,乙:-100,丙:-100,丁:0,𠮷:-100",
+        "甲:-100,乙:0,丙:0,丁:-100,𠮷:-100",
+        "甲:-100,乙:-100,丙:-100,丁:-100,𠮷:0",
+    };
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    constexpr auto block_count = uint32_t{1024};
+    auto runes = Unicode{};
+    auto expected = std::vector<WordRange>{};
+    runes.reserve(5 * block_count);
+    expected.reserve(2 * block_count);
+    for (auto i = uint32_t{0}; i < block_count; ++i) {
+        runes.insert(runes.end(), {U'甲', U'乙', U'丙', U'丁', U'𠮷'});
+        expected.push_back({5 * i, 5 * i + 4});
+        expected.push_back({5 * i + 4, 5 * i + 5});
+    }
+    EXPECT_EQ(HMMSegment::cut(model, runes), expected);
+    runes.pop_back();
+    expected.pop_back();
+    EXPECT_EQ(HMMSegment::cut(model, runes), expected);
+}
+
+TEST_F(HMModelTest, ViterbiKeepsRuneOffsetsAcrossAsciiAndSeparatorBoundaries) {
+    const auto model = HMModel{model_path()};
+    const auto runes = decode("前AB12甲甲甲，3.14甲甲后");
+    const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
+    const auto result = HMMSegment::cut(model, input);
+
+    EXPECT_EQ(to_strings(input, result), (std::vector<std::string>{"AB12", "甲甲甲", "，", "3.14", "甲甲"}));
+    EXPECT_EQ(result, (std::vector<WordRange>{{0, 4}, {4, 7}, {7, 8}, {8, 12}, {12, 14}}));
+}
+
 TEST_F(HMModelTest, ViterbiPreservesLegacyFallbackBelowMinimumInitialProbability) {
     const auto lines = std::vector<std::string>{
         "-2e100 -3e100 -3e100 -3e100",

@@ -29,16 +29,17 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
     // Flat 2D arrays laid out as [state * X + position] for cache-friendly access.
     // Only paths retain this layout; scores need the previous and current columns.
+    // These layout notes are historical; paths now use contiguous [position][state] rows.
     auto previous_weight = std::array<double, Y>{};
     auto current_weight = std::array<double, Y>{};
-    auto path = std::vector<uint8_t>(X * Y);
+    auto path = std::vector<std::array<uint8_t, Y>>(X);
 
     // ── Initialization (t = 0) ──────────────────────────────────────
     const auto first_emit = model.get_emit_probs(runes[begin]);
     for (auto y = size_t{0}; y < Y; ++y) {
         previous_weight[y] = model.get_start_prob(static_cast<HMMState>(y)) + first_emit[y];
         assert_check([&] { return std::isfinite(previous_weight[y]); }, "HMMSegment: non-finite initial weight");
-        path[y * X] = 0;
+        path[0][y] = 0;
     }
 
     // ── Recursion (t = 1 .. X-1) ────────────────────────────────────
@@ -68,7 +69,7 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
             assert_check([&] { return best_prev < Y && std::isfinite(best_weight); },
                          "HMMSegment: Viterbi must select a valid predecessor");
             current_weight[y] = best_weight;
-            path[y * X + x] = best_prev;
+            path[x][y] = best_prev;
         }
         previous_weight = current_weight;
     }
@@ -83,19 +84,22 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     }
 
     // ── Backtrace ───────────────────────────────────────────────────
-    auto status = std::vector<uint8_t>(X);
-    status[last] = end_state;
-    for (auto x = static_cast<int64_t>(last) - 1; x >= 0; --x) {
-        assert_check([&] { return status[static_cast<size_t>(x + 1)] < Y; },
-                     "HMMSegment: traceback state is out of range");
-        status[static_cast<size_t>(x)] = path[status[static_cast<size_t>(x + 1)] * X + static_cast<size_t>(x + 1)];
+    // Once a row's predecessor is read, that row is no longer needed for backtrace.
+    // Reuse slot 0 for its decoded state so emitting words needs no separate status buffer.
+    auto backtrace_state = end_state;
+    for (auto x = last; x > 0; --x) {
+        assert_check([&] { return backtrace_state < Y; }, "HMMSegment: traceback state is out of range");
+        const auto previous_state = path[x][backtrace_state];
+        path[x][0] = backtrace_state;
+        backtrace_state = previous_state;
     }
+    path[0][0] = backtrace_state;
 
     // Emit word ranges based on E/S boundaries.
     auto word_begin = begin;
     for (auto i = size_t{0}; i < X; ++i) {
-        assert_check([&] { return status[i] < Y; }, "HMMSegment: emitted state is out of range");
-        auto state = static_cast<HMMState>(status[i]);
+        assert_check([&] { return path[i][0] < Y; }, "HMMSegment: emitted state is out of range");
+        auto state = static_cast<HMMState>(path[i][0]);
         if (state == HMMState::E || state == HMMState::S) {
             result.push_back(WordRange{pos + word_begin, pos + begin + static_cast<uint32_t>(i) + 1});
             word_begin = begin + static_cast<uint32_t>(i) + 1;
