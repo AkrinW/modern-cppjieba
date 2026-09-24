@@ -6,6 +6,8 @@
 
 #include "test_paths.h"
 
+#include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -70,6 +72,39 @@ TEST(MPSegmentTest, SeparatorsAndPunctuation) {
 
     auto expected = std::vector<std::string>{"我", "来自", "北京邮电大学", "。"};
     EXPECT_EQ(words, expected) << "actual: " << join(words);
+}
+
+TEST(MPSegmentTest, AppendsIndependentSegmentsWithRuneOffsets) {
+    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode(std::string_view{"甲 \t南京市长江大桥，，𠮷😀\n的了是。乙"});
+    const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
+    const auto result = MPSegment::cut(dict, input);
+
+    EXPECT_EQ(to_strings(input, result), (std::vector<std::string>{" ", "\t", "南京市", "长江大桥", "，", "，", "𠮷",
+                                                                   "😀", "\n", "的", "了", "是", "。"}));
+    EXPECT_EQ(result, (std::vector<WordRange>{{0, 1},
+                                              {1, 2},
+                                              {2, 5},
+                                              {5, 9},
+                                              {9, 10},
+                                              {10, 11},
+                                              {11, 12},
+                                              {12, 13},
+                                              {13, 14},
+                                              {14, 15},
+                                              {15, 16},
+                                              {16, 17},
+                                              {17, 18}}));
+}
+
+TEST(MPSegmentTest, PreservesExistingOutputWhenAppendingAtTheRuneOffsetLimit) {
+    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode(std::string_view{"𠮷😀"});
+    const auto pos = std::numeric_limits<uint32_t>::max() - uint32_t{2};
+    auto result = std::vector<WordRange>{{7, 8}};
+    detail::mp_cut_one_segment(dict, result, runes, pos);
+
+    EXPECT_EQ(result, (std::vector<WordRange>{{7, 8}, {pos, pos + 1}, {pos + 1, pos + 2}}));
 }
 
 TEST(MPSegmentTest, MixedAsciiAndChinese) {

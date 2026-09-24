@@ -22,30 +22,41 @@ struct MPSegmentResult {
     std::vector<WordRange> words;
 };
 
-/// Check that local word ranges form a nonempty-token partition of the rune span.
-[[nodiscard]] inline auto valid_segment_partition(std::span<const WordRange> words, size_t rune_count) -> bool {
-    auto next = uint32_t{0};
+/// Check a word partition whose rune span starts at a caller-provided global offset.
+[[nodiscard]] inline auto valid_segment_partition_at(std::span<const WordRange> words, size_t rune_count, uint32_t pos)
+    -> bool {
+    auto next = pos;
     for (const auto &word : words) {
-        if (word.begin != next || word.begin >= word.end || word.end > rune_count) {
+        if (word.begin != next || word.begin >= word.end || word.end - pos > rune_count) {
             return false;
         }
         next = word.end;
     }
-    return next == rune_count;
+    return next - pos == rune_count;
 }
 
-/// Run MP segmentation on a separator-free rune span and keep the DAG for downstream reuse.
-[[nodiscard]] inline auto mp_cut_segment(const DictTrie &dict, std::span<const Rune> runes) -> MPSegmentResult {
-    assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
-                 "MPSegment: rune count exceeds the word-range limit");
-    auto result = MPSegmentResult{};
-    if (runes.empty()) {
-        return result;
-    }
+/// Check that local word ranges form a nonempty-token partition of the rune span.
+[[nodiscard]] inline auto valid_segment_partition(std::span<const WordRange> words, size_t rune_count) -> bool {
+    return valid_segment_partition_at(words, rune_count, 0);
+}
 
-    result.dag = dict.find_dag(runes);
-    const auto n = result.dag.size();
-    assert_check([&] { return n == runes.size(); }, "MPSegment: DAG size must match the rune span");
+/// Select local result construction or appending ranges with global rune offsets.
+enum class MPOutput : uint8_t { Local, Append };
+
+/// Run MP segmentation on a separator-free rune span and keep the DAG for downstream reuse.
+/// The caller owns the DAG and destination; only the DP scratch is local to this call.
+template <MPOutput output>
+inline auto mp_cut_dag(const DictTrie &dict, const Dag &dag, std::vector<WordRange> &words, uint32_t pos) -> void {
+    assert_check([&] { return dag.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                 "MPSegment: global DAG offsets overflow");
+    if constexpr (output == MPOutput::Local) {
+        assert_check([&] { return pos == 0 && words.empty(); }, "MPSegment: local output must start empty at zero");
+    }
+    const auto n = dag.size();
+    if (n == 0) {
+        return;
+    }
+    const auto appended_begin = words.size();
 
     // DP node: cumulative best weight from position i to end, and the next_pos chosen by that optimal edge.
     struct DPNode {
@@ -74,7 +85,7 @@ struct MPSegmentResult {
     // ── Reverse DP ───────────────────────────────────────────────────
     for (auto i = n; i > 0;) {
         --i;
-        const auto edges = result.dag.get_edges(i);
+        const auto edges = dag.get_edges(i);
         assert_check([&] { return !edges.empty() && edges.front().next_pos == i + 1; },
                      "MPSegment: each DAG position must start with a single-rune edge");
         auto best_is_dictionary_word = false;
@@ -105,16 +116,36 @@ struct MPSegmentResult {
     }
 
     // ── Trace forward ────────────────────────────────────────────────
-    result.words.reserve(n);
+    if constexpr (output == MPOutput::Local) {
+        words.reserve(n);
+    }
     for (auto i = uint32_t{0}; i < n;) {
         auto next = dp[i].next_pos;
         assert_check([&] { return i < next && next <= n; }, "MPSegment: traceback must advance within the rune span");
-        result.words.push_back(WordRange{i, next});
+        if constexpr (output == MPOutput::Local) {
+            words.push_back(WordRange{i, next});
+        } else {
+            words.push_back(WordRange{pos + i, pos + next});
+        }
         i = next;
     }
 
-    assert_check([&] { return valid_segment_partition(result.words, n); },
-                 "MPSegment: words must cover the rune span exactly once");
+    assert_check(
+        [&] { return valid_segment_partition_at(std::span<const WordRange>{words}.subspan(appended_begin), n, pos); },
+        "MPSegment: words must cover the rune span exactly once");
+}
+
+/// Materialize local MP words together with the DAG needed by MIX and SEARCH.
+[[nodiscard]] inline auto mp_cut_segment(const DictTrie &dict, std::span<const Rune> runes) -> MPSegmentResult {
+    assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+                 "MPSegment: rune count exceeds the word-range limit");
+    auto result = MPSegmentResult{};
+    if (runes.empty()) {
+        return result;
+    }
+    result.dag = dict.find_dag(runes);
+    assert_check([&] { return result.dag.size() == runes.size(); }, "MPSegment: DAG size must match the rune span");
+    mp_cut_dag<MPOutput::Local>(dict, result.dag, result.words, 0);
     return result;
 }
 
@@ -123,10 +154,12 @@ inline auto mp_cut_one_segment(const DictTrie &dict, std::vector<WordRange> &res
                                uint32_t pos) -> void {
     assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
                  "MPSegment: global word offsets overflow");
-    auto segment = mp_cut_segment(dict, runes);
-    for (auto &word : segment.words) {
-        result.push_back(WordRange{pos + word.begin, pos + word.end});
+    if (runes.empty()) {
+        return;
     }
+    const auto dag = dict.find_dag(runes);
+    assert_check([&] { return dag.size() == runes.size(); }, "MPSegment: DAG size must match the rune span");
+    mp_cut_dag<MPOutput::Append>(dict, dag, result, pos);
 }
 
 /// Append MP segmentation results while preserving separator runes as standalone tokens.
