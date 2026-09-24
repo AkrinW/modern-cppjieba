@@ -90,6 +90,65 @@ TEST_F(HMModelTest, LoadsProbabilitiesForEveryState) {
     EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::B, U'𠮷'), 0.0);
 }
 
+TEST_F(HMModelTest, FetchesAllEmissionStatesForARune) {
+    const auto model = HMModel{model_path()};
+    EXPECT_EQ(model.get_emit_probs(U'甲'), (EmitProbabilities{-1.0, -2.0, -3.0, -4.0}));
+    EXPECT_EQ(model.get_emit_probs(U'𠮷'), (EmitProbabilities{0.0, MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE}));
+}
+
+TEST_F(HMModelTest, MissingEmissionsRemainIndependentForEachState) {
+    auto lines = model_lines_;
+    lines[5] = "甲:0";
+    lines[6] = "乙:-2";
+    lines[7] = "𠮷:-3";
+    lines[8] = "丙:-4";
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    EXPECT_EQ(model.get_emit_probs(U'甲'), (EmitProbabilities{0.0, MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE}));
+    EXPECT_EQ(model.get_emit_probs(U'乙'), (EmitProbabilities{MIN_DOUBLE, -2.0, MIN_DOUBLE, MIN_DOUBLE}));
+    EXPECT_EQ(model.get_emit_probs(U'𠮷'), (EmitProbabilities{MIN_DOUBLE, MIN_DOUBLE, -3.0, MIN_DOUBLE}));
+    EXPECT_EQ(model.get_emit_probs(U'丙'), (EmitProbabilities{MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE, -4.0}));
+    for (const auto rune : {U'\0', U'A', U'外', U'\uffff', U'😀'}) {
+        EXPECT_EQ(model.get_emit_probs(rune), (EmitProbabilities{MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE}));
+    }
+}
+
+TEST_F(HMModelTest, DistinguishesBmpAndSupplementaryEmissionKeys) {
+    auto lines = model_lines_;
+    lines[5] = "甲:-1,\uffff:0,\U00010000:-2,\U0010ffff:-3";
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::B, U'\uffff'), 0.0);
+    EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::B, U'\U00010000'), -2.0);
+    EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::B, U'\U0010ffff'), -3.0);
+    EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::B, U'\U00010001'), MIN_DOUBLE);
+    EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::S, U'\uffff'), MIN_DOUBLE);
+}
+
+TEST_F(HMModelTest, AcceptsNullRuneEmissionKey) {
+    auto lines = model_lines_;
+    lines[5] = "甲:-1,";
+    lines[5].push_back('\0');
+    lines[5] += ":0";
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    EXPECT_EQ(model.get_emit_probs(U'\0'), (EmitProbabilities{0.0, MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE}));
+    EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::B, U'甲'), -1.0);
+}
+
+TEST_F(HMModelTest, LoadsModelsWithOnlySupplementaryEmissions) {
+    auto lines = model_lines_;
+    lines[5] = "𠮷:0";
+    lines[6] = "😀:-1";
+    lines[7] = "𠮷:-2";
+    lines[8] = "😀:-3";
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    EXPECT_EQ(model.get_emit_probs(U'𠮷'), (EmitProbabilities{0.0, MIN_DOUBLE, -2.0, MIN_DOUBLE}));
+    EXPECT_EQ(model.get_emit_probs(U'😀'), (EmitProbabilities{MIN_DOUBLE, -1.0, MIN_DOUBLE, -3.0}));
+    EXPECT_EQ(model.get_emit_probs(U'甲'), (EmitProbabilities{MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE}));
+}
+
 TEST_F(HMModelTest, AcceptsSupportedProbabilityBounds) {
     auto lines = model_lines_;
     lines[0] = "0 -3.14e100 -1 -2";
@@ -177,7 +236,7 @@ TEST_F(HMModelTest, RejectsEmptyEmissionTables) {
 }
 
 TEST_F(HMModelTest, RejectsDuplicateEmissionKeys) {
-    for (const auto emission_line : {"甲:-1,甲:-2", "甲:-1,甲:-1"}) {
+    for (const auto emission_line : {"甲:-1,甲:-2", "甲:-1,甲:-1", "甲:-3.14e100,甲:0", "𠮷:-3.14e100,𠮷:0"}) {
         for (auto row = size_t{5}; row < model_lines_.size(); ++row) {
             auto lines = model_lines_;
             lines[row] = emission_line;
@@ -210,7 +269,7 @@ TEST_F(HMModelTest, AcceptsEmptyEmissionFieldsAroundValidEntries) {
     const auto model = HMModel{model_path()};
     EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::B, U'甲'), -1.0);
     EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::B, U'𠮷'), 0.0);
-    EXPECT_EQ(model.get_emit_prob_map(HMMState::B).size(), 2u);
+    EXPECT_DOUBLE_EQ(model.get_emit_prob(HMMState::B, U'外'), MIN_DOUBLE);
 }
 
 TEST_F(HMModelTest, MissingRunesUseTheExistingFallback) {

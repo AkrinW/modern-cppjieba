@@ -1,10 +1,13 @@
 #pragma once
 
+#include "third_party/gtl.hpp"
+
 #include "FileIO.hpp"
 #include "Logging.hpp"
 #include "StringUtil.hpp"
 #include "Unicode.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -29,6 +32,8 @@ enum class HMMState : uint8_t {
     S = 3  // Single
 };
 inline constexpr auto kHMMStatesNum = size_t{4};
+/// Emission probabilities for one rune in B/E/M/S order.
+using EmitProbabilities = std::array<double, kHMMStatesNum>;
 inline constexpr auto kHMMStateLables = std::array<char, kHMMStatesNum>{'B', 'E', 'M', 'S'};
 
 constexpr auto get_hmm_state_label(HMMState state) -> char {
@@ -70,29 +75,77 @@ struct HMModel {
         return trans_prob[static_cast<size_t>(from)][static_cast<size_t>(to)];
     }
 
-    constexpr auto get_emit_prob_map(HMMState state) const -> const EmitProbMap & {
-        assert_check([=] { return static_cast<size_t>(state) < kHMMStatesNum; }, "HMModel: invalid emission state");
-        return emit_prob_maps[static_cast<size_t>(state)];
-    }
-
     // ── Query interface ──────────────────────────────────────────────────
 
     /// Look up the emission probability of `key` from the given emit-prob map.
     /// Returns `default_val` when the key is absent.
+    /// The rune row supplies the state value; missing entries retain MIN_DOUBLE.
     [[nodiscard]] auto get_emit_prob(HMMState state, Rune key) const noexcept -> double {
-        const auto &mp = get_emit_prob_map(state);
-        if (auto it = mp.find(key); it != mp.end()) {
-            return it->second;
+        assert_check([=] { return static_cast<size_t>(state) < kHMMStatesNum; }, "HMModel: invalid emission state");
+        return get_emit_probs(key)[static_cast<size_t>(state)];
+    }
+
+    /// Fetch all four states with one rune lookup; absent states keep MIN_DOUBLE.
+    [[nodiscard]] auto get_emit_probs(Rune key) const noexcept -> EmitProbabilities {
+        // Unsigned subtraction rejects runes on either side of the stored BMP interval.
+        const auto index = static_cast<size_t>(key) - bmp_begin_;
+        if (index < bmp_emit_probs_.size()) {
+            return bmp_emit_probs_[index];
         }
-        return MIN_DOUBLE;
+        const auto it = supplementary_emit_probs_.find(key);
+        return it != supplementary_emit_probs_.end() ? it->second : kMissingEmitProbs;
     }
 
     // ── Model parameters (public for direct access by HMSegment) ─────────
 
     std::array<double, kHMMStatesNum> start_prob{};
     std::array<std::array<double, kHMMStatesNum>, kHMMStatesNum> trans_prob{};
-    std::array<EmitProbMap, kHMMStatesNum> emit_prob_maps; // indexed access to emit_prob maps
+    // std::array<EmitProbMap, kHMMStatesNum> emit_prob_maps; // indexed access to emit_prob maps
 private:
+    using EmitTable = gtl::flat_hash_map<Rune, EmitProbabilities>;
+    static constexpr auto kMissingEmitProbs = EmitProbabilities{MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE};
+    static constexpr auto kBmpLimit = size_t{0x10000};
+    size_t bmp_begin_{0};
+    std::vector<EmitProbabilities> bmp_emit_probs_;
+    EmitTable supplementary_emit_probs_;
+
+    /// Build rune rows only after the original per-state parsing and validation succeed.
+    auto build_emit_probs(const std::array<EmitProbMap, kHMMStatesNum> &maps) -> void {
+        size_t bmp_begin = kBmpLimit;
+        size_t bmp_end = 0;
+        size_t supplementary_capacity = 0;
+        for (const auto &map : maps) {
+            size_t supplementary_count = 0;
+            for (const auto &[rune, probability] : map) {
+                if (rune < kBmpLimit) {
+                    bmp_begin = std::min(bmp_begin, static_cast<size_t>(rune));
+                    bmp_end = std::max(bmp_end, static_cast<size_t>(rune) + 1);
+                } else {
+                    ++supplementary_count;
+                }
+            }
+            supplementary_capacity = std::max(supplementary_capacity, supplementary_count);
+        }
+        if (bmp_end > bmp_begin) {
+            bmp_begin_ = bmp_begin;
+            bmp_emit_probs_.resize(bmp_end - bmp_begin, kMissingEmitProbs);
+        }
+        supplementary_emit_probs_.reserve(supplementary_capacity);
+        for (size_t state = 0; state < kHMMStatesNum; ++state) {
+            for (const auto &[rune, probability] : maps[state]) {
+                if (rune < kBmpLimit) {
+                    const auto index = static_cast<size_t>(rune) - bmp_begin_;
+                    assert_check([&] { return index < bmp_emit_probs_.size(); },
+                                 "HMModel: BMP emission index is out of range");
+                    bmp_emit_probs_[index][state] = probability;
+                } else {
+                    auto &row = supplementary_emit_probs_.try_emplace(rune, kMissingEmitProbs).first->second;
+                    row[state] = probability;
+                }
+            }
+        }
+    }
+
     // ── Loading ──────────────────────────────────────────────────────────
     auto load(std::string_view model_path) -> void {
         auto file = read_file(model_path);
@@ -121,6 +174,7 @@ private:
         check(data_lines.size() == expected_line_count, "HMModel: expected exactly {} data lines in {}, got {}",
               expected_line_count, model_path, data_lines.size());
 
+        auto emit_prob_maps = std::array<EmitProbMap, kHMMStatesNum>{};
         auto idx = size_t{0};
 
         // ── Start probabilities ──────────────────────────────────────────
@@ -142,6 +196,7 @@ private:
                                    emit_prob_maps[i].load_factor());
             ++idx;
         }
+        build_emit_probs(emit_prob_maps);
     }
 
     // Both probability formats use finite log-weights bounded by the Viterbi sentinel and log(1).

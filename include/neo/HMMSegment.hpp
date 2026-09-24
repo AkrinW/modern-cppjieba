@@ -34,18 +34,18 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     auto path = std::vector<uint8_t>(X * Y);
 
     // ── Initialization (t = 0) ──────────────────────────────────────
+    const auto first_emit = model.get_emit_probs(runes[begin]);
     for (auto y = size_t{0}; y < Y; ++y) {
-        previous_weight[y] = model.get_start_prob(static_cast<HMMState>(y))
-                             + model.get_emit_prob(static_cast<HMMState>(y), runes[begin]);
+        previous_weight[y] = model.get_start_prob(static_cast<HMMState>(y)) + first_emit[y];
         assert_check([&] { return std::isfinite(previous_weight[y]); }, "HMMSegment: non-finite initial weight");
         path[y * X] = 0;
     }
 
     // ── Recursion (t = 1 .. X-1) ────────────────────────────────────
     for (auto x = size_t{1}; x < X; ++x) {
-        auto rune = runes[begin + x];
+        const auto emit_probs = model.get_emit_probs(runes[begin + x]);
         for (auto y = size_t{0}; y < Y; ++y) {
-            auto emit = model.get_emit_prob(static_cast<HMMState>(y), rune);
+            const auto emit = emit_probs[y];
             auto best_weight = MIN_DOUBLE;
             // Default to E (End) state — matches the original cppjieba behavior.
             // When all transition weights tie at MIN_DOUBLE (e.g., for characters absent
