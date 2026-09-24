@@ -6,6 +6,7 @@
 #include "Unicode.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -31,6 +32,7 @@ inline constexpr auto kHMMStatesNum = size_t{4};
 inline constexpr auto kHMMStateLables = std::array<char, kHMMStatesNum>{'B', 'E', 'M', 'S'};
 
 constexpr auto get_hmm_state_label(HMMState state) -> char {
+    assert_check([=] { return static_cast<size_t>(state) < kHMMStatesNum; }, "HMModel: invalid label state");
     return kHMMStateLables[static_cast<size_t>(state)];
 }
 
@@ -56,14 +58,20 @@ struct HMModel {
     }
 
     constexpr auto get_start_prob(HMMState state) const -> double {
+        assert_check([=] { return static_cast<size_t>(state) < kHMMStatesNum; }, "HMModel: invalid start state");
         return start_prob[static_cast<size_t>(state)];
     }
 
     constexpr auto get_trans_prob(HMMState from, HMMState to) const -> double {
+        assert_check([=] { return static_cast<size_t>(from) < kHMMStatesNum; },
+                     "HMModel: invalid transition source state");
+        assert_check([=] { return static_cast<size_t>(to) < kHMMStatesNum; },
+                     "HMModel: invalid transition target state");
         return trans_prob[static_cast<size_t>(from)][static_cast<size_t>(to)];
     }
 
     constexpr auto get_emit_prob_map(HMMState state) const -> const EmitProbMap & {
+        assert_check([=] { return static_cast<size_t>(state) < kHMMStatesNum; }, "HMModel: invalid emission state");
         return emit_prob_maps[static_cast<size_t>(state)];
     }
 
@@ -89,24 +97,29 @@ private:
     auto load(std::string_view model_path) -> void {
         auto file = read_file(model_path);
         auto lines = get_line_view(file.content());
+        constexpr auto expected_line_count = 1 + 2 * kHMMStatesNum;
 
         // Collect non-comment, non-empty lines.
         auto data_lines = std::vector<std::string_view>{};
         // 4 (startProb) + 4 (transProb rows) + 4 (emitProb) = up to ~12 data lines, but
         // startProb is 1 line, so total 9 data lines minimum.
-        data_lines.reserve(16);
+        data_lines.reserve(expected_line_count);
 
         for (auto &&line : lines) {
             auto trimmed = trim(line);
             if (trimmed.empty() || trimmed.front() == '#') {
                 continue;
             }
+            check(data_lines.size() < expected_line_count,
+                  "HMModel: expected exactly {} data lines in {}, got extra data", expected_line_count, model_path);
             data_lines.push_back(trimmed);
         }
 
         // We expect at least 9 data lines:
         //   1 (startProb) + 4 (transProb) + 4 (emitProb B/E/M/S)
-        check(data_lines.size() >= 9, "HMModel: expected >= 9 data lines in {}, got {}", model_path, data_lines.size());
+        // Exactly these 9 data lines are accepted; additional data lines are rejected.
+        check(data_lines.size() == expected_line_count, "HMModel: expected exactly {} data lines in {}, got {}",
+              expected_line_count, model_path, data_lines.size());
 
         auto idx = size_t{0};
 
@@ -131,6 +144,14 @@ private:
         }
     }
 
+    // Both probability formats use finite log-weights bounded by the Viterbi sentinel and log(1).
+    static auto parse_log_prob(std::string_view token) -> double {
+        const auto probability = decode_value<double>(token);
+        check(std::isfinite(probability) && probability >= MIN_DOUBLE && probability <= 0.0,
+              "HMModel: log-probability must be finite and in [{}, 0], got '{}'", MIN_DOUBLE, token);
+        return probability;
+    }
+
     /// Parse a space-separated line of doubles into a fixed-size array.
     auto parse_prob_line(std::string_view line) -> std::array<double, kHMMStatesNum> {
         auto out = std::array<double, kHMMStatesNum>{};
@@ -141,7 +162,7 @@ private:
                 continue;
             }
             check(i < kHMMStatesNum, "HMModel: too many values in probability line");
-            out[i] = decode_value<double>(token);
+            out[i] = parse_log_prob(token);
             ++i;
         }
         check(i == kHMMStatesNum, "HMModel: expected {} values in probability line, got {}", kHMMStatesNum, i);
@@ -167,8 +188,10 @@ private:
             check(unicode.size() == 1, "HMModel: emit prob key must be a single character, got '{}' ({} runes)",
                   char_sv, unicode.size());
 
-            mp.emplace(unicode[0], decode_value<double>(prob_sv));
+            const auto inserted = mp.emplace(unicode[0], parse_log_prob(prob_sv)).second;
+            check(inserted, "HMModel: duplicate emit probability key '{}'", char_sv);
         }
+        check(!mp.empty(), "HMModel: emission probability map must contain at least one entry");
         mp.reserve(mp.size() * 4); // reserve space to increase query performance by avoiding rehashing.
         return mp;
     }
