@@ -94,6 +94,29 @@ TEST(MixSegmentNeoTest, UnicodeOverloadWithSeparators) {
     EXPECT_EQ(words, expected) << "actual: " << join(words);
 }
 
+TEST(MixSegmentNeoTest, HmmRunsPreserveRuneOffsetsAroundConsecutiveSeparators) {
+    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto runes = decode(std::string_view{"甲 \t杭研qzx987，，3.14。\n𠮷乙"});
+    const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
+    const auto result = MixSegment<true>::cut(dict, model, input);
+
+    EXPECT_EQ(to_strings(input, result),
+              (std::vector<std::string>{" ", "\t", "杭研", "qzx987", "，", "，", "3.14", "。", "\n", "𠮷"}));
+    EXPECT_EQ(result, (std::vector<WordRange>{
+                          {0, 1},
+                          {1, 2},
+                          {2, 4},
+                          {4, 10},
+                          {10, 11},
+                          {11, 12},
+                          {12, 16},
+                          {16, 17},
+                          {17, 18},
+                          {18, 19},
+                      }));
+}
+
 TEST(MixSegmentNeoTest, BChaoTShirt) {
     auto dict = DictTrie{DICT_FILE};
     auto model = HMModel{HMM_MODEL_FILE};

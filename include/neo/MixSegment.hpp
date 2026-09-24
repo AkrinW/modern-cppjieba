@@ -110,7 +110,8 @@ private:
             assert_check([&] { return i < j; }, "MixSegment: HMM input must contain at least one MP word");
             auto run_begin = mp_words[i].begin;
             auto run_end = mp_words[j - 1].end;
-            detail::hmm_cut_append(model, runes.subspan(run_begin, run_end - run_begin), result, pos + run_begin);
+            // The outer cut already removed separators; retain the HMM helper's ASCII handling and rune offsets.
+            detail::hmm_cut_one_segment(model, result, runes.subspan(run_begin, run_end - run_begin), pos + run_begin);
 
             i = j;
         }

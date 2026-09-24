@@ -8,15 +8,93 @@
 
 #include "test_paths.h"
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 using namespace neo_cppjieba;
 
 inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
 inline constexpr auto HMM_MODEL_FILE = std::string_view{DICT_DIR "/hmm_model.utf8"};
+
+namespace {
+
+// Force MP to select single letters while retaining low-frequency sub-words for HMM search tokens.
+class QuerySegmentHmmWordsTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        auto pattern = (std::filesystem::temp_directory_path() / "neo-query-hmm-XXXXXX").string();
+        ASSERT_NE(::mkdtemp(pattern.data()), nullptr);
+        directory_ = std::move(pattern);
+        write_dictionary("ab 1 n\nbc 1 n\ncd 1 n\nabc 1 n\nbcd 1 n\nabcd 1 n\n");
+    }
+
+    void TearDown() override {
+        if (!directory_.empty()) {
+            auto error = std::error_code{};
+            std::filesystem::remove_all(directory_, error);
+            EXPECT_FALSE(error) << error.message();
+        }
+    }
+
+    [[nodiscard]] auto dictionary_path() const -> std::string {
+        return (directory_ / "main.dict").string();
+    }
+
+    void write_dictionary(std::string_view sub_words) const {
+        auto output = std::ofstream{dictionary_path(), std::ios::binary};
+        ASSERT_TRUE(output.is_open());
+        output << "a 100000 n\nb 100000 n\nc 100000 n\nd 100000 n\n" << sub_words;
+        output.close();
+        ASSERT_TRUE(output.good());
+    }
+
+    std::filesystem::path directory_;
+};
+
+} // namespace
+
+TEST_F(QuerySegmentHmmWordsTest, IncludesDictionarySubwordsOutsideTheSelectedMpPath) {
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto runes = decode(std::string_view{"abcd"});
+    ASSERT_EQ(QuerySegment<false>::cut(dict, model, runes), (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}, {3, 4}}));
+
+    const auto result = QuerySegment<true>::cut(dict, model, runes);
+    EXPECT_EQ(to_strings(runes, result), (std::vector<std::string>{"ab", "bc", "cd", "abc", "bcd", "abcd"}));
+    EXPECT_EQ(result, (std::vector<WordRange>{{0, 2}, {1, 3}, {2, 4}, {0, 3}, {1, 4}, {0, 4}}));
+    EXPECT_EQ(result, test::query_cut_requery(dict, model, runes));
+}
+
+TEST_F(QuerySegmentHmmWordsTest, PreservesSubwordRuneOffsetsAfterSeparators) {
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto runes = decode(std::string_view{"前𠮷， abcd后"});
+    const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
+    const auto result = QuerySegment<true>::cut(dict, model, input);
+
+    EXPECT_EQ(to_strings(input, result),
+              (std::vector<std::string>{"𠮷", "，", " ", "ab", "bc", "cd", "abc", "bcd", "abcd"}));
+    EXPECT_EQ(result, (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}, {3, 5}, {4, 6}, {5, 7}, {3, 6}, {4, 7}, {3, 7}}));
+    EXPECT_EQ(result, test::query_cut_requery(dict, model, input));
+}
+
+TEST_F(QuerySegmentHmmWordsTest, OmitsMissingSubwordsWhenLongerDictionaryMatchesExist) {
+    ASSERT_NO_FATAL_FAILURE(write_dictionary("ab 1 n\nabc 1 n\nabcd 1 n\nbcd 1 n\ncdef 1 n\n"));
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto runes = decode(std::string_view{"abcd"});
+    const auto result = QuerySegment<true>::cut(dict, model, runes);
+
+    EXPECT_EQ(to_strings(runes, result), (std::vector<std::string>{"ab", "abc", "bcd", "abcd"}));
+    EXPECT_EQ(result, test::query_cut_requery(dict, model, runes));
+}
 
 TEST(QuerySegmentNeoTest, EmptyInput) {
     auto dict = DictTrie{DICT_FILE};

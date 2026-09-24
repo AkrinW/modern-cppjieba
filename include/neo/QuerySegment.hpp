@@ -66,8 +66,9 @@ private:
     [[nodiscard]] static auto has_dag_edge(const Dag &dag, uint32_t begin, uint32_t end) -> bool {
         assert_check([&] { return begin < end && end <= dag.size(); }, "QuerySegment: invalid DAG lookup range");
         for (auto &&edge : dag.get_edges(begin)) {
-            if (edge.next_pos == end) {
-                return true;
+            // Trie construction appends dictionary edges in increasing end-position order.
+            if (edge.next_pos >= end) {
+                return edge.next_pos == end;
             }
         }
         return false;
@@ -107,34 +108,15 @@ private:
     }
 
     /// Emit query-mode tokens for an HMM word that has no DAG path in the MP result.
-    static auto append_query_local_word_by_lookup(const DictTrie &dict, std::span<const Rune> runes, WordRange word,
-                                                  uint32_t segment_offset, std::vector<WordRange> &result) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - segment_offset; },
+    /// Its dictionary sub-words remain available in the full segment DAG, independent of the chosen MP path.
+    static auto append_query_local_word_from_dag(const Dag &dag, WordRange word, uint32_t segment_offset,
+                                                 std::vector<WordRange> &result) -> void {
+        assert_check([&] { return dag.size() <= std::numeric_limits<uint32_t>::max() - segment_offset; },
                      "QuerySegment: global word offsets overflow");
-        assert_check([&] { return word.begin < word.end && word.end <= runes.size(); },
+        assert_check([&] { return word.begin < word.end && word.end <= dag.size(); },
                      "QuerySegment: invalid local HMM word range");
-        auto len = word.size();
-
-        if (len > 2) {
-            for (auto i = uint32_t{0}; i <= len - 2; ++i) {
-                auto begin = word.begin + i;
-                auto sub = runes.subspan(begin, 2);
-                if (dict.find(sub).has_value()) {
-                    result.push_back(WordRange{segment_offset + begin, segment_offset + begin + 2});
-                }
-            }
-        }
-
-        if (len > 3) {
-            for (auto i = uint32_t{0}; i <= len - 3; ++i) {
-                auto begin = word.begin + i;
-                auto sub = runes.subspan(begin, 3);
-                if (dict.find(sub).has_value()) {
-                    result.push_back(WordRange{segment_offset + begin, segment_offset + begin + 3});
-                }
-            }
-        }
-        result.push_back(WordRange{segment_offset + word.begin, segment_offset + word.end});
+        append_query_word_from_dag(dag, segment_offset,
+                                   WordRange{segment_offset + word.begin, segment_offset + word.end}, result);
     }
 
     /// Emit the main word plus its searchable sub-words when the MP DAG is already available.
@@ -201,7 +183,7 @@ private:
 
             for (auto &hmm_word : hmm_scratch) {
                 auto local = WordRange{run_begin + hmm_word.begin, run_begin + hmm_word.end};
-                append_query_local_word_by_lookup(dict, runes, local, pos, result);
+                append_query_local_word_from_dag(dag, local, pos, result);
             }
 
             i = j;
