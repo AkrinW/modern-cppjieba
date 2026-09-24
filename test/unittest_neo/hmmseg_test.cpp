@@ -1,7 +1,10 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
+#include "neo/DictTrie.hpp"
 #include "neo/HMMSegment.hpp"
 #include "neo/HMModel.hpp"
+#include "neo/MixSegment.hpp"
+#include "neo/QuerySegment.hpp"
 #include "neo/Unicode.hpp"
 
 #include "test_paths.h"
@@ -224,7 +227,7 @@ TEST_F(HMModelTest, UnknownRunesStillProduceContiguousRanges) {
     EXPECT_EQ(to_strings(runes, ranges), (std::vector<std::string>{"外", "𠀀"}));
 }
 
-TEST_F(HMModelTest, ViterbiSelectsBestPathWhenInitialScoresAreBelowMinimumProbability) {
+TEST_F(HMModelTest, ViterbiPreservesLegacyFallbackBelowMinimumInitialProbability) {
     const auto lines = std::vector<std::string>{
         "-2e100 -3e100 -3e100 -3e100",
         "-3e100 0 -3e100 -3e100",
@@ -239,10 +242,10 @@ TEST_F(HMModelTest, ViterbiSelectsBestPathWhenInitialScoresAreBelowMinimumProbab
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲乙"}));
+    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲", "乙"}));
 }
 
-TEST_F(HMModelTest, ViterbiPreservesPathOrderingAsAccumulatedScoresFallBelowMinimumProbability) {
+TEST_F(HMModelTest, ViterbiPreservesLegacyFloorForAccumulatedProbabilities) {
     const auto lines = std::vector<std::string>{
         "0 -3.14e100 -3.14e100 -2e100",
         "-3.14e100 0 0 -3.14e100",
@@ -257,10 +260,10 @@ TEST_F(HMModelTest, ViterbiPreservesPathOrderingAsAccumulatedScoresFallBelowMini
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙丙丁");
-    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲乙", "丙丁"}));
+    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲乙", "丙", "丁"}));
 }
 
-TEST_F(HMModelTest, StoredMinimumEmissionIsNotTreatedAsAnAbsentRune) {
+TEST_F(HMModelTest, StoredMinimumEmissionPreservesLegacyFallback) {
     const auto lines = std::vector<std::string>{
         "0 -3.14e100 -3.14e100 -3.14e100",
         "-3.14e100 0 -3.14e100 -3.14e100",
@@ -275,20 +278,34 @@ TEST_F(HMModelTest, StoredMinimumEmissionIsNotTreatedAsAnAbsentRune) {
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲乙"}));
+    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲", "乙"}));
 }
 
-TEST_F(HMModelTest, UnknownRunesSeparateKnownWordsWithoutAffectingLaterScores) {
+TEST_F(HMModelTest, UnknownRunesPreserveLegacyStateInHmmMixAndSearch) {
     const auto lines = std::vector<std::string>{
         "0 -100 -100 -100", "-100 0 -100 -100", "0 -100 -100 -100", "-100 -100 -100 -100", "0 -100 -100 -100",
         "甲:0,乙:0",        "甲:0,乙:0",        "甲:0,乙:0",        "甲:0,乙:0",
     };
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto dict_path = directory_ / "main.dict";
+    {
+        auto output = std::ofstream{dict_path};
+        ASSERT_TRUE(output.is_open());
+        output << "主词 1 n\n";
+        output.close();
+        ASSERT_TRUE(output.good());
+    }
+    const auto dict = DictTrie{dict_path.string(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙𠀀甲乙，外甲乙A12");
     const auto words = HMMSegment::cut(model, runes);
-    EXPECT_EQ(to_strings(runes, words), (std::vector<std::string>{"甲乙", "𠀀", "甲乙", "，", "外", "甲乙", "A12"}));
-    EXPECT_EQ(words, (std::vector<WordRange>{{0, 2}, {2, 3}, {3, 5}, {5, 6}, {6, 7}, {7, 9}, {9, 12}}));
+    const auto expected =
+        std::vector<WordRange>{{0, 2}, {2, 3}, {3, 4}, {4, 5}, {5, 6}, {6, 7}, {7, 8}, {8, 9}, {9, 12}};
+    EXPECT_EQ(to_strings(runes, words),
+              (std::vector<std::string>{"甲乙", "𠀀", "甲", "乙", "，", "外", "甲", "乙", "A12"}));
+    EXPECT_EQ(words, expected);
+    EXPECT_EQ(MixSegment<true>::cut(dict, model, runes), expected);
+    EXPECT_EQ(QuerySegment<true>::cut(dict, model, runes), expected);
 }
 
 TEST_F(HMModelTest, HmmSegmentationPreservesOffsetsAtWordRangeLimit) {

@@ -43,11 +43,13 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
         auto rune = runes[begin + x];
         for (auto y = size_t{0}; y < Y; ++y) {
             auto emit = model.get_emit_prob(static_cast<HMMState>(y), rune);
-            auto best_weight = -std::numeric_limits<double>::infinity();
+            auto best_weight = MIN_DOUBLE;
             // Default to E (End) state — matches the original cppjieba behavior.
             // When all transition weights tie at MIN_DOUBLE (e.g., for characters absent
             // from emit_prob_map), this default determines the backtrace path.
+
             // Missing runes are now emitted before Viterbi; the historical default no longer floors path scores.
+            // That policy is retired: preserve the legacy score floor and E predecessor for compatibility.
             auto best_prev = static_cast<uint8_t>(HMMState::E);
 
             for (auto prev_y = size_t{0}; prev_y < Y; ++prev_y) {
@@ -141,14 +143,7 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 }
 
 /// Distinguish absent runes from explicitly stored probabilities, including MIN_DOUBLE.
-[[nodiscard]] inline auto hmm_has_emission(const HMModel &model, Rune rune) -> bool {
-    for (auto state = size_t{0}; state < kHMMStatesNum; ++state) {
-        if (model.get_emit_prob_map(static_cast<HMMState>(state)).contains(rune)) {
-            return true;
-        }
-    }
-    return false;
-}
+// The separate missing-rune classifier is retired; legacy Viterbi handles those runes directly.
 
 /// Append HMM segmentation results for a separator-free segment, preserving ASCII runs as whole tokens.
 inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &range, std::span<const Rune> runes,
@@ -185,15 +180,9 @@ inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &ra
             range.push_back(WordRange{pos + left, pos + end});
             right = end;
             left = right;
-        } else if (!hmm_has_emission(model, runes[right])) {
-            // An absent rune is a single-token boundary, independent of accumulated model scores.
-            if (left < right) {
-                hmm_internal_cut(model, runes, left, right, range, pos);
-            }
-            range.push_back(WordRange{pos + right, pos + right + 1});
-            ++right;
-            left = right;
         } else {
+            // An absent rune is a single-token boundary, independent of accumulated model scores.
+            // That policy is retired: unknown runes remain inside the current Viterbi span.
             ++right;
         }
     }
