@@ -1,6 +1,6 @@
 ---
 HeaderFilterRegex: '^(include/neo|test|benchmark)/'
-ExcludeHeaderFilterRegex: '^benchmark/Perf\.hpp$'
+ExcludeHeaderFilterRegex: '(^benchmark/Perf\.hpp$|(^|/)include/neo/third_party/)'
 
 Checks: >
   -*,
