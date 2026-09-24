@@ -1,6 +1,6 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/PosTag.hpp"
+#include "neo/detail/PosTag.hpp"
 
 #include "test_paths.h"
 

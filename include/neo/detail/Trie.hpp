@@ -1,13 +1,12 @@
 #pragma once
 
-#include "third_party/gtl.hpp"
-
-#include "Dag.hpp"
-#include "Logging.hpp"
-#include "PosTag.hpp"
-#include "Traits.hpp"
-#include "TrieStats.hpp"
-#include "Unicode.hpp"
+#include "neo/Traits.hpp"
+#include "neo/Unicode.hpp"
+#include "neo/detail/Dag.hpp"
+#include "neo/detail/Logging.hpp"
+#include "neo/detail/PosTag.hpp"
+#include "neo/detail/TrieStats.hpp"
+#include "neo/third_party/gtl.hpp"
 
 #include <algorithm>
 #include <cstddef>

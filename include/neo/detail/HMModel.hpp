@@ -1,11 +1,10 @@
 #pragma once
 
-#include "third_party/gtl.hpp"
-
-#include "FileIO.hpp"
-#include "Logging.hpp"
-#include "StringUtil.hpp"
-#include "Unicode.hpp"
+#include "neo/Unicode.hpp"
+#include "neo/detail/FileIO.hpp"
+#include "neo/detail/Logging.hpp"
+#include "neo/detail/StringUtil.hpp"
+#include "neo/third_party/gtl.hpp"
 
 #include <algorithm>
 #include <array>

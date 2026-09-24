@@ -1,11 +1,11 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
-#include "neo/DictTrie.hpp"
-#include "neo/FullSegment.hpp"
-#include "neo/HMModel.hpp"
-#include "neo/MPSegment.hpp"
-#include "neo/MixSegment.hpp"
-#include "neo/QuerySegment.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/FullSegment.hpp"
+#include "neo/detail/HMModel.hpp"
+#include "neo/detail/MPSegment.hpp"
+#include "neo/detail/MixSegment.hpp"
+#include "neo/detail/QuerySegment.hpp"
 
 #include "test_paths.h"
 

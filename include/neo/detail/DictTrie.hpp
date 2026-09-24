@@ -1,10 +1,10 @@
 #pragma once
 
-#include "FileIO.hpp"
-#include "Logging.hpp"
-#include "StringUtil.hpp"
-#include "Trie.hpp"
-#include "Unicode.hpp"
+#include "neo/Unicode.hpp"
+#include "neo/detail/FileIO.hpp"
+#include "neo/detail/Logging.hpp"
+#include "neo/detail/StringUtil.hpp"
+#include "neo/detail/Trie.hpp"
 
 #include <algorithm>
 #include <cmath>

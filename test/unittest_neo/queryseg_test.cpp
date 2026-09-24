@@ -1,10 +1,10 @@
 #include "../QuerySegmentCompare.hpp"
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
-#include "neo/DictTrie.hpp"
-#include "neo/HMModel.hpp"
-#include "neo/QuerySegment.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/HMModel.hpp"
+#include "neo/detail/QuerySegment.hpp"
 
 #include "test_paths.h"
 

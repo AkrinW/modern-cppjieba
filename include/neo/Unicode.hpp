@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Logging.hpp"
-#include "Traits.hpp"
+#include "neo/Traits.hpp"
+#include "neo/detail/Logging.hpp"
 
 #include <algorithm>
 #include <array>
@@ -38,12 +38,12 @@ struct UnicodeWithOffset {
     [[nodiscard]] auto get_runes() const & noexcept -> const Unicode & {
         return runes;
     }
-    auto get_runes() const && -> const Unicode & = delete;
+    [[nodiscard]] auto get_runes() const && -> const Unicode & = delete;
 
     [[nodiscard]] auto get_offsets() const & noexcept -> const std::vector<uint32_t> & {
         return offsets;
     }
-    auto get_offsets() const && -> const std::vector<uint32_t> & = delete;
+    [[nodiscard]] auto get_offsets() const && -> const std::vector<uint32_t> & = delete;
 };
 
 /// A half-open range [begin, end) of rune positions within the input.

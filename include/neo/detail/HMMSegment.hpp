@@ -1,9 +1,9 @@
 #pragma once
 
-#include "HMModel.hpp"
-#include "Logging.hpp"
-#include "StringUtil.hpp"
-#include "Unicode.hpp"
+#include "neo/Unicode.hpp"
+#include "neo/detail/HMModel.hpp"
+#include "neo/detail/Logging.hpp"
+#include "neo/detail/StringUtil.hpp"
 
 #include <array>
 #include <cmath>

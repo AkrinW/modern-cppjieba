@@ -1,11 +1,11 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
-#include "neo/Dag.hpp"
-#include "neo/DictTrie.hpp"
-#include "neo/HMModel.hpp"
-#include "neo/MixSegment.hpp"
-#include "neo/StringUtil.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/detail/Dag.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/HMModel.hpp"
+#include "neo/detail/MixSegment.hpp"
+#include "neo/detail/StringUtil.hpp"
 
 #include "test_paths.h"
 

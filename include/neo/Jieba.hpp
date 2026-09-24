@@ -1,16 +1,16 @@
 #pragma once
 
-#include "DictTrie.hpp"
-#include "FullSegment.hpp"
-#include "HMMSegment.hpp"
-#include "HMModel.hpp"
-#include "Logging.hpp"
-#include "MPSegment.hpp"
-#include "MixSegment.hpp"
-#include "QuerySegment.hpp"
-#include "Token.hpp"
-#include "Traits.hpp"
-#include "Unicode.hpp"
+#include "neo/Token.hpp"
+#include "neo/Traits.hpp"
+#include "neo/Unicode.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/FullSegment.hpp"
+#include "neo/detail/HMMSegment.hpp"
+#include "neo/detail/HMModel.hpp"
+#include "neo/detail/Logging.hpp"
+#include "neo/detail/MPSegment.hpp"
+#include "neo/detail/MixSegment.hpp"
+#include "neo/detail/QuerySegment.hpp"
 
 #include <algorithm>
 #include <concepts>
@@ -164,16 +164,6 @@ public:
         const auto ranges = cut_runes(runes, mode);
         out.assign(ranges.begin(), ranges.end());
     }
-
-    [[nodiscard]] auto dict() const & noexcept -> const DictTrie & {
-        return dict_;
-    }
-    auto dict() const && noexcept -> const DictTrie & = delete;
-
-    [[nodiscard]] auto model() const & noexcept -> const HMModel & {
-        return model_;
-    }
-    auto model() const && noexcept -> const HMModel & = delete;
 
 private:
     template <CharType CharT>

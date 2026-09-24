@@ -11,7 +11,7 @@
 #include "cppjieba/Unicode.hpp"
 
 // ── Neo headers ──
-#include "neo/DictTrie.hpp"
+#include "neo/detail/DictTrie.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "test_paths.h"

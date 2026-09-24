@@ -16,7 +16,7 @@
 #include "cppjieba/Unicode.hpp"
 
 // ── Neo Trie header (neo_cppjieba namespace — no conflict with cppjieba) ──
-#include "neo/Trie.hpp"
+#include "neo/detail/Trie.hpp"
 
 #include "BenchmarkUtils.hpp"
 

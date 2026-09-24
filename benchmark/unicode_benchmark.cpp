@@ -13,9 +13,9 @@
 /// Run:
 ///   ./build-bench/benchmark/unicode_benchmark [path/to/jieba.dict.utf8]
 
-#include "neo/FileIO.hpp"
-#include "neo/StringUtil.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/detail/FileIO.hpp"
+#include "neo/detail/StringUtil.hpp"
 
 #include "BenchmarkUtils.hpp"
 

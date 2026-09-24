@@ -5,10 +5,10 @@
 /// implementations (`cut_with_mix_dag`, `cut_with_inline_dag`) produce
 /// identical output, then compares their throughput.
 
-#include "neo/DictTrie.hpp"
-#include "neo/HMModel.hpp"
-#include "neo/QuerySegment.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/HMModel.hpp"
+#include "neo/detail/QuerySegment.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "QuerySegmentCompare.hpp"

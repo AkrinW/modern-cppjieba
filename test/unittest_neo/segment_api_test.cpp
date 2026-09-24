@@ -1,11 +1,11 @@
-#include "neo/DictTrie.hpp"
-#include "neo/FullSegment.hpp"
-#include "neo/HMMSegment.hpp"
-#include "neo/HMModel.hpp"
 #include "neo/Jieba.hpp"
-#include "neo/MPSegment.hpp"
-#include "neo/MixSegment.hpp"
-#include "neo/QuerySegment.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/FullSegment.hpp"
+#include "neo/detail/HMMSegment.hpp"
+#include "neo/detail/HMModel.hpp"
+#include "neo/detail/MPSegment.hpp"
+#include "neo/detail/MixSegment.hpp"
+#include "neo/detail/QuerySegment.hpp"
 
 #include <concepts>
 #include <cstddef>
@@ -64,6 +64,7 @@ template <typename Input>
 concept JiebaImplicitModeInvocable = requires { std::declval<const Jieba &>().cut(std::declval<Input>()); };
 
 // Result views require a live result object, including when the result owns its source.
+// Borrowed resources must remain accessible through lvalues, including const owners.
 template <typename Result>
 concept TokenViewsAccessible = requires {
     std::declval<Result>().source();
@@ -72,27 +73,23 @@ concept TokenViewsAccessible = requires {
     std::declval<Result>().begin();
 };
 
-// Borrowed resources must remain accessible through lvalues, including const owners.
+// Dictionary and model storage stay private for every Jieba value category.
 template <typename Owner>
-concept JiebaDictAccessible = requires {
-    { std::declval<Owner>().dict() } -> std::same_as<const DictTrie &>;
-};
+concept JiebaDictAccessible = requires { std::declval<Owner>().dict(); };
 
 template <typename Owner>
-concept JiebaModelAccessible = requires {
-    { std::declval<Owner>().model() } -> std::same_as<const HMModel &>;
-};
+concept JiebaModelAccessible = requires { std::declval<Owner>().model(); };
 
 static_assert(!std::default_initializable<Jieba>);
 static_assert(!std::constructible_from<Jieba, std::string_view, std::string_view>);
 static_assert(std::constructible_from<Jieba, std::string_view, std::string_view, std::string_view>);
 
-static_assert(JiebaDictAccessible<Jieba &>);
-static_assert(JiebaDictAccessible<const Jieba &>);
+static_assert(!JiebaDictAccessible<Jieba &>);
+static_assert(!JiebaDictAccessible<const Jieba &>);
 static_assert(!JiebaDictAccessible<Jieba &&>);
 static_assert(!JiebaDictAccessible<const Jieba &&>);
-static_assert(JiebaModelAccessible<Jieba &>);
-static_assert(JiebaModelAccessible<const Jieba &>);
+static_assert(!JiebaModelAccessible<Jieba &>);
+static_assert(!JiebaModelAccessible<const Jieba &>);
 static_assert(!JiebaModelAccessible<Jieba &&>);
 static_assert(!JiebaModelAccessible<const Jieba &&>);
 

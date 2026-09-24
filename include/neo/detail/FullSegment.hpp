@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Dag.hpp"
-#include "DictTrie.hpp"
-#include "Logging.hpp"
-#include "StringUtil.hpp"
-#include "Unicode.hpp"
+#include "neo/Unicode.hpp"
+#include "neo/detail/Dag.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/Logging.hpp"
+#include "neo/detail/StringUtil.hpp"
 
 #include <algorithm>
 #include <cstddef>

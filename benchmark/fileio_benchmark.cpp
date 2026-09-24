@@ -1,6 +1,6 @@
 #include "limonp/StringUtil.hpp"
-#include "neo/FileIO.hpp"
-#include "neo/StringUtil.hpp"
+#include "neo/detail/FileIO.hpp"
+#include "neo/detail/StringUtil.hpp"
 
 #include "test_paths.h"
 

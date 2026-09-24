@@ -10,7 +10,9 @@
 
 | 目录 | 用途 |
 | --- | --- |
-| `include/neo/` | 对外提供的库头文件 |
+| `include/neo/` | 用户直接使用的公开头文件 |
+| `include/neo/detail/` | 分词算法、词典与模型、Trie/DAG、文件读取及诊断实现 |
+| `include/neo/third_party/` | 随库分发的 GTL 头文件及许可证 |
 | `dict/` | 词典与 HMM 模型 |
 | `test/unittest_neo/` | neo 功能单元测试 |
 | `test/unittest/` | 可选的旧库回归测试 |
@@ -18,6 +20,20 @@
 | `benchmark/` | 独立 benchmark 和比较程序，不注册为 CTest 测试 |
 | `deps/` | cppjieba 与 limonp submodule、Rust adapter 与锁文件 |
 | `tools/` | 格式化与静态分析脚本 |
+
+公开头文件按用途划分：
+
+| 头文件 | 用途 |
+| --- | --- |
+| `neo/Jieba.hpp` | 分词入口与 `CutMode` |
+| `neo/Token.hpp` | token 视图、位置、借用与拥有结果 |
+| `neo/Unicode.hpp` | Unicode 类型、编解码、可复用解码缓冲 |
+| `neo/Traits.hpp` | 输入类型约束、编码识别及无拷贝输入适配 |
+| `neo/Config.hpp` | 日志配置与异常类型 |
+
+`detail/` 是内部实现边界，供库代码、内部测试与基准直接引用。词典和 HMM 模型由 `Jieba` 私有持有，
+公开入口不再提供 `dict()`、`model()`。实现头的旧路径已移除。
+头文件库仍需安装 `detail/` 和 `third_party/`，以满足公开头的编译依赖。
 
 旧 C++ 比较基线使用官方 cppjieba submodule，固定到具体 commit；limonp 同样由 submodule 锁定。
 依赖来源及默认词典路径见 [deps/README.md](deps/README.md)。

@@ -1,9 +1,9 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/FileIO.hpp"
-#include "neo/StringUtil.hpp"
-#include "neo/Trie.hpp"
-#include "neo/TrieStats.hpp"
+#include "neo/detail/FileIO.hpp"
+#include "neo/detail/StringUtil.hpp"
+#include "neo/detail/Trie.hpp"
+#include "neo/detail/TrieStats.hpp"
 
 #include "test_paths.h"
 

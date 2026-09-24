@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Logging.hpp"
-#include "StringUtil.hpp"
-#include "Unicode.hpp"
+#include "neo/Unicode.hpp"
+#include "neo/detail/Logging.hpp"
+#include "neo/detail/StringUtil.hpp"
 
 #include <cstdint>
 #include <limits>

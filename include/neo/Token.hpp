@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Logging.hpp"
-#include "Traits.hpp"
-#include "Unicode.hpp"
+#include "neo/Traits.hpp"
+#include "neo/Unicode.hpp"
+#include "neo/detail/Logging.hpp"
 
 #include <cstddef>
 #include <cstdint>

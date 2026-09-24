@@ -1,12 +1,12 @@
 #pragma once
 
-#include "DictTrie.hpp"
-#include "HMMSegment.hpp"
-#include "HMModel.hpp"
-#include "Logging.hpp"
-#include "MPSegment.hpp"
-#include "StringUtil.hpp"
-#include "Unicode.hpp"
+#include "neo/Unicode.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/HMMSegment.hpp"
+#include "neo/detail/HMModel.hpp"
+#include "neo/detail/Logging.hpp"
+#include "neo/detail/MPSegment.hpp"
+#include "neo/detail/StringUtil.hpp"
 
 #include <cstddef>
 #include <cstdint>

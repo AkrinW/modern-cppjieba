@@ -1,8 +1,8 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
-#include "neo/DictTrie.hpp"
-#include "neo/MPSegment.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/MPSegment.hpp"
 
 #include "test_paths.h"
 

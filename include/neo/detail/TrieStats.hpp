@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Logging.hpp"
+#include "neo/detail/Logging.hpp"
 
 #include <cmath>
 #include <cstddef>

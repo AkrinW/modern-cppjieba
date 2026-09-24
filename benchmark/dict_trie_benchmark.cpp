@@ -14,7 +14,7 @@
 #include "cppjieba/DictTrie.hpp"
 
 // ── Neo DictTrie (neo_cppjieba namespace) ──
-#include "neo/DictTrie.hpp"
+#include "neo/detail/DictTrie.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "test_paths.h"

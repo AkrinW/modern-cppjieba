@@ -1,12 +1,12 @@
 #pragma once
 
-#include "neo/DictTrie.hpp"
-#include "neo/HMMSegment.hpp"
-#include "neo/HMModel.hpp"
-#include "neo/MPSegment.hpp"
-#include "neo/MixSegment.hpp"
-#include "neo/StringUtil.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/HMMSegment.hpp"
+#include "neo/detail/HMModel.hpp"
+#include "neo/detail/MPSegment.hpp"
+#include "neo/detail/MixSegment.hpp"
+#include "neo/detail/StringUtil.hpp"
 
 #include <cstdint>
 #include <span>

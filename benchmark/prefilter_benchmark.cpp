@@ -13,8 +13,8 @@
 /// All strategies iterate the same pre-decoded Chinese text file and produce
 /// identical segment counts.
 
-#include "neo/StringUtil.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/detail/StringUtil.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "test_paths.h"

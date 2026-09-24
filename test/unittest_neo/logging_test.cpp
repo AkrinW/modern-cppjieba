@@ -1,6 +1,6 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/Logging.hpp"
+#include "neo/detail/Logging.hpp"
 
 #include <array>
 #include <cstddef>
