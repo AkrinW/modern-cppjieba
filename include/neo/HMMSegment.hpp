@@ -5,6 +5,7 @@
 #include "StringUtil.hpp"
 #include "Unicode.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -27,14 +28,16 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     check(X <= std::numeric_limits<size_t>::max() / Y, "HMMSegment: input exceeds the Viterbi table size limit");
 
     // Flat 2D arrays laid out as [state * X + position] for cache-friendly access.
-    auto weight = std::vector<double>(X * Y);
+    // Only paths retain this layout; scores need the previous and current columns.
+    auto previous_weight = std::array<double, Y>{};
+    auto current_weight = std::array<double, Y>{};
     auto path = std::vector<uint8_t>(X * Y);
 
     // ── Initialization (t = 0) ──────────────────────────────────────
     for (auto y = size_t{0}; y < Y; ++y) {
-        weight[y * X] = model.get_start_prob(static_cast<HMMState>(y))
-                        + model.get_emit_prob(static_cast<HMMState>(y), runes[begin]);
-        assert_check([&] { return std::isfinite(weight[y * X]); }, "HMMSegment: non-finite initial weight");
+        previous_weight[y] = model.get_start_prob(static_cast<HMMState>(y))
+                             + model.get_emit_prob(static_cast<HMMState>(y), runes[begin]);
+        assert_check([&] { return std::isfinite(previous_weight[y]); }, "HMMSegment: non-finite initial weight");
         path[y * X] = 0;
     }
 
@@ -53,7 +56,7 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
             auto best_prev = static_cast<uint8_t>(HMMState::E);
 
             for (auto prev_y = size_t{0}; prev_y < Y; ++prev_y) {
-                auto w = weight[prev_y * X + (x - 1)]
+                auto w = previous_weight[prev_y]
                          + model.get_trans_prob(static_cast<HMMState>(prev_y), static_cast<HMMState>(y)) + emit;
                 assert_check([&] { return std::isfinite(w); }, "HMMSegment: non-finite accumulated weight");
                 if (w > best_weight) {
@@ -64,16 +67,17 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
             assert_check([&] { return best_prev < Y && std::isfinite(best_weight); },
                          "HMMSegment: Viterbi must select a valid predecessor");
-            weight[y * X + x] = best_weight;
+            current_weight[y] = best_weight;
             path[y * X + x] = best_prev;
         }
+        previous_weight = current_weight;
     }
 
     // ── Termination: pick the best final state (must be E or S) ─────
     auto last = X - 1;
-    auto end_weight = weight[static_cast<size_t>(HMMState::E) * X + last];
+    auto end_weight = previous_weight[static_cast<size_t>(HMMState::E)];
     auto end_state = uint8_t{static_cast<uint8_t>(HMMState::E)};
-    auto s_weight = weight[static_cast<size_t>(HMMState::S) * X + last];
+    auto s_weight = previous_weight[static_cast<size_t>(HMMState::S)];
     if (s_weight > end_weight) {
         end_state = static_cast<uint8_t>(HMMState::S);
     }

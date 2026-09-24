@@ -227,6 +227,65 @@ TEST_F(HMModelTest, UnknownRunesStillProduceContiguousRanges) {
     EXPECT_EQ(to_strings(runes, ranges), (std::vector<std::string>{"外", "𠀀"}));
 }
 
+TEST_F(HMModelTest, ViterbiSelectsTheHighestScoringCompletePath) {
+    const auto lines = std::vector<std::string>{
+        "0 -100 -100 -1", "-10 0 -10 -10",  "-10 -10 -10 -10", "-10 -10 -10 -10", "-10 -10 -10 0",
+        "甲:0,乙:0,丙:0", "甲:0,乙:0,丙:0", "甲:0,乙:0,丙:0",  "甲:0,乙:0,丙:0",
+    };
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    const auto runes = decode("甲乙丙");
+    EXPECT_EQ(HMMSegment::cut(model, std::span<const Rune>{runes}.first(1)), (std::vector<WordRange>{{0, 1}}));
+    EXPECT_EQ(HMMSegment::cut(model, std::span<const Rune>{runes}.first(2)), (std::vector<WordRange>{{0, 2}}));
+    EXPECT_EQ(HMMSegment::cut(model, runes), (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}}));
+}
+
+TEST_F(HMModelTest, ViterbiKeepsTheFirstPredecessorWhenScoresTie) {
+    const auto lines = std::vector<std::string>{
+        "0 -100 -100 0", "-100 0 -100 -100", "-100 -100 -100 -100", "-100 -100 -100 -100", "-100 0 -100 -100",
+        "甲:0,乙:0",     "甲:0,乙:0",        "甲:0,乙:0",           "甲:0,乙:0",
+    };
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    const auto runes = decode("甲乙");
+    EXPECT_EQ(HMMSegment::cut(model, runes), (std::vector<WordRange>{{0, 2}}));
+}
+
+TEST_F(HMModelTest, ViterbiPrefersEndStateWhenFinalScoresTie) {
+    const auto lines = std::vector<std::string>{
+        "0 -100 -100 0", "-100 0 -100 -100", "-100 -100 -100 -100", "-100 -100 -100 -100", "-100 -100 -100 0",
+        "甲:0,乙:0",     "甲:0,乙:0",        "甲:0,乙:0",           "甲:0,乙:0",
+    };
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    const auto runes = decode("甲乙");
+    EXPECT_EQ(HMMSegment::cut(model, runes), (std::vector<WordRange>{{0, 2}}));
+}
+
+TEST_F(HMModelTest, ViterbiPreservesWordBoundariesAcrossLongRuns) {
+    const auto lines = std::vector<std::string>{
+        "0 -100 -100 0",        "-100 0 -100 -100",        "0 -100 -100 0",
+        "-100 -100 -100 -100",  "0 -100 -100 0",           "甲:0,乙:-100,𠮷:-100",
+        "甲:-100,乙:0,𠮷:-100", "甲:-100,乙:-100,𠮷:-100", "甲:-100,乙:-100,𠮷:0",
+    };
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    constexpr auto pair_count = uint32_t{1024};
+    auto runes = Unicode{};
+    auto expected = std::vector<WordRange>{};
+    runes.reserve(2 * pair_count + 1);
+    expected.reserve(pair_count + 1);
+    for (auto i = uint32_t{0}; i < pair_count; ++i) {
+        runes.push_back(U'甲');
+        runes.push_back(U'乙');
+        expected.push_back({2 * i, 2 * i + 2});
+    }
+    EXPECT_EQ(HMMSegment::cut(model, runes), expected);
+    runes.push_back(U'𠮷');
+    expected.push_back({2 * pair_count, 2 * pair_count + 1});
+    EXPECT_EQ(HMMSegment::cut(model, runes), expected);
+}
+
 TEST_F(HMModelTest, ViterbiPreservesLegacyFallbackBelowMinimumInitialProbability) {
     const auto lines = std::vector<std::string>{
         "-2e100 -3e100 -3e100 -3e100",
