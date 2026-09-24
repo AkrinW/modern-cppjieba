@@ -9,6 +9,7 @@
 #include <array>
 #include <charconv>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <exception>
 #include <stdexcept>
@@ -27,6 +28,8 @@ constexpr auto kLabels = std::array{
     "Rust FFI views -> C++ strings",
     "Rust native owned strings",
     "Rust native borrowed tokens",
+    "Neo borrowed tokens",
+    "Neo reused token positions",
 };
 
 // Summarizes independent samples; each sample processes the complete corpus.
@@ -40,6 +43,8 @@ struct Timing {
 struct Verification {
     size_t old_neo_mismatches = 0;
     size_t neo_rust_mismatches = 0;
+    size_t old_tokens = 0;
+    size_t neo_tokens = 0;
     size_t rust_tokens = 0;
 };
 
@@ -61,13 +66,15 @@ auto print_words_preview(const char *label, const std::vector<std::string> &word
 }
 
 // Include output allocation and destruction in the C++ end-to-end timer.
+// Reference results keep caller-owned buffers alive; decltype(auto) prevents a benchmark-only copy.
 template <typename CutFn>
 auto bench_cut(const CutFn &fn, const std::vector<std::string> &lines, size_t rounds) -> RustMeasurement {
     auto tokens = size_t{0};
     const auto start = std::chrono::steady_clock::now();
     for (auto round = size_t{0}; round < rounds; ++round) {
         for (const auto &line : lines) {
-            auto words = fn(line);
+            DoNotOptimize(line);
+            decltype(auto) words = fn(line);
             tokens += words.size();
             DoNotOptimize(words);
         }
@@ -75,19 +82,41 @@ auto bench_cut(const CutFn &fn, const std::vector<std::string> &lines, size_t ro
     return {Ms(std::chrono::steady_clock::now() - start).count(), tokens};
 }
 
+// Verify every Neo output representation before timing its allocation strategy.
+auto verify_neo_outputs(const neo_cppjieba::Jieba &neo, neo_cppjieba::CutMode mode, const std::string &line,
+                        const std::vector<std::string> &expected, neo_cppjieba::UnicodeWithOffset &decoded,
+                        std::vector<neo_cppjieba::TokenPosition> &positions) -> void {
+    const auto borrowed = neo.cut(line, mode);
+    neo.cut_into(line, mode, positions, decoded);
+    if (borrowed.size() != expected.size() || positions.size() != expected.size()) {
+        throw std::runtime_error("Neo output representations have different token counts");
+    }
+    for (auto i = size_t{0}; i < expected.size(); ++i) {
+        if (borrowed[i].word != expected[i] || borrowed[i].position != positions[i]
+            || positions[i].source.slice(std::string_view{line}) != expected[i]) {
+            throw std::runtime_error("Neo borrowed, reused and string outputs disagree");
+        }
+    }
+}
+
 // Verify both Rust adapters and report C++/Rust semantic differences separately.
-template <typename OldFn, typename NeoFn, typename RustFn, typename CopiedFn>
-auto verify(const OldFn &old_fn, const NeoFn &neo_fn, const RustFn &rust_fn, const CopiedFn &copied_fn,
-            const std::vector<std::string> &lines) -> Verification {
+template <typename OldFn, typename RustFn, typename CopiedFn>
+auto verify(const OldFn &old_fn, const neo_cppjieba::Jieba &neo, neo_cppjieba::CutMode mode, const RustFn &rust_fn,
+            const CopiedFn &copied_fn, const std::vector<std::string> &lines) -> Verification {
     auto result = Verification{};
     auto previews = size_t{0};
+    auto decoded = neo_cppjieba::UnicodeWithOffset{};
+    auto positions = std::vector<neo_cppjieba::TokenPosition>{};
     for (const auto &line : lines) {
         const auto old_words = old_fn(line);
-        const auto neo_words = neo_fn(line);
+        const auto neo_words = neo.cut_strings(line, mode);
+        verify_neo_outputs(neo, mode, line, neo_words, decoded, positions);
         const auto rust_words = rust_fn(line);
         if (rust_words != copied_fn(line)) {
             throw std::runtime_error("Rust copied and borrowed FFI results disagree");
         }
+        result.old_tokens += old_words.size();
+        result.neo_tokens += neo_words.size();
         result.rust_tokens += rust_words.size();
         result.old_neo_mismatches += old_words != neo_words;
         result.neo_rust_mismatches += neo_words != rust_words;
@@ -118,18 +147,30 @@ auto summarize(std::vector<double> samples) -> Timing {
 }
 
 // Rotate execution order between samples, keeping warmup outside every measured sample.
-template <typename OldFn, typename NeoFn>
-auto run_shared_method(const char *name, RustCutMethod method, const OldFn &old_fn, const NeoFn &neo_fn,
-                       const RustJieba &rust, const std::vector<std::string> &lines, size_t rounds, size_t samples)
-    -> MethodResult {
+template <typename OldFn>
+auto run_shared_method(const char *name, RustCutMethod method, neo_cppjieba::CutMode mode, const OldFn &old_fn,
+                       const neo_cppjieba::Jieba &neo, const RustJieba &rust, const std::vector<std::string> &lines,
+                       size_t rounds, size_t samples) -> MethodResult {
     std::printf("\n[%s]\n", name);
+    const auto neo_fn = [&](const std::string &line) {
+        return neo.cut_strings(line, mode);
+    };
+    const auto borrowed_fn = [&](const std::string &line) {
+        return neo.cut(line, mode);
+    };
+    auto decoded = neo_cppjieba::UnicodeWithOffset{};
+    auto positions = std::vector<neo_cppjieba::TokenPosition>{};
+    const auto reused_fn = [&](const std::string &line) -> const std::vector<neo_cppjieba::TokenPosition> & {
+        neo.cut_into(line, mode, positions, decoded);
+        return positions;
+    };
     const auto rust_fn = [&](const std::string &line) {
         return rust.cut(line, method, RustFfiOutput::Borrowed);
     };
     const auto copied_fn = [&](const std::string &line) {
         return rust.cut(line, method, RustFfiOutput::Copied);
     };
-    const auto verification = verify(old_fn, neo_fn, rust_fn, copied_fn, lines);
+    const auto verification = verify(old_fn, neo, mode, rust_fn, copied_fn, lines);
     const auto measure = [&](size_t variant, size_t sample_rounds) -> RustMeasurement {
         switch (variant) {
             case 0:
@@ -144,6 +185,10 @@ auto run_shared_method(const char *name, RustCutMethod method, const OldFn &old_
                 return rust.benchmark(lines, method, RustNativeOutput::Owned, sample_rounds);
             case 5:
                 return rust.benchmark(lines, method, RustNativeOutput::Borrowed, sample_rounds);
+            case 6:
+                return bench_cut(borrowed_fn, lines, sample_rounds);
+            case 7:
+                return bench_cut(reused_fn, lines, sample_rounds);
         }
         std::unreachable();
     };
@@ -158,8 +203,11 @@ auto run_shared_method(const char *name, RustCutMethod method, const OldFn &old_
         for (auto offset = size_t{0}; offset < kLabels.size(); ++offset) {
             const auto variant = (sample + offset) % kLabels.size();
             const auto result = measure(variant, rounds);
-            if (variant >= 2 && result.tokens != verification.rust_tokens * rounds) {
-                throw std::runtime_error("Rust benchmark token count differs from correctness pass");
+            const auto expected = variant == 0                   ? verification.old_tokens
+                                  : variant == 1 || variant >= 6 ? verification.neo_tokens
+                                                                 : verification.rust_tokens;
+            if (result.tokens != expected * rounds) {
+                throw std::runtime_error("Benchmark token count differs from correctness pass");
             }
             timings[variant].push_back(result.milliseconds);
         }
@@ -173,8 +221,15 @@ auto run_shared_method(const char *name, RustCutMethod method, const OldFn &old_
     }
     std::printf("  Removing the redundant Rust word copies: %.2fx (same C++ string output)\n",
                 result.timings[2].median / result.timings[3].median);
+    std::printf("  Neo strings/borrowed %.3fx; strings/reused %.3fx (same segmentation output)\n",
+                result.timings[1].median / result.timings[6].median,
+                result.timings[1].median / result.timings[7].median);
     if (verification.old_neo_mismatches != 0 || verification.neo_rust_mismatches != 0) {
         std::printf("  Cross-implementation ranking suppressed: segmentation outputs differ.\n");
+    } else {
+        std::printf("  Neo/Rust borrowed time: fresh %.3fx, reused %.3fx (lower is faster)\n",
+                    result.timings[6].median / result.timings[5].median,
+                    result.timings[7].median / result.timings[5].median);
     }
     return result;
 }
@@ -233,6 +288,10 @@ auto run(int argc, char *argv[]) -> int {
                 rounds, samples);
     std::printf("FFI copied reproduces the upstream C API copy pattern; FFI views removes that extra copy.\n");
     std::printf("Native owned returns Vec<String>; native borrowed returns tokens/offsets without string copies.\n");
+    std::printf(
+        "Neo borrowed returns source text plus rune/source positions; reused retains decoding/output capacity.\n");
+    std::printf("Reuse includes per-line clear/refill; final retained-buffer destruction is outside the timer.\n");
+    std::printf("All Neo representations are checked against string output before timing.\n");
     const auto lines = load_lines(text_path);
     if (lines.empty()) {
         throw std::runtime_error("no input lines loaded from " + text_path);
@@ -267,26 +326,18 @@ auto run(int argc, char *argv[]) -> int {
         return words;
     };
     const auto results = std::array{
-        run_shared_method(
-            "MIX", RustCutMethod::Mix, mix_old,
-            [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::MIX); }, rust, lines, rounds,
-            samples),
-        run_shared_method(
-            "MP", RustCutMethod::Mp, mp_old,
-            [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::MIX_NO_HMM); }, rust, lines,
-            rounds, samples),
-        run_shared_method(
-            "FULL", RustCutMethod::Full, full_old,
-            [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::FULL); }, rust, lines, rounds,
-            samples),
-        run_shared_method(
-            "SEARCH", RustCutMethod::Search, search_old,
-            [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::SEARCH); }, rust, lines,
-            rounds, samples),
+        run_shared_method("MIX", RustCutMethod::Mix, neo_cppjieba::CutMode::MIX, mix_old, neo, rust, lines, rounds,
+                          samples),
+        run_shared_method("MP", RustCutMethod::Mp, neo_cppjieba::CutMode::MIX_NO_HMM, mp_old, neo, rust, lines, rounds,
+                          samples),
+        run_shared_method("FULL", RustCutMethod::Full, neo_cppjieba::CutMode::FULL, full_old, neo, rust, lines, rounds,
+                          samples),
+        run_shared_method("SEARCH", RustCutMethod::Search, neo_cppjieba::CutMode::SEARCH, search_old, neo, rust, lines,
+                          rounds, samples),
     };
     std::printf("\nMedian summary (ms; borrowed tokens have a different output contract)\n");
-    std::printf("%-8s %10s %10s %10s %10s %10s %10s %12s\n", "Method", "Old", "Neo", "FFI copy", "FFI view", "RS owned",
-                "RS borrow", "NE/RS diffs");
+    std::printf("%-8s %10s %10s %10s %10s %10s %10s %10s %10s %12s\n", "Method", "Old", "Neo str", "FFI copy",
+                "FFI view", "RS owned", "RS borrow", "Neo borrow", "Neo reuse", "NE/RS diffs");
     for (const auto &result : results) {
         std::printf("%-8s", result.name);
         for (const auto &timing : result.timings) {
