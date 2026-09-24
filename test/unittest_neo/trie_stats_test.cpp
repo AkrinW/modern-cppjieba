@@ -18,6 +18,86 @@
 
 using namespace neo_cppjieba;
 
+TEST(DictUnitTest, DefaultValueIsMissing) {
+    EXPECT_FALSE(DictUnit{}.has_value());
+}
+
+TEST(DictUnitTest, SignedZeroWeightsArePresent) {
+    for (const auto weight : {0.0f, -0.0f}) {
+        const auto value = DictUnit{weight, PosTag{}};
+        EXPECT_TRUE(value.has_value());
+    }
+}
+
+TEST(TrieTest, FindsZeroWeightWordWithoutTreatingItsPrefixAsAWord) {
+    const auto keys = std::vector<Unicode>{decode("𠮷中")};
+    const auto values = std::vector<DictUnit>{{0.0f, PosTag{}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+
+    const auto found = trie.find("𠮷中");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_FLOAT_EQ(found.weight, 0.0f);
+    EXPECT_FALSE(trie.find("𠮷").has_value());
+    EXPECT_FALSE(trie.find("").has_value());
+    EXPECT_FALSE(trie.find("外").has_value());
+}
+
+TEST(TrieTest, DagDistinguishesZeroWeightWordsFromUnknownRunes) {
+    const auto keys = std::vector<Unicode>{decode("𠮷"), decode("𠮷中")};
+    const auto values = std::vector<DictUnit>{{0.0f, PosTag{}}, {0.0f, PosTag{}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+
+    const auto dag = trie.find_dag("𠮷中外");
+    const auto matches = dag.get_edges(0);
+    ASSERT_EQ(matches.size(), 2u);
+    EXPECT_EQ(matches[0].next_pos, 1u);
+    EXPECT_FLOAT_EQ(matches[0].weight, 0.0f);
+    EXPECT_EQ(matches[1].next_pos, 2u);
+    EXPECT_FLOAT_EQ(matches[1].weight, 0.0f);
+    const auto unknown = dag.get_edges(2);
+    ASSERT_EQ(unknown.size(), 1u);
+    EXPECT_EQ(unknown[0].weight, kMissingWordWeight);
+}
+
+TEST(TrieTest, LastDuplicateValueAndTagWin) {
+    const auto keys = std::vector<Unicode>{decode("词条"), decode("词条")};
+    const auto values = std::vector<DictUnit>{{-1.0f, PosTag{"n"}}, {-2.0f, PosTag{"v"}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+
+    const auto found = trie.find("词条");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_FLOAT_EQ(found.weight, -2.0f);
+    EXPECT_EQ(found.tag, PosTag{"v"});
+    EXPECT_EQ(trie.collect_stats().value_count, 1u);
+}
+
+TEST(TrieTest, DuplicatePrefixCanBecomeZeroWeightWithoutLosingDescendants) {
+    const auto keys = std::vector<Unicode>{decode("词"), decode("词条"), decode("词")};
+    const auto values = std::vector<DictUnit>{{-1.0f, PosTag{"n"}}, {-2.0f, PosTag{"n"}}, {0.0f, PosTag{"v"}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+
+    const auto prefix = trie.find("词");
+    ASSERT_TRUE(prefix.has_value());
+    EXPECT_FLOAT_EQ(prefix.weight, 0.0f);
+    EXPECT_EQ(prefix.tag, PosTag{"v"});
+    const auto descendant = trie.find("词条");
+    ASSERT_TRUE(descendant.has_value());
+    EXPECT_FLOAT_EQ(descendant.weight, -2.0f);
+    EXPECT_EQ(descendant.tag, PosTag{"n"});
+}
+
+TEST(TrieStatsTest, CountsZeroWeightDictionaryEntries) {
+    const auto keys = std::vector<Unicode>{decode("词"), decode("词条")};
+    const auto values = std::vector<DictUnit>{{0.0f, PosTag{}}, {0.0f, PosTag{}}};
+    auto trie = Trie{};
+    trie.build(keys, values);
+    EXPECT_EQ(trie.collect_stats().value_count, 2u);
+}
+
 TEST(TrieTest, PreservesPrefixValuesWhenTemporaryNodesGrow) {
     const auto keys = std::vector<Unicode>{{U'a'}, Unicode(512, U'a'), {U'a', U'b'}};
     const auto values = std::vector<DictUnit>{{-1.0f, PosTag{"n"}}, {-2.0f, PosTag{"n"}}, {-3.0f, PosTag{"v"}}};
@@ -57,7 +137,7 @@ TEST(TrieTest, DagIncludesUnknownRunesAndMatchingPrefixes) {
     const auto unknown = dag.get_edges(2);
     ASSERT_EQ(unknown.size(), 1u);
     EXPECT_EQ(unknown[0].next_pos, 3u);
-    EXPECT_FLOAT_EQ(unknown[0].weight, 0.0f);
+    EXPECT_EQ(unknown[0].weight, kMissingWordWeight);
 }
 
 TEST(TrieStatsTest, FormatsDefaultStatistics) {

@@ -38,6 +38,8 @@ struct MPSegmentResult {
 
     auto dp = std::vector<DPNode>(n, DPNode{-std::numeric_limits<float>::infinity(), 0});
 
+    // The zero-sentinel descriptions below are historical; unknown edges now carry kMissingWordWeight.
+
     // Fallback weight for single characters not found in the dictionary.
     // In the DAG, such edges carry weight == 0.0f as a sentinel; the real penalty should be the dictionary minimum
     // weight.
@@ -50,7 +52,8 @@ struct MPSegmentResult {
         for (auto &&edge : edges) {
             // weight == 0.0f ⇒ not a real dictionary word (sentinel).
             // All genuine log-weights are strictly negative.
-            auto weight = edge.weight == 0.0f ? fallback : edge.weight;
+            // Only the missing-weight sentinel uses the fallback; a real zero weight participates in scoring as-is.
+            auto weight = edge.weight == kMissingWordWeight ? fallback : edge.weight;
 
             // Add the best accumulated weight from the continuation.
             auto total = weight;

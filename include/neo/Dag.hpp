@@ -5,12 +5,16 @@
 #include "Unicode.hpp"
 
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace neo_cppjieba {
+
+// Missing entries use a value outside finite dictionary weights, so log(1) == 0 remains valid.
+inline constexpr auto kMissingWordWeight = -std::numeric_limits<float>::infinity();
 
 struct DagEdge {
     uint32_t next_pos; // The index of the next rune after the matched word

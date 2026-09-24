@@ -28,13 +28,14 @@ namespace neo_cppjieba {
 /// with a minimal { float weight; PosTag tag; } that fits in 8 bytes — same size as a pointer
 /// on 64-bit platforms — eliminates one level of indirection entirely.
 struct DictUnit {
-    float weight{0.0};
+    float weight{kMissingWordWeight};
     PosTag tag{};
 
     /// A valid dictionary entry always has a non-zero weight.
     /// Default-constructed (weight == 0) means "no value".
+    /// These former rules are superseded: zero is valid; only kMissingWordWeight means "no value".
     [[nodiscard]] constexpr auto has_value() const noexcept -> bool {
-        return weight != 0.0f;
+        return weight != kMissingWordWeight;
     }
 };
 
@@ -56,6 +57,7 @@ static_assert(alignof(DictUnit) == 4);
 ///   3. DictUnit is stored inline in the ChildEntry (on the parent's edge),
 ///      so the final lookup step reads the value directly — no extra node deref.
 ///      A valid entry is distinguished by `DictUnit::has_value()` (weight > 0).
+///      The former weight restriction above is superseded: zero is valid; kMissingWordWeight marks absence.
 ///   4. Nodes are BFS-ordered so that shallow levels (frequently accessed) cluster
 ///      at the front of the vector.
 ///
@@ -270,8 +272,9 @@ public:
             if (it == map.end()) {
                 map.insert({last_rune, ChildEntry{-1, values[i]}});
             } else {
-                assert_check([&] { return !it->second.value.has_value(); },
-                             "Trie: duplicate dictionary key"); // duplicate key should not have a value already
+                // Superseded by the last-value-wins policy; only the value is replaced.
+                // assert_check([&] { return !it->second.value.has_value(); },
+                //              "Trie: duplicate dictionary key"); // duplicate key should not have a value already
                 it->second.value = values[i];
             }
         }
@@ -394,11 +397,12 @@ public:
 
             // In typical jieba, an edge for length-1 (single character) is always added first,
             // even if it does not form a word (weight = 0.0f).
+            // The former zero sentinel is now kMissingWordWeight; known zero weights are retained.
             const auto *last_entry = nodes_[cur].find_child(sentence[i]);
             if (last_entry && last_entry->value.has_value()) {
                 dag.edges.push_back(DagEdge{static_cast<uint32_t>(i + 1), last_entry->value.weight});
             } else {
-                dag.edges.push_back(DagEdge{static_cast<uint32_t>(i + 1), 0.0f});
+                dag.edges.push_back(DagEdge{static_cast<uint32_t>(i + 1), kMissingWordWeight});
             }
 
             if (last_entry) {

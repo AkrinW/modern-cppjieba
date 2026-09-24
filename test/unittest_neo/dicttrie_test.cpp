@@ -1,5 +1,7 @@
+#include "../TestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/DictTrie.hpp"
+#include "neo/MPSegment.hpp"
 
 #include "test_paths.h"
 
@@ -12,6 +14,7 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 using namespace neo_cppjieba;
 
@@ -139,6 +142,67 @@ TEST_F(DictTrieInputTest, ZeroUserFrequencyUsesDefaultWeight) {
 TEST_F(DictTrieInputTest, RejectsUnknownWeightOption) {
     const auto invalid = static_cast<DictTrie::UserWordWeightOption>(255);
     EXPECT_THROW((DictTrie{file_path("main.dict"), "", invalid}), LogConfig::Exception);
+}
+
+TEST_F(DictTrieInputTest, SingleEntryDictionaryRetainsItsZeroWeightWord) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词条 10 n\n"));
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto word = trie.find("词条");
+    ASSERT_TRUE(word.has_value());
+    EXPECT_FLOAT_EQ(word.weight, 0.0f);
+    EXPECT_EQ(word.tag, PosTag{"n"});
+    EXPECT_FALSE(trie.find("词").has_value());
+    EXPECT_FALSE(trie.find("外").has_value());
+    EXPECT_EQ(trie.trie().collect_stats().value_count, 1u);
+}
+
+TEST_F(DictTrieInputTest, LastMainDictionaryEntryWins) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词条 10 n\n词条 20 v\n"));
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto word = trie.find("词条");
+    ASSERT_TRUE(word.has_value());
+    EXPECT_FLOAT_EQ(word.weight, std::log(20.0f / 30.0f));
+    EXPECT_EQ(word.tag, PosTag{"v"});
+    EXPECT_EQ(trie.trie().collect_stats().value_count, 1u);
+}
+
+TEST_F(DictTrieInputTest, UserDictionaryCanOverrideMainWordWithZeroWeight) {
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "主词 30 v\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto word = trie.find("主词");
+    ASSERT_TRUE(word.has_value());
+    EXPECT_FLOAT_EQ(word.weight, 0.0f);
+    EXPECT_EQ(word.tag, PosTag{"v"});
+    EXPECT_EQ(trie.trie().collect_stats().value_count, 2u);
+}
+
+TEST_F(DictTrieInputTest, LastUserDictionaryEntryWins) {
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 5 n\n新词 30 v\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto word = trie.find("新词");
+    ASSERT_TRUE(word.has_value());
+    EXPECT_FLOAT_EQ(word.weight, 0.0f);
+    EXPECT_EQ(word.tag, PosTag{"v"});
+    EXPECT_EQ(trie.trie().collect_stats().value_count, 3u);
+}
+
+TEST_F(DictTrieInputTest, MpSegmentationUsesZeroWeightWithoutFallbackPenalty) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲 9 n\n乙 9 n\n稀 1 n\n"));
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 19 n\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲乙");
+    const auto words = MPSegment::cut(trie, runes);
+    EXPECT_EQ(to_strings(runes, words), (std::vector<std::string>{"甲乙"}));
+}
+
+TEST_F(DictTrieInputTest, MpSegmentationStillEmitsUnknownRunes) {
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("𠮷外");
+    const auto words = MPSegment::cut(trie, runes);
+    EXPECT_EQ(to_strings(runes, words), (std::vector<std::string>{"𠮷", "外"}));
 }
 
 // ─── Construction ────────────────────────────────────────────────────────────
