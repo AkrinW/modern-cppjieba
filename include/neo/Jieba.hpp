@@ -4,20 +4,50 @@
 #include "FullSegment.hpp"
 #include "HMMSegment.hpp"
 #include "HMModel.hpp"
+#include "Logging.hpp"
 #include "MPSegment.hpp"
 #include "MixSegment.hpp"
 #include "QuerySegment.hpp"
 #include "Traits.hpp"
 #include "Unicode.hpp"
 
+#include <algorithm>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace neo_cppjieba {
 
 enum class CutMethod : uint8_t { MIX, FULL, SEARCH, HMM, MP };
+
+namespace detail {
+
+// Public entry points accept only named segmentation modes.
+template <CutMethod M>
+concept ValidCutMethod =
+    M == CutMethod::MIX || M == CutMethod::FULL || M == CutMethod::SEARCH || M == CutMethod::HMM || M == CutMethod::MP;
+
+// Partition modes cover every rune once; full and search modes may emit overlapping words.
+template <CutMethod M>
+[[nodiscard]] inline auto valid_jieba_result(std::span<const WordRange> words, size_t rune_count) -> bool {
+    if constexpr (M == CutMethod::MIX || M == CutMethod::HMM || M == CutMethod::MP) {
+        return valid_segment_partition(words, rune_count);
+    } else {
+        if (rune_count == 0) {
+            return words.empty();
+        }
+        return !words.empty() && std::ranges::all_of(words, [rune_count](const WordRange &word) {
+            return word.begin < word.end && word.end <= rune_count;
+        });
+    }
+}
+
+} // namespace detail
 
 /// Jieba is the top-level facade for Chinese word segmentation.
 ///
@@ -31,11 +61,9 @@ enum class CutMethod : uint8_t { MIX, FULL, SEARCH, HMM, MP };
 ///      source offsets for faster re-encoding.
 class Jieba {
 public:
-    explicit Jieba(std::string_view dict_path, std::string_view model_path, std::string_view user_dict_path = "")
+    // An empty user dictionary path explicitly disables user dictionary loading.
+    explicit Jieba(std::string_view dict_path, std::string_view model_path, std::string_view user_dict_path)
         : dict_(dict_path, user_dict_path), model_(model_path) {
-    }
-
-    Jieba() : dict_(resolve("jieba.dict.utf8")), model_(resolve("hmm_model.utf8")) {
     }
 
     template <StringLike Input>
@@ -81,23 +109,30 @@ public:
         return result;
     }
 
-    template <CutMethod M = CutMethod::MIX, bool hmm = true>
-    [[nodiscard]] auto cut(std::span<const Rune> runes) const -> std::vector<WordRange> {
-        return cut_impl<M, hmm>(runes);
+    template <CutMethod M = CutMethod::MIX, bool hmm = true, typename RuneT, size_t Extent>
+        requires(detail::ValidCutMethod<M> && (std::same_as<RuneT, Rune> || std::same_as<RuneT, const Rune>))
+    [[nodiscard]] auto cut(std::span<RuneT, Extent> runes) const -> std::vector<WordRange> {
+        auto result = cut_impl<M, hmm>(runes);
+        assert_check([&] { return detail::valid_jieba_result<M>(result, runes.size()); },
+                     "Jieba: invalid segmentation result for {} runes", runes.size());
+        return result;
     }
 
     template <CutMethod M = CutMethod::MIX, bool hmm = true>
+        requires detail::ValidCutMethod<M>
     [[nodiscard]] auto cut(const Unicode &unicodes) const -> std::vector<WordRange> {
         return cut<M, hmm>(std::span<const Rune>{unicodes.data(), unicodes.size()});
     }
 
     template <CutMethod M = CutMethod::MIX, bool hmm = true>
+        requires detail::ValidCutMethod<M>
     [[nodiscard]] auto cut(const UnicodeWithOffset &decoded) const -> std::vector<WordRange> {
         return cut<M, hmm>(std::span<const Rune>{decoded.runes.data(), decoded.runes.size()});
     }
 
     // UTF-8 byte buffers produce std::string words; character inputs retain their native string type.
     template <CutMethod M = CutMethod::MIX, bool hmm = true, StringLike Input>
+        requires detail::ValidCutMethod<M>
     [[nodiscard]] auto cut(const Input &input) const -> std::vector<std::basic_string<output_char_type_t<Input>>> {
         const auto source = as_view(input);
         const auto decoded = neo_cppjieba::decode_with_offset(source);
@@ -110,41 +145,33 @@ public:
         return result;
     }
 
-    [[nodiscard]] auto dict() const noexcept -> const DictTrie & {
+    [[nodiscard]] auto dict() const & noexcept -> const DictTrie & {
         return dict_;
     }
+    auto dict() const && noexcept -> const DictTrie & = delete;
 
-    [[nodiscard]] auto model() const noexcept -> const HMModel & {
+    [[nodiscard]] auto model() const & noexcept -> const HMModel & {
         return model_;
     }
+    auto model() const && noexcept -> const HMModel & = delete;
 
 private:
     template <CutMethod M, bool hmm>
     [[nodiscard]] auto cut_impl(std::span<const Rune> runes) const -> std::vector<WordRange> {
-        if constexpr (M == CutMethod::MIX) {
-            return MixSegment<hmm>::cut(dict_, model_, runes);
-        } else if constexpr (M == CutMethod::FULL) {
-            return FullSegment::cut(dict_, runes);
-        } else if constexpr (M == CutMethod::SEARCH) {
-            return QuerySegment<hmm>::cut(dict_, model_, runes);
-        } else if constexpr (M == CutMethod::HMM) {
-            return HMMSegment::cut(model_, runes);
-        } else {
-            return MPSegment::cut(dict_, runes);
+        static_assert(detail::ValidCutMethod<M>, "Unsupported Jieba cut method");
+        switch (M) {
+            case CutMethod::MIX:
+                return MixSegment<hmm>::cut(dict_, model_, runes);
+            case CutMethod::FULL:
+                return FullSegment::cut(dict_, runes);
+            case CutMethod::SEARCH:
+                return QuerySegment<hmm>::cut(dict_, model_, runes);
+            case CutMethod::HMM:
+                return HMMSegment::cut(model_, runes);
+            case CutMethod::MP:
+                return MPSegment::cut(dict_, runes);
         }
-    }
-
-    [[nodiscard]] static auto resolve(std::string_view filename) -> std::string {
-        auto path = std::string{__FILE__};
-        for (auto i = 0; i < 2; ++i) {
-            auto pos = path.find_last_of("/\\");
-            if (pos != std::string::npos) {
-                path.resize(pos);
-            }
-        }
-        path += "/dict/";
-        path += filename;
-        return path;
+        std::unreachable();
     }
 
     DictTrie dict_;

@@ -38,10 +38,18 @@ class JiebaCharacterTest : public ::testing::Test {};
 using InputCharacterTypes = ::testing::Types<char, char8_t, char16_t, char32_t, wchar_t>;
 TYPED_TEST_SUITE(JiebaCharacterTest, InputCharacterTypes);
 
+// Rune spans share the range-returning API across constness and static or dynamic extents.
+template <typename Span>
+class JiebaRuneSpanTest : public ::testing::Test {};
+
+using RuneSpanTypes =
+    ::testing::Types<std::span<Rune>, std::span<const Rune>, std::span<Rune, 5>, std::span<const Rune, 5>>;
+TYPED_TEST_SUITE(JiebaRuneSpanTest, RuneSpanTypes);
+
 } // namespace
 
 TYPED_TEST(JiebaCharacterTest, DirectCutMatchesCheckedOutputForEveryMethod) {
-    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     const auto inputs = std::array{Unicode{}, Unicode{U'中', U'国', U'科', U'学', U'院'},
                                    Unicode{U'甲', U' ', U'A', U'\0', U'中', U'国', U'😀', U'𠀀', U'乙', U'!'}};
     for (const auto &runes : inputs) {
@@ -64,7 +72,7 @@ TYPED_TEST(JiebaCharacterTest, DirectCutMatchesCheckedOutputForEveryMethod) {
 }
 
 TEST(JiebaNeoTest, DirectCutUsesTheSameViewForDecodingAndCopying) {
-    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     const auto input = ChangingTextView{};
     EXPECT_EQ(jieba.cut(input), (std::vector<std::string>{"中国"}));
     EXPECT_EQ(input.conversions, 1);
@@ -79,7 +87,7 @@ TEST(JiebaNeoTest, PublicSourceEncodingStillRejectsInvalidOffsets) {
 }
 
 TEST(JiebaNeoTest, DirectStringCutReturnsInputEncoding) {
-    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     auto words = jieba.cut(std::string_view{"他来到了网易杭研大厦"});
 
     auto expected = std::vector<std::string>{"他", "来到", "了", "网易", "杭研", "大厦"};
@@ -87,7 +95,7 @@ TEST(JiebaNeoTest, DirectStringCutReturnsInputEncoding) {
 }
 
 TEST(JiebaNeoTest, DirectUtf16CutReturnsUtf16Words) {
-    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     auto words = jieba.cut(std::u16string_view{u"我来自北京邮电大学"});
 
     auto expected = std::vector<std::u16string>{u"我", u"来自", u"北京邮电大学"};
@@ -95,7 +103,7 @@ TEST(JiebaNeoTest, DirectUtf16CutReturnsUtf16Words) {
 }
 
 TEST(JiebaNeoTest, ByteInputsReturnUtf8Words) {
-    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     const auto input = std::u8string_view{u8"他来到了网易杭研大厦"};
     const auto bytes = std::as_bytes(std::span{input.data(), input.size()});
     const auto unsigned_bytes = std::vector<unsigned char>(input.begin(), input.end());
@@ -108,7 +116,7 @@ TEST(JiebaNeoTest, ByteInputsReturnUtf8Words) {
 }
 
 TEST(JiebaNeoTest, ByteOffsetPipelinePreservesOriginalUtf8Words) {
-    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     const auto input = std::u8string_view{u8"中国科学院"};
     const auto bytes = std::as_bytes(std::span{input.data(), input.size()});
     const auto decoded = Jieba::decode_with_offset(bytes);
@@ -119,18 +127,18 @@ TEST(JiebaNeoTest, ByteOffsetPipelinePreservesOriginalUtf8Words) {
 }
 
 TEST(JiebaNeoTest, EmptyByteInputProducesNoWords) {
-    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     EXPECT_TRUE(jieba.cut(std::span<const std::byte>{}).empty());
 }
 
 TEST(JiebaNeoTest, InvalidByteInputThrowsTheConfiguredException) {
-    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     const auto input = std::array{std::byte{0xE4}, std::byte{0xB8}};
     EXPECT_THROW(jieba.cut(input), LogConfig::Exception);
 }
 
 TEST(JiebaNeoTest, DirectSpanCutReturnsWordRanges) {
-    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     auto runes = jieba.decode(std::string_view{"甲中国科学院乙"});
     auto span = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
     auto ranges = jieba.cut<CutMethod::SEARCH>(span);
@@ -139,8 +147,42 @@ TEST(JiebaNeoTest, DirectSpanCutReturnsWordRanges) {
     EXPECT_EQ(words, std::vector<std::string>({"中国", "科学", "学院", "科学院", "中国科学院"}));
 }
 
+TYPED_TEST(JiebaRuneSpanTest, SearchReturnsLocalRangesForEveryRuneSpanType) {
+    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+    auto runes = Jieba::decode(std::string_view{"甲中国科学院乙"});
+    const auto input = TypeParam{runes.data() + 1, size_t{5}};
+    const auto ranges = jieba.cut<CutMethod::SEARCH>(input);
+    EXPECT_EQ(ranges, (std::vector<WordRange>{{0, 2}, {2, 4}, {3, 5}, {2, 5}, {0, 5}}));
+    EXPECT_EQ(Jieba::encode_words(input, ranges),
+              (std::vector<std::string>{"中国", "科学", "学院", "科学院", "中国科学院"}));
+}
+
+TYPED_TEST(JiebaRuneSpanTest, PartitionModesAgreeForEveryRuneSpanType) {
+    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+    auto runes = Jieba::decode(std::string_view{"中国科学院"});
+    const auto input = TypeParam{runes.data(), size_t{5}};
+    const auto whole_word = std::vector<WordRange>{{0, 5}};
+    EXPECT_EQ((jieba.cut<CutMethod::MIX, true>(input)), whole_word);
+    EXPECT_EQ((jieba.cut<CutMethod::MIX, false>(input)), whole_word);
+    EXPECT_EQ(jieba.cut<CutMethod::MP>(input), whole_word);
+    EXPECT_EQ(jieba.cut<CutMethod::HMM>(input), (std::vector<WordRange>{{0, 2}, {2, 5}}));
+}
+
+TEST(JiebaNeoTest, EmptyFixedRuneSpansProduceNoWordsInEveryMode) {
+    const auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+    const auto verify = [&]<CutMethod Method>() {
+        EXPECT_TRUE(jieba.cut<Method>(std::span<Rune, 0>{}).empty());
+        EXPECT_TRUE(jieba.cut<Method>(std::span<const Rune, 0>{}).empty());
+    };
+    verify.template operator()<CutMethod::MIX>();
+    verify.template operator()<CutMethod::FULL>();
+    verify.template operator()<CutMethod::SEARCH>();
+    verify.template operator()<CutMethod::HMM>();
+    verify.template operator()<CutMethod::MP>();
+}
+
 TEST(JiebaNeoTest, ManualUnicodePipelineReturnsWordRanges) {
-    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     auto runes = jieba.decode(std::string_view{"我来自北京邮电大学"});
     auto ranges = jieba.cut<CutMethod::FULL>(runes);
     auto words = Jieba::encode_words(runes, ranges);
@@ -151,7 +193,7 @@ TEST(JiebaNeoTest, ManualUnicodePipelineReturnsWordRanges) {
 }
 
 TEST(JiebaNeoTest, ManualOffsetPipelineMatchesDirectSearchCut) {
-    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     auto sentence = std::string_view{"中国科学院，后在日本京都大学深造"};
     auto decoded = jieba.decode_with_offset(sentence);
     auto ranges = jieba.cut<CutMethod::SEARCH>(decoded);
@@ -162,13 +204,13 @@ TEST(JiebaNeoTest, ManualOffsetPipelineMatchesDirectSearchCut) {
 }
 
 TEST(JiebaNeoTest, GenericCutMethodAndNoHmmTemplate) {
-    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     auto words = jieba.cut<CutMethod::MIX, false>(std::string_view{"他来到了网易杭研大厦"});
     EXPECT_EQ(join(words), "他/来到/了/网易/杭/研/大厦");
 }
 
 TEST(JiebaNeoTest, DefaultAndExplicitCutMethodsWork) {
-    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE};
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
     auto sentence = std::string_view{"中国科学院"};
 
     EXPECT_EQ(jieba.cut(sentence), jieba.cut<CutMethod::MIX>(sentence));
