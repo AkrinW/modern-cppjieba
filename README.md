@@ -111,6 +111,7 @@ Unicode 解码和编码使用 `Unicode.hpp` 的自由函数。已有 `CutMethod`
 
 输出数组独立于工作区，复用、移动或释放工作区不影响已经返回的位置。`cut_runes_into` 直接填写调用方数组，
 其余分词器仍先在工作区生成 rune 区间，`cut_each` 随后逐词调用 visitor。拥有原文的结果移动后应重新取得视图。
+`cut_runes_into` 在入口清空输出；分词中途发生异常时直接向上传播，输出可能保留部分结果，调用方应丢弃本次输出。
 
 ```cpp
 neo_cppjieba::Workspace workspace;

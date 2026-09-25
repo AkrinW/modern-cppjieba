@@ -317,6 +317,18 @@ TEST(JiebaNeoTest, RuneOutputCanBeReusedWithoutChangingCoordinates) {
     EXPECT_EQ(out.capacity(), capacity);
 }
 
+TEST(JiebaNeoTest, RuneOutputAndWorkspaceCanBeReusedAfterInvalidMode) {
+    auto workspace = Workspace{};
+    const auto runes = decode("中国科学院");
+    auto out = std::vector<WordRange>{{99, 100}};
+    const auto invalid_mode = static_cast<CutMode>(uint8_t{255});
+
+    EXPECT_THROW(test_jieba().cut_runes_into(runes, invalid_mode, out, workspace), LogConfig::Exception);
+    EXPECT_TRUE(out.empty());
+    test_jieba().cut_runes_into(runes, CutMode::MP, out, workspace);
+    EXPECT_EQ(out, (std::vector<WordRange>{{0, 5}}));
+}
+
 TEST(JiebaNeoTest, OwnedSmallTextSurvivesResultMove) {
     auto original = test_jieba().cut_owned(std::string{"中国"}, CutMode::MIX);
     const auto moved = std::move(original);

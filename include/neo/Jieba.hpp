@@ -150,13 +150,9 @@ public:
                         Workspace &workspace) const -> void {
         out.clear();
         detail::check_cut_mode(mode);
-        try {
-            cut_impl(runes, mode, out, workspace.scratch_);
-        } catch (...) {
-            // Preserve the previous empty-output guarantee when segmentation fails.
-            out.clear();
-            throw;
-        }
+        // Former policy: Preserve the previous empty-output guarantee when segmentation fails.
+        // Failures now propagate directly and may leave partial output.
+        cut_impl(runes, mode, out, workspace.scratch_);
     }
 
 private:
