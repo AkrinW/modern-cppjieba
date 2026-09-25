@@ -137,7 +137,7 @@ private:
                   "DictTrie: frequency sum exceeds the supported range: {}", dict_path);
             freq_sum += f;
         }
-        check(freq_sum > 0, "DictTrie: frequency sum must be positive");
+        assert_check([&] { return freq_sum > 0; }, "DictTrie: frequency sum must be positive");
         freq_sum_ = static_cast<float>(freq_sum);
 
         // min / max — O(n), single pass

@@ -41,6 +41,9 @@
 公开入口不再提供 `dict()`、`model()`。实现头的旧路径已移除。
 头文件库仍需安装 `detail/` 和 `third_party/`，以满足公开头的编译依赖。
 
+`Jieba` 的文本路径在解码时检查源偏移上限，预解码路径在入口检查 rune 数量；内部算法只断言长度前置条件。
+DAG 边数、Trie 节点容量等尚未由入口保证的容量限制仍使用运行时检查。
+
 旧 C++ 比较基线使用官方 cppjieba submodule，固定到具体 commit；limonp 同样由 submodule 锁定。
 依赖来源及默认词典路径见 [deps/README.md](deps/README.md)。
 

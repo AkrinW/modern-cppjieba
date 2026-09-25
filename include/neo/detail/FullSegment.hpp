@@ -35,7 +35,8 @@ struct FullSegment {
     // Replace output and reuse the DAG between segments and calls.
     static auto cut_into(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &range,
                          detail::SegmentScratch &scratch) -> void {
-        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "FullSegment: input exceeds the word-range limit");
+        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+                     "FullSegment: input exceeds the word-range limit");
         range.clear();
         range.reserve(runes.size() / 2);
         get_pre_filter_separators(runes, scratch.separators);

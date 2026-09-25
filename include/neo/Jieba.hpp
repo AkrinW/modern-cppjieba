@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -48,6 +49,12 @@ constexpr auto valid_cut_mode(CutMode mode) noexcept -> bool {
 // Mode values supplied by callers are configuration errors, not internal invariants.
 inline auto check_cut_mode(CutMode mode) -> void {
     check(valid_cut_mode(mode), "Unknown Jieba cut mode {}", std::to_underlying(mode));
+}
+
+// Rune indices must fit WordRange, with room for the trailing DAG offset.
+inline auto check_rune_count(size_t rune_count) -> void {
+    check(rune_count <= std::numeric_limits<uint32_t>::max() && rune_count < std::numeric_limits<size_t>::max(),
+          "Jieba: input has {} runes, exceeding the supported index range", rune_count);
 }
 
 // Partition modes cover every rune once; full and search modes may emit overlapping words.
@@ -150,6 +157,7 @@ public:
                         Workspace &workspace) const -> void {
         out.clear();
         detail::check_cut_mode(mode);
+        detail::check_rune_count(runes.size());
         // Former policy: Preserve the previous empty-output guarantee when segmentation fails.
         // Failures now propagate directly and may leave partial output.
         cut_impl(runes, mode, out, workspace.scratch_);
@@ -161,6 +169,7 @@ private:
         -> std::span<const WordRange> {
         detail::check_cut_mode(mode);
         decode_with_offset_into(source, workspace.decoded_);
+        // Decoding bounds source offsets; the rune count cannot exceed the source code-unit count.
         cut_impl(workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
         return workspace.ranges_;
     }

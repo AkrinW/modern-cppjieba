@@ -203,7 +203,8 @@ struct MPSegment {
     // Replace output while reusing scratch across every separator-free segment.
     static auto cut_into(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &range,
                          detail::SegmentScratch &scratch) -> void {
-        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "MPSegment: input exceeds the word-range limit");
+        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+                     "MPSegment: input exceeds the word-range limit");
         range.clear();
         range.reserve(runes.size() / 2);
         detail::mp_cut_append(dict, runes, range, 0, scratch);

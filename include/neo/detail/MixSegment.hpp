@@ -44,7 +44,8 @@ struct MixSegment {
     // Replace output while keeping MP and HMM storage alive for later segments and calls.
     static auto cut_into(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
                          std::vector<WordRange> &result, detail::SegmentScratch &scratch) -> void {
-        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "MixSegment: input exceeds the word-range limit");
+        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+                     "MixSegment: input exceeds the word-range limit");
         result.clear();
         result.reserve(runes.size() / 2);
         cut(dict, model, runes, result, 0, scratch);

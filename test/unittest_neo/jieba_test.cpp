@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -197,6 +198,21 @@ TEST(JiebaNeoTest, EmptyByteInputProducesNoWords) {
 TEST(JiebaNeoTest, InvalidByteInputThrowsTheConfiguredException) {
     const auto input = std::array{std::byte{0xE4}, std::byte{0xB8}};
     EXPECT_THROW(static_cast<void>(test_jieba().cut(input, CutMode::MIX)), LogConfig::Exception);
+}
+
+TEST(JiebaNeoTest, RuneCountValidationAcceptsRepresentableBounds) {
+    const auto limit =
+        std::min(static_cast<size_t>(std::numeric_limits<uint32_t>::max()), std::numeric_limits<size_t>::max() - 1);
+    EXPECT_NO_THROW(detail::check_rune_count(0));
+    EXPECT_NO_THROW(detail::check_rune_count(limit));
+}
+
+TEST(JiebaNeoTest, RuneCountValidationRejectsUnrepresentableBounds) {
+    EXPECT_THROW(detail::check_rune_count(std::numeric_limits<size_t>::max()), LogConfig::Exception);
+    if constexpr (sizeof(size_t) > sizeof(uint32_t)) {
+        constexpr auto limit = static_cast<size_t>(std::numeric_limits<uint32_t>::max());
+        EXPECT_THROW(detail::check_rune_count(limit + 1), LogConfig::Exception);
+    }
 }
 
 TEST(JiebaNeoTest, DirectRuneCutReturnsLocalWordRanges) {

@@ -231,8 +231,9 @@ public:
     // Replace the DAG while retaining storage for subsequent segments and calls.
     auto find_dag_into(std::span<const Rune> sentence, Dag &dag) const -> void {
         const auto n = sentence.size();
-        check(n <= std::numeric_limits<uint32_t>::max() && n < std::numeric_limits<size_t>::max(),
-              "Trie: sentence has {} runes, exceeding the supported DAG index range", n);
+        assert_check(
+            [&] { return n <= std::numeric_limits<uint32_t>::max() && n < std::numeric_limits<size_t>::max(); },
+            "Trie: sentence has {} runes, exceeding the supported DAG index range", n);
         dag.offsets.clear();
         dag.edges.clear();
         dag.offsets.reserve(n + 1);

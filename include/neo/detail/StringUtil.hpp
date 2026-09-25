@@ -279,8 +279,8 @@ inline constexpr auto DEFAULT_SEPARATORS = std::array<char32_t, 5>{
 // it is tested to be a speedup for pre-filtering when compared with iterator method, avoids repeated boundary searches
 // and improves cache locality. produces reusable indices for downstream slicing without re-scanning.
 inline auto get_pre_filter_separators(std::span<const char32_t> runes, std::vector<uint32_t> &out) -> void {
-    check(runes.size() <= std::numeric_limits<uint32_t>::max(),
-          "Separator input has {} runes, exceeding the supported index range", runes.size());
+    assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+                 "Separator input has {} runes, exceeding the supported index range", runes.size());
     auto n = static_cast<uint32_t>(runes.size());
     out.clear();
     out.reserve(n / 8); // heuristic: ~12.5% separators
@@ -298,8 +298,8 @@ inline auto get_pre_filter_separators(std::span<const char32_t> runes, std::vect
 // so I think as a parameter input is more efficient because it maybe reuse same memory avoiding allocations when call
 // many time. but in some case maybe more convenient to return a new vector directly, so provide both interface anyway.
 inline auto get_pre_filter_separators(std::span<const char32_t> runes) -> std::vector<uint32_t> {
-    check(runes.size() <= std::numeric_limits<uint32_t>::max(),
-          "Separator input has {} runes, exceeding the supported index range", runes.size());
+    assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+                 "Separator input has {} runes, exceeding the supported index range", runes.size());
     auto out = std::vector<uint32_t>{};
     auto n = static_cast<uint32_t>(runes.size());
     out.reserve(n / 8); // heuristic: ~12.5% separators
