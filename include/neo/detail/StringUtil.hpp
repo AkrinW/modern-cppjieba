@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/detail/Logging.hpp"
 
 #include <array>
@@ -278,13 +279,13 @@ inline constexpr auto DEFAULT_SEPARATORS = std::array<char32_t, 5>{
 // get_pre_filter_separators scans the input runes and returns a vector of indices where DEFAULT_SEPARATORS occur.
 // it is tested to be a speedup for pre-filtering when compared with iterator method, avoids repeated boundary searches
 // and improves cache locality. produces reusable indices for downstream slicing without re-scanning.
-inline auto get_pre_filter_separators(std::span<const char32_t> runes, std::vector<uint32_t> &out) -> void {
-    assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+inline auto get_pre_filter_separators(std::span<const char32_t> runes, std::vector<RuneIndex> &out) -> void {
+    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
                  "Separator input has {} runes, exceeding the supported index range", runes.size());
-    auto n = static_cast<uint32_t>(runes.size());
+    auto n = static_cast<RuneIndex>(runes.size());
     out.clear();
     out.reserve(n / 8); // heuristic: ~12.5% separators
-    for (auto i = uint32_t{0}; i < n; ++i) {
+    for (auto i = RuneIndex{0}; i < n; ++i) {
         if (is_default_separator_unlikely(runes[i])) {
             out.push_back(i);
         }
@@ -297,13 +298,13 @@ inline auto get_pre_filter_separators(std::span<const char32_t> runes, std::vect
 // overload that returns a new vector instead of taking an output parameter.
 // so I think as a parameter input is more efficient because it maybe reuse same memory avoiding allocations when call
 // many time. but in some case maybe more convenient to return a new vector directly, so provide both interface anyway.
-inline auto get_pre_filter_separators(std::span<const char32_t> runes) -> std::vector<uint32_t> {
-    assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+inline auto get_pre_filter_separators(std::span<const char32_t> runes) -> std::vector<RuneIndex> {
+    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
                  "Separator input has {} runes, exceeding the supported index range", runes.size());
-    auto out = std::vector<uint32_t>{};
-    auto n = static_cast<uint32_t>(runes.size());
+    auto out = std::vector<RuneIndex>{};
+    auto n = static_cast<RuneIndex>(runes.size());
     out.reserve(n / 8); // heuristic: ~12.5% separators
-    for (auto i = uint32_t{0}; i < n; ++i) {
+    for (auto i = RuneIndex{0}; i < n; ++i) {
         if (is_default_separator_unlikely(runes[i])) {
             out.push_back(i);
         }

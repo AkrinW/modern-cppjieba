@@ -1,5 +1,6 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
+#include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/HMMSegment.hpp"
@@ -12,7 +13,6 @@
 
 #include <array>
 #include <cstddef>
-#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -330,12 +330,12 @@ TEST_F(HMModelTest, ViterbiPreservesWordBoundariesAcrossLongRuns) {
     };
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
-    constexpr auto pair_count = uint32_t{1024};
+    constexpr auto pair_count = RuneIndex{1024};
     auto runes = Unicode{};
     auto expected = std::vector<WordRange>{};
     runes.reserve(2 * pair_count + 1);
     expected.reserve(pair_count + 1);
-    for (auto i = uint32_t{0}; i < pair_count; ++i) {
+    for (auto i = RuneIndex{0}; i < pair_count; ++i) {
         runes.push_back(U'甲');
         runes.push_back(U'乙');
         expected.push_back({2 * i, 2 * i + 2});
@@ -360,12 +360,12 @@ TEST_F(HMModelTest, ViterbiReconstructsLongWordsAndSingletonsAcrossAllStates) {
     };
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
-    constexpr auto block_count = uint32_t{1024};
+    constexpr auto block_count = RuneIndex{1024};
     auto runes = Unicode{};
     auto expected = std::vector<WordRange>{};
     runes.reserve(5 * block_count);
     expected.reserve(2 * block_count);
-    for (auto i = uint32_t{0}; i < block_count; ++i) {
+    for (auto i = RuneIndex{0}; i < block_count; ++i) {
         runes.insert(runes.end(), {U'甲', U'乙', U'丙', U'丁', U'𠮷'});
         expected.push_back({5 * i, 5 * i + 4});
         expected.push_back({5 * i + 4, 5 * i + 5});
@@ -470,7 +470,7 @@ TEST_F(HMModelTest, UnknownRunesPreserveLegacyStateInHmmMixAndSearch) {
 TEST_F(HMModelTest, HmmSegmentationPreservesOffsetsAtWordRangeLimit) {
     const auto model = HMModel{model_path()};
     const auto runes = decode("AB，𠀀");
-    constexpr auto limit = std::numeric_limits<uint32_t>::max();
+    constexpr auto limit = std::numeric_limits<RuneIndex>::max();
     auto words = std::vector<WordRange>{};
     auto scratch = detail::SegmentScratch{};
     detail::hmm_cut_append(model, runes, words, limit - 4, scratch);
@@ -496,7 +496,7 @@ TEST_F(HMModelTest, ReusedViterbiRowsKeepCurrentBoundariesAfterGrowth) {
         if (input.empty()) {
             EXPECT_TRUE(words.empty());
         } else {
-            EXPECT_EQ(words, (std::vector<WordRange>{{0, static_cast<uint32_t>(input.size())}}));
+            EXPECT_EQ(words, (std::vector<WordRange>{{0, static_cast<RuneIndex>(input.size())}}));
         }
     }
 

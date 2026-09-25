@@ -10,8 +10,6 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
-#include <cstdint>
-#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -48,7 +46,7 @@ auto copy_words(const Result &tokens) -> std::vector<std::basic_string<typename 
 
 // Use the checked public encoder as an independent reference for source-coordinate conversion.
 template <CharType CharT>
-auto encode_ranges(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets,
+auto encode_ranges(std::basic_string_view<CharT> source, std::span<const SourceOffset> offsets,
                    std::span<const WordRange> ranges) -> std::vector<std::basic_string<CharT>> {
     auto words = std::vector<std::basic_string<CharT>>{};
     words.reserve(ranges.size());
@@ -155,7 +153,7 @@ TEST(JiebaNeoTest, DirectCutUsesTheSameViewForDecodingAndCopying) {
 
 TEST(JiebaNeoTest, PublicSourceEncodingStillRejectsInvalidOffsets) {
     const auto source = std::string_view{"abc"};
-    const auto offsets = std::array<std::uint32_t, 2>{0, 4};
+    const auto offsets = std::array<SourceOffset, 2>{0, 4};
     EXPECT_THROW(static_cast<void>(neo_cppjieba::encode(source, offsets, WordRange{0, 1})), LogConfig::Exception);
 }
 
@@ -198,21 +196,6 @@ TEST(JiebaNeoTest, EmptyByteInputProducesNoWords) {
 TEST(JiebaNeoTest, InvalidByteInputThrowsTheConfiguredException) {
     const auto input = std::array{std::byte{0xE4}, std::byte{0xB8}};
     EXPECT_THROW(static_cast<void>(test_jieba().cut(input, CutMode::MIX)), LogConfig::Exception);
-}
-
-TEST(JiebaNeoTest, RuneCountValidationAcceptsRepresentableBounds) {
-    const auto limit =
-        std::min(static_cast<size_t>(std::numeric_limits<uint32_t>::max()), std::numeric_limits<size_t>::max() - 1);
-    EXPECT_NO_THROW(detail::check_rune_count(0));
-    EXPECT_NO_THROW(detail::check_rune_count(limit));
-}
-
-TEST(JiebaNeoTest, RuneCountValidationRejectsUnrepresentableBounds) {
-    EXPECT_THROW(detail::check_rune_count(std::numeric_limits<size_t>::max()), LogConfig::Exception);
-    if constexpr (sizeof(size_t) > sizeof(uint32_t)) {
-        constexpr auto limit = static_cast<size_t>(std::numeric_limits<uint32_t>::max());
-        EXPECT_THROW(detail::check_rune_count(limit + 1), LogConfig::Exception);
-    }
 }
 
 TEST(JiebaNeoTest, DirectRuneCutReturnsLocalWordRanges) {

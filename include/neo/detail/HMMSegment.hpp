@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/Logging.hpp"
@@ -9,7 +10,6 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <limits>
 #include <span>
 #include <vector>
@@ -19,10 +19,10 @@ namespace neo_cppjieba {
 namespace detail {
 
 /// Run the Viterbi algorithm on runes[begin..end) and append segmented WordRanges to result.
-inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, uint32_t begin, uint32_t end,
-                             std::vector<WordRange> &result, uint32_t pos, SegmentScratch &scratch) -> void {
+inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, RuneIndex begin, RuneIndex end,
+                             std::vector<WordRange> &result, RuneIndex pos, SegmentScratch &scratch) -> void {
     assert_check([&] { return begin < end && end <= runes.size(); }, "HMMSegment: invalid Viterbi rune range");
-    assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "HMMSegment: global word offsets overflow");
     constexpr auto Y = kHMMStatesNum; // 4 states: B, E, M, S
     const auto X = static_cast<size_t>(end - begin);
@@ -111,8 +111,9 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
         assert_check([&] { return static_cast<size_t>(path[i][0]) < Y; }, "HMMSegment: emitted state is out of range");
         const auto state = path[i][0];
         if (state == HMMState::E || state == HMMState::S) {
-            result.push_back(WordRange{pos + word_begin, pos + begin + static_cast<uint32_t>(i) + 1});
-            word_begin = begin + static_cast<uint32_t>(i) + 1;
+            result.push_back(
+                WordRange{static_cast<RuneIndex>(pos + word_begin), static_cast<RuneIndex>(pos + begin + i + 1)});
+            word_begin = begin + static_cast<RuneIndex>(i) + 1;
         }
     }
     assert_check([&] { return word_begin == end; }, "HMMSegment: words must cover the entire Viterbi range");
@@ -120,8 +121,8 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
 /// Find the end position of a consecutive ASCII letter sequence starting at `begin`.
 /// Returns `begin` if runes[begin] is not a letter.
-[[nodiscard]] constexpr auto sequential_letter_end(std::span<const Rune> runes, uint32_t begin, uint32_t end) noexcept
-    -> uint32_t {
+[[nodiscard]] constexpr auto sequential_letter_end(std::span<const Rune> runes, RuneIndex begin, RuneIndex end) noexcept
+    -> RuneIndex {
     assert_check([&] { return begin < end && end <= runes.size(); }, "HMMSegment: invalid ASCII letter range");
     auto r = runes[begin];
     if (('a' > r || r > 'z') && ('A' > r || r > 'Z')) {
@@ -141,8 +142,8 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
 /// Find the end position of a consecutive number sequence starting at `begin`.
 /// Returns `begin` if runes[begin] is not a digit.
-[[nodiscard]] constexpr auto number_end(std::span<const Rune> runes, uint32_t begin, uint32_t end) noexcept
-    -> uint32_t {
+[[nodiscard]] constexpr auto number_end(std::span<const Rune> runes, RuneIndex begin, RuneIndex end) noexcept
+    -> RuneIndex {
     assert_check([&] { return begin < end && end <= runes.size(); }, "HMMSegment: invalid ASCII number range");
     auto r = runes[begin];
     if ('0' > r || r > '9') {
@@ -165,17 +166,17 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
 /// Append HMM segmentation results for a separator-free segment, preserving ASCII runs as whole tokens.
 inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &range, std::span<const Rune> runes,
-                                uint32_t pos, SegmentScratch &scratch) -> void {
-    assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                                RuneIndex pos, SegmentScratch &scratch) -> void {
+    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "HMMSegment: global word offsets overflow");
     if (runes.empty()) {
         return;
     }
 
-    auto n = static_cast<uint32_t>(runes.size());
+    auto n = static_cast<RuneIndex>(runes.size());
 
-    auto left = uint32_t{0};
-    auto right = uint32_t{0};
+    auto left = RuneIndex{0};
+    auto right = RuneIndex{0};
 
     while (right < n) {
         assert_check([&] { return left <= right; }, "HMMSegment: pending rune range is reversed");
@@ -195,7 +196,7 @@ inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &ra
                 end = left + 1;
             }
             assert_check([&] { return left < end && end <= n; }, "HMMSegment: ASCII scan must advance in bounds");
-            range.push_back(WordRange{pos + left, pos + end});
+            range.push_back(WordRange{static_cast<RuneIndex>(pos + left), static_cast<RuneIndex>(pos + end)});
             right = end;
             left = right;
         } else {
@@ -213,8 +214,8 @@ inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &ra
 
 /// Append HMM segmentation results while preserving separator runes as standalone tokens.
 inline auto hmm_cut_append(const HMModel &model, std::span<const Rune> runes, std::vector<WordRange> &range,
-                           uint32_t pos, SegmentScratch &scratch) -> void {
-    assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                           RuneIndex pos, SegmentScratch &scratch) -> void {
+    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "HMMSegment: global word offsets overflow");
     get_pre_filter_separators(runes, scratch.separators);
     const auto &segments = scratch.separators;
@@ -223,7 +224,8 @@ inline auto hmm_cut_append(const HMModel &model, std::span<const Rune> runes, st
     hmm_cut_one_segment(model, range, runes.subspan(0, segments[0]), segment_pos, scratch);
     for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
         // Emit the separator rune itself.
-        range.push_back(WordRange{pos + segments[i], pos + segments[i] + 1});
+        range.push_back(
+            WordRange{static_cast<RuneIndex>(pos + segments[i]), static_cast<RuneIndex>(pos + segments[i] + 1)});
         auto next_begin = segments[i] + 1;
         segment_pos = pos + next_begin;
         // Continue with the following text segment.
@@ -257,7 +259,7 @@ struct HMMSegment {
     // Replace output and reuse predecessor storage across HMM runs and calls.
     static auto cut_into(const HMModel &model, std::span<const Rune> runes, std::vector<WordRange> &range,
                          detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
                      "HMMSegment: input exceeds the word-range limit");
         range.clear();
         range.reserve(runes.size() / 2);

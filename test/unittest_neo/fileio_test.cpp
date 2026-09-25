@@ -1,4 +1,5 @@
 #include "gtest/gtest.h"
+#include "neo/Config.hpp"
 #include "neo/detail/FileIO.hpp"
 #include "neo/detail/StringUtil.hpp"
 
@@ -67,8 +68,8 @@ TEST(StringUtilTest, EncodeValueRoundTripsNumericLimits) {
 TEST(StringUtilTest, SeparatorIndicesCountRunesAndIncludeEndSentinel) {
     const auto text = std::u32string_view{U"𠮷，中 。"};
     const auto runes = std::span<const char32_t>{text};
-    const auto expected = std::vector<uint32_t>{1, 3, 4, 5};
-    auto indices = std::vector<uint32_t>{99};
+    const auto expected = std::vector<RuneIndex>{1, 3, 4, 5};
+    auto indices = std::vector<RuneIndex>{99};
     get_pre_filter_separators(runes, indices);
     EXPECT_EQ(indices, expected);
     EXPECT_EQ(get_pre_filter_separators(runes), expected);
@@ -76,8 +77,8 @@ TEST(StringUtilTest, SeparatorIndicesCountRunesAndIncludeEndSentinel) {
 
 TEST(StringUtilTest, EmptySeparatorInputResetsOutputToEndSentinel) {
     const auto runes = std::span<const char32_t>{};
-    const auto expected = std::vector<uint32_t>{0};
-    auto indices = std::vector<uint32_t>{1, 2, 3};
+    const auto expected = std::vector<RuneIndex>{0};
+    auto indices = std::vector<RuneIndex>{1, 2, 3};
     get_pre_filter_separators(runes, indices);
     EXPECT_EQ(indices, expected);
     EXPECT_EQ(get_pre_filter_separators(runes), expected);

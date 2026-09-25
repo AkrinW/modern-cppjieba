@@ -346,7 +346,7 @@ TEST(TrieTest, DagMatchesIndependentDictionaryAcrossSharedUnicodePrefixes) {
                 prefix.push_back(key[j]);
                 const auto match = expected.find(prefix);
                 if (j == i || match != expected.end()) {
-                    expected_edges.push_back({static_cast<uint32_t>(j + 1),
+                    expected_edges.push_back({static_cast<RuneIndex>(j + 1),
                                               match != expected.end() ? match->second.weight : kMissingWordWeight});
                 }
             }

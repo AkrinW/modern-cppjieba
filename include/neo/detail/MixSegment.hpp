@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/HMMSegment.hpp"
@@ -10,7 +11,6 @@
 #include "neo/detail/StringUtil.hpp"
 
 #include <cstddef>
-#include <cstdint>
 #include <limits>
 #include <span>
 #include <vector>
@@ -44,7 +44,7 @@ struct MixSegment {
     // Replace output while keeping MP and HMM storage alive for later segments and calls.
     static auto cut_into(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
                          std::vector<WordRange> &result, detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
                      "MixSegment: input exceeds the word-range limit");
         result.clear();
         result.reserve(runes.size() / 2);
@@ -54,8 +54,8 @@ struct MixSegment {
 private:
     /// Append mix-mode segmentation results while preserving separator runes as standalone tokens.
     static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
-                    std::vector<WordRange> &result, uint32_t pos, detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                    std::vector<WordRange> &result, RuneIndex pos, detail::SegmentScratch &scratch) -> void {
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                      "MixSegment: global word offsets overflow");
         get_pre_filter_separators(runes, scratch.separators);
         const auto &segments = scratch.separators;
@@ -64,7 +64,8 @@ private:
         cut_one_segment(dict, model, result, runes.subspan(0, segments[0]), segment_pos, scratch);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // Emit the separator rune itself.
-            result.push_back(WordRange{pos + segments[i], pos + segments[i] + 1});
+            result.push_back(
+                WordRange{static_cast<RuneIndex>(pos + segments[i]), static_cast<RuneIndex>(pos + segments[i] + 1)});
             auto next_begin = segments[i] + 1;
             segment_pos = pos + next_begin;
             // Continue with the following text segment.
@@ -75,8 +76,8 @@ private:
 
     /// Perform mix-mode segmentation on a separator-free Unicode rune sequence.
     static auto cut_one_segment(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
-                                std::span<const Rune> runes, uint32_t pos, detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                                std::span<const Rune> runes, RuneIndex pos, detail::SegmentScratch &scratch) -> void {
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                      "MixSegment: global word offsets overflow");
         if (runes.empty()) {
             return;
@@ -88,15 +89,16 @@ private:
 
     /// Re-segment MP single-character runs with HMM so OOV multi-character words can be recovered.
     static auto append_mix_words(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
-                                 const std::vector<WordRange> &mp_words, std::span<const Rune> runes, uint32_t pos,
+                                 const std::vector<WordRange> &mp_words, std::span<const Rune> runes, RuneIndex pos,
                                  detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                      "MixSegment: global word offsets overflow");
         assert_check([&] { return detail::valid_segment_partition(mp_words, runes.size()); },
                      "MixSegment: MP words must cover the rune span exactly once");
         if constexpr (!hmm) {
             for (const auto &word : mp_words) {
-                result.push_back(WordRange{pos + word.begin, pos + word.end});
+                result.push_back(
+                    WordRange{static_cast<RuneIndex>(pos + word.begin), static_cast<RuneIndex>(pos + word.end)});
             }
             return;
         }
@@ -107,7 +109,8 @@ private:
 
             // Multi-character word or user-dict single Chinese character → emit directly.
             if (word.size() > 1 || (word.size() == 1 && dict.is_user_dict_single_chinese_word(runes[word.begin]))) {
-                result.push_back(WordRange{pos + word.begin, pos + word.end});
+                result.push_back(
+                    WordRange{static_cast<RuneIndex>(pos + word.begin), static_cast<RuneIndex>(pos + word.end)});
                 ++i;
                 continue;
             }

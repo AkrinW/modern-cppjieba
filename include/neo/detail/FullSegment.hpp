@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/Dag.hpp"
 #include "neo/detail/DictTrie.hpp"
@@ -9,7 +10,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
 #include <limits>
 #include <span>
 #include <vector>
@@ -35,18 +35,18 @@ struct FullSegment {
     // Replace output and reuse the DAG between segments and calls.
     static auto cut_into(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &range,
                          detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
                      "FullSegment: input exceeds the word-range limit");
         range.clear();
         range.reserve(runes.size() / 2);
         get_pre_filter_separators(runes, scratch.separators);
         const auto &segments = scratch.separators;
-        auto pos = uint32_t{0};
+        auto pos = RuneIndex{0};
         // first segment.
         cut_one_segment(dict, range, runes.subspan(pos, segments[0] - pos), pos, scratch);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // separator segment.
-            range.push_back(WordRange{segments[i], segments[i] + 1});
+            range.push_back(WordRange{segments[i], static_cast<RuneIndex>(segments[i] + 1)});
             pos = segments[i] + 1;
             // next text segment.
             cut_one_segment(dict, range, runes.subspan(pos, segments[i + 1] - pos), pos, scratch);
@@ -56,8 +56,8 @@ struct FullSegment {
 private:
     /// Emit all dictionary matches inside one separator-free segment, plus uncovered single-rune fallbacks.
     static auto cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
-                                uint32_t pos, detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                                RuneIndex pos, detail::SegmentScratch &scratch) -> void {
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                      "FullSegment: global word offsets overflow");
         if (runes.empty()) {
             return;
@@ -82,7 +82,8 @@ private:
                 // Only one edge means this position has no longer dictionary match.
                 // Emit it only when it is not already covered by an earlier overlapping word.
                 if (max_covered <= i) {
-                    result.push_back(WordRange{pos + static_cast<uint32_t>(i), pos + edges[0].next_pos});
+                    result.push_back(
+                        WordRange{static_cast<RuneIndex>(pos + i), static_cast<RuneIndex>(pos + edges[0].next_pos)});
                     max_covered = static_cast<size_t>(edges[0].next_pos);
                 }
             } else {
@@ -91,7 +92,8 @@ private:
                 for (auto j = size_t{1}; j < edge_count; ++j) {
                     assert_check([&] { return edges[j - 1].next_pos < edges[j].next_pos && edges[j].next_pos <= n; },
                                  "FullSegment: DAG edge targets must increase within the rune span");
-                    result.push_back(WordRange{pos + static_cast<uint32_t>(i), pos + edges[j].next_pos});
+                    result.push_back(
+                        WordRange{static_cast<RuneIndex>(pos + i), static_cast<RuneIndex>(pos + edges[j].next_pos)});
                 }
 
                 // Edges are sorted from shortest to longest, so the last one extends farthest.

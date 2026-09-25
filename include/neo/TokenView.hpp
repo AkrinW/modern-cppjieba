@@ -1,20 +1,21 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/Logging.hpp"
 
-#include <cstdint>
+#include <cstddef>
 #include <string_view>
 
 namespace neo_cppjieba {
 
 // A half-open range of original code units: bytes for UTF-8, native units for other encodings.
 struct SourceRange {
-    uint32_t begin;
-    uint32_t end;
+    SourceOffset begin;
+    SourceOffset end;
 
-    [[nodiscard]] constexpr auto size() const noexcept -> uint32_t {
+    [[nodiscard]] constexpr auto size() const noexcept -> SourceOffset {
         assert_check([&] { return begin <= end; }, "Reversed internal SourceRange [{}, {})", begin, end);
         return end - begin;
     }
@@ -22,7 +23,7 @@ struct SourceRange {
     template <CharType CharT>
     [[nodiscard]] constexpr auto slice(std::basic_string_view<CharT> source) const -> std::basic_string_view<CharT> {
         assert_check([&] { return begin <= end && end <= source.size(); }, "SourceRange exceeds its input");
-        return source.substr(begin, end - begin);
+        return source.substr(static_cast<std::size_t>(begin), static_cast<std::size_t>(end - begin));
     }
 
     constexpr auto operator==(const SourceRange &) const noexcept -> bool = default;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Token.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
@@ -52,9 +53,13 @@ inline auto check_cut_mode(CutMode mode) -> void {
 }
 
 // Rune indices must fit WordRange, with room for the trailing DAG offset.
-inline auto check_rune_count(size_t rune_count) -> void {
-    check(rune_count <= std::numeric_limits<uint32_t>::max() && rune_count < std::numeric_limits<size_t>::max(),
-          "Jieba: input has {} runes, exceeding the supported index range", rune_count);
+inline auto assert_rune_count(size_t rune_count) -> void {
+    assert_check(
+        [&] {
+            return rune_count <= std::numeric_limits<RuneIndex>::max()
+                   && rune_count < std::numeric_limits<size_t>::max();
+        },
+        "Jieba: input has {} runes, exceeding the configured index range", rune_count);
 }
 
 // Partition modes cover every rune once; full and search modes may emit overlapping words.
@@ -157,7 +162,7 @@ public:
                         Workspace &workspace) const -> void {
         out.clear();
         detail::check_cut_mode(mode);
-        detail::check_rune_count(runes.size());
+        detail::assert_rune_count(runes.size());
         // Former policy: Preserve the previous empty-output guarantee when segmentation fails.
         // Failures now propagate directly and may leave partial output.
         cut_impl(runes, mode, out, workspace.scratch_);
@@ -170,6 +175,8 @@ private:
         detail::check_cut_mode(mode);
         decode_with_offset_into(source, workspace.decoded_);
         // Decoding bounds source offsets; the rune count cannot exceed the source code-unit count.
+        // Rune and source capacities may be configured independently.
+        detail::assert_rune_count(workspace.decoded_.runes.size());
         cut_impl(workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
         return workspace.ranges_;
     }

@@ -1,11 +1,12 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/StringUtil.hpp"
 #include "neo/detail/Unicode.hpp"
 
-#include <cstdint>
+#include <cstddef>
 #include <limits>
 #include <span>
 #include <string>
@@ -18,7 +19,7 @@ namespace neo_cppjieba {
 inline constexpr auto kMissingWordWeight = -std::numeric_limits<float>::infinity();
 
 struct DagEdge {
-    uint32_t next_pos; // The index of the next rune after the matched word
+    RuneIndex next_pos; // The index of the next rune after the matched word
     float weight;
 };
 
@@ -27,7 +28,7 @@ struct DagEdge {
 /// For a sentence of N runes, `offsets` has N+1 elements.
 /// `offsets[i] .. offsets[i+1]` is the half-open range in `edges` for vertex i.
 struct Dag {
-    std::vector<uint32_t> offsets;
+    std::vector<DagOffset> offsets;
     std::vector<DagEdge> edges;
 
     /// Return the outgoing edges from vertex `i`.
@@ -37,7 +38,8 @@ struct Dag {
         }
         assert_check([&] { return offsets[i] <= offsets[i + 1] && offsets[i + 1] <= edges.size(); },
                      "Dag: invalid edge offsets for rune {}", i);
-        return std::span<const DagEdge>{edges}.subspan(offsets[i], offsets[i + 1] - offsets[i]);
+        return std::span<const DagEdge>{edges}.subspan(static_cast<size_t>(offsets[i]),
+                                                       static_cast<size_t>(offsets[i + 1] - offsets[i]));
     }
 
     /// Number of rune positions in this DAG (i.e. sentence length).
@@ -70,7 +72,8 @@ struct Dag {
                     result.append(sep);
                 }
                 first = false;
-                result.append(detail::encode_validated_runes<char>(runes.subspan(i, edge.next_pos - i)));
+                result.append(
+                    detail::encode_validated_runes<char>(runes.subspan(i, static_cast<size_t>(edge.next_pos - i))));
                 result.push_back('(');
                 result.append(encode_value(edge.weight));
                 result.push_back(')');

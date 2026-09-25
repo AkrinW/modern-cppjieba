@@ -1,6 +1,7 @@
 #include "../QuerySegmentCompare.hpp"
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
+#include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/HMModel.hpp"
@@ -125,7 +126,7 @@ TEST(QuerySegmentNeoTest, SpanSubrangeUsesLocalOffsets) {
     EXPECT_EQ(words, std::vector<std::string>({"中国", "科学", "学院", "科学院", "中国科学院"}));
     ASSERT_FALSE(result.empty());
     EXPECT_EQ(result.front().begin, 0u);
-    EXPECT_EQ(result.back().end, static_cast<uint32_t>(span.size()));
+    EXPECT_EQ(result.back().end, static_cast<RuneIndex>(span.size()));
 }
 
 TEST(QuerySegmentNeoTest, TwoCharWord) {

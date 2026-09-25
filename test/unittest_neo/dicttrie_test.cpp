@@ -1,5 +1,6 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
+#include "neo/Config.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/FullSegment.hpp"
 #include "neo/detail/HMModel.hpp"
@@ -11,7 +12,6 @@
 #include "test_paths.h"
 
 #include <cmath>
-#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -264,7 +264,7 @@ TEST_F(DictTrieInputTest, MpSegmentationAcceptsPositiveUserWordWeights) {
 TEST_F(DictTrieInputTest, MpSegmentationPreservesOffsetsAtWordRangeLimit) {
     const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("外，𠮷");
-    constexpr auto limit = std::numeric_limits<uint32_t>::max();
+    constexpr auto limit = std::numeric_limits<RuneIndex>::max();
     auto words = std::vector<WordRange>{};
     auto scratch = detail::SegmentScratch{};
     detail::mp_cut_append(trie, runes, words, limit - 3, scratch);

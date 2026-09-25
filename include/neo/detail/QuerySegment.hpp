@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/HMMSegment.hpp"
@@ -10,7 +11,6 @@
 #include "neo/detail/StringUtil.hpp"
 
 #include <cstddef>
-#include <cstdint>
 #include <limits>
 #include <span>
 #include <vector>
@@ -43,7 +43,7 @@ struct QuerySegment {
     // Retain the current segment's DAG for sub-words while reusing all algorithm buffers.
     static auto cut_into(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
                          std::vector<WordRange> &result, detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max(); },
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
                      "QuerySegment: input exceeds the word-range limit");
         result.clear();
         result.reserve(runes.size());
@@ -53,8 +53,8 @@ struct QuerySegment {
 private:
     /// Append query-mode segmentation results while preserving separator runes as standalone tokens.
     static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
-                    std::vector<WordRange> &result, uint32_t pos, detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+                    std::vector<WordRange> &result, RuneIndex pos, detail::SegmentScratch &scratch) -> void {
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                      "QuerySegment: global word offsets overflow");
         get_pre_filter_separators(runes, scratch.separators);
         const auto &segments = scratch.separators;
@@ -64,7 +64,8 @@ private:
         cut_one_segment_with_inline_dag(dict, model, runes.subspan(0, segments[0]), segment_pos, result, scratch);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // Emit the separator rune itself.
-            result.push_back(WordRange{pos + segments[i], pos + segments[i] + 1});
+            result.push_back(
+                WordRange{static_cast<RuneIndex>(pos + segments[i]), static_cast<RuneIndex>(pos + segments[i] + 1)});
             auto next_begin = segments[i] + 1;
             segment_pos = pos + next_begin;
             // Continue with the following text segment.
@@ -74,7 +75,7 @@ private:
     }
 
     /// Check whether the DAG contains a dictionary match covering [begin, end).
-    [[nodiscard]] static auto has_dag_edge(const Dag &dag, uint32_t begin, uint32_t end) -> bool {
+    [[nodiscard]] static auto has_dag_edge(const Dag &dag, RuneIndex begin, RuneIndex end) -> bool {
         assert_check([&] { return begin < end && end <= dag.size(); }, "QuerySegment: invalid DAG lookup range");
         for (auto &&edge : dag.get_edges(begin)) {
             // Trie construction appends dictionary edges in increasing end-position order.
@@ -86,9 +87,9 @@ private:
     }
 
     /// Reuse the already-built DAG to emit 2-gram and 3-gram dictionary sub-words for an MP word.
-    static auto append_sub_words_from_dag(const Dag &dag, uint32_t segment_offset, WordRange word,
+    static auto append_sub_words_from_dag(const Dag &dag, RuneIndex segment_offset, WordRange word,
                                           std::vector<WordRange> &result) -> void {
-        assert_check([&] { return dag.size() <= std::numeric_limits<uint32_t>::max() - segment_offset; },
+        assert_check([&] { return dag.size() <= std::numeric_limits<RuneIndex>::max() - segment_offset; },
                      "QuerySegment: global DAG offsets overflow");
         assert_check([&] { return segment_offset <= word.begin && word.begin < word.end; },
                      "QuerySegment: invalid global word range");
@@ -98,21 +99,23 @@ private:
         auto local_begin = word.begin - segment_offset;
 
         if (len > 2) {
-            for (auto i = uint32_t{0}; i <= len - 2; ++i) {
+            for (auto i = RuneIndex{0}; i <= len - 2; ++i) {
                 auto begin = local_begin + i;
                 auto end = begin + 2;
                 if (has_dag_edge(dag, begin, end)) {
-                    result.push_back(WordRange{word.begin + i, word.begin + i + 2});
+                    result.push_back(
+                        WordRange{static_cast<RuneIndex>(word.begin + i), static_cast<RuneIndex>(word.begin + i + 2)});
                 }
             }
         }
 
         if (len > 3) {
-            for (auto i = uint32_t{0}; i <= len - 3; ++i) {
+            for (auto i = RuneIndex{0}; i <= len - 3; ++i) {
                 auto begin = local_begin + i;
                 auto end = begin + 3;
                 if (has_dag_edge(dag, begin, end)) {
-                    result.push_back(WordRange{word.begin + i, word.begin + i + 3});
+                    result.push_back(
+                        WordRange{static_cast<RuneIndex>(word.begin + i), static_cast<RuneIndex>(word.begin + i + 3)});
                 }
             }
         }
@@ -120,18 +123,20 @@ private:
 
     /// Emit query-mode tokens for an HMM word that has no DAG path in the MP result.
     /// Its dictionary sub-words remain available in the full segment DAG, independent of the chosen MP path.
-    static auto append_query_local_word_from_dag(const Dag &dag, WordRange word, uint32_t segment_offset,
+    static auto append_query_local_word_from_dag(const Dag &dag, WordRange word, RuneIndex segment_offset,
                                                  std::vector<WordRange> &result) -> void {
-        assert_check([&] { return dag.size() <= std::numeric_limits<uint32_t>::max() - segment_offset; },
+        assert_check([&] { return dag.size() <= std::numeric_limits<RuneIndex>::max() - segment_offset; },
                      "QuerySegment: global word offsets overflow");
         assert_check([&] { return word.begin < word.end && word.end <= dag.size(); },
                      "QuerySegment: invalid local HMM word range");
         append_query_word_from_dag(dag, segment_offset,
-                                   WordRange{segment_offset + word.begin, segment_offset + word.end}, result);
+                                   WordRange{static_cast<RuneIndex>(segment_offset + word.begin),
+                                             static_cast<RuneIndex>(segment_offset + word.end)},
+                                   result);
     }
 
     /// Emit the main word plus its searchable sub-words when the MP DAG is already available.
-    static auto append_query_word_from_dag(const Dag &dag, uint32_t segment_offset, WordRange word,
+    static auto append_query_word_from_dag(const Dag &dag, RuneIndex segment_offset, WordRange word,
                                            std::vector<WordRange> &result) -> void {
         append_sub_words_from_dag(dag, segment_offset, word, result);
         result.push_back(word);
@@ -139,9 +144,9 @@ private:
 
     /// Query mode piggybacks on MP segmentation so it can reuse the DAG for sub-word generation.
     static auto cut_one_segment_with_inline_dag(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
-                                                uint32_t pos, std::vector<WordRange> &result,
+                                                RuneIndex pos, std::vector<WordRange> &result,
                                                 detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
+        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                      "QuerySegment: global word offsets overflow");
         if (runes.empty()) {
             return;
@@ -156,7 +161,10 @@ private:
 
         if constexpr (!hmm) {
             for (auto &word : mp_words) {
-                append_query_word_from_dag(dag, pos, WordRange{pos + word.begin, pos + word.end}, result);
+                append_query_word_from_dag(
+                    dag, pos,
+                    WordRange{static_cast<RuneIndex>(pos + word.begin), static_cast<RuneIndex>(pos + word.end)},
+                    result);
             }
             return;
         }
@@ -170,7 +178,10 @@ private:
             auto &word = mp_words[i];
 
             if (word.size() > 1 || (word.size() == 1 && dict.is_user_dict_single_chinese_word(runes[word.begin]))) {
-                append_query_word_from_dag(dag, pos, WordRange{pos + word.begin, pos + word.end}, result);
+                append_query_word_from_dag(
+                    dag, pos,
+                    WordRange{static_cast<RuneIndex>(pos + word.begin), static_cast<RuneIndex>(pos + word.end)},
+                    result);
                 ++i;
                 continue;
             }
@@ -194,7 +205,8 @@ private:
                          "QuerySegment: HMM words must cover their input span exactly once");
 
             for (auto &hmm_word : hmm_scratch) {
-                auto local = WordRange{run_begin + hmm_word.begin, run_begin + hmm_word.end};
+                auto local = WordRange{static_cast<RuneIndex>(run_begin + hmm_word.begin),
+                                       static_cast<RuneIndex>(run_begin + hmm_word.end)};
                 append_query_local_word_from_dag(dag, local, pos, result);
             }
 

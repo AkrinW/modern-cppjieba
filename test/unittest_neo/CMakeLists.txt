@@ -22,3 +22,43 @@ target_compile_definitions(test_neo.run PRIVATE LOGGING_LEVEL=LL_WARNING)
 # Add include directories
 target_link_libraries(test_neo.run PRIVATE neo_cppjieba::neo_cppjieba cppjieba_test_data GTest::gtest)
 add_test(NAME neo_unit_tests COMMAND test_neo.run)
+
+# Each capacity variant is a separate executable so inline definitions never mix configurations.
+set(capacity_config_path "${PROJECT_SOURCE_DIR}/include/neo/Config.hpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${capacity_config_path}")
+file(READ "${capacity_config_path}" capacity_config_source)
+
+function(add_capacity_test name rune_type source_type dag_type node_type test_source)
+    set(config "${capacity_config_source}")
+    string(REGEX REPLACE "using RuneIndex = [^;]+;" "using RuneIndex = ${rune_type};" config "${config}")
+    string(REGEX REPLACE "using SourceOffset = [^;]+;" "using SourceOffset = ${source_type};" config "${config}")
+    string(REGEX REPLACE "using DagOffset = [^;]+;" "using DagOffset = ${dag_type};" config "${config}")
+    string(REGEX REPLACE "using TrieNodeId = [^;]+;" "using TrieNodeId = ${node_type};" config "${config}")
+    set(config_dir "${PROJECT_BINARY_DIR}/generated/capacity/${name}")
+    file(WRITE "${config_dir}/neo/Config.hpp" "${config}")
+
+    set(target "test_capacity_${name}.run")
+    add_executable(${target} ../gtest_main.cpp ${test_source})
+    target_include_directories(${target} BEFORE PRIVATE "${config_dir}")
+    target_link_libraries(${target} PRIVATE neo_cppjieba::neo_cppjieba cppjieba_test_data GTest::gtest)
+    add_test(NAME neo_capacity_${name} COMMAND ${target})
+endfunction()
+
+foreach(bits IN ITEMS 8 16 32 64)
+    add_capacity_test(${bits} "std::uint${bits}_t" "std::uint${bits}_t" "std::uint${bits}_t"
+        "std::uint32_t" capacity_test.cpp)
+    add_capacity_test(trie_${bits} "std::uint32_t" "std::uint32_t" "std::uint32_t"
+        "std::uint${bits}_t" trie_capacity_test.cpp)
+endforeach()
+# Existing regression fixtures require more capacity than the narrow variants provide.
+target_include_directories(test_neo.run BEFORE PRIVATE "${PROJECT_BINARY_DIR}/generated/capacity/32")
+add_capacity_test(mixed "std::uint8_t" "std::uint16_t" "std::uint32_t" "std::uint64_t" capacity_test.cpp)
+
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("int main() { unsigned __int128 value = 0; return static_cast<int>(value); }"
+    NEO_TEST_HAS_UINT128)
+if(NEO_TEST_HAS_UINT128)
+    add_capacity_test(128 "uint128_t" "uint128_t" "uint128_t" "uint128_t" capacity_test.cpp)
+    add_capacity_test(mixed128 "uint128_t" "std::uint8_t" "std::uint16_t" "std::uint64_t" capacity_test.cpp)
+    add_capacity_test(trie_128 "std::uint32_t" "std::uint32_t" "std::uint32_t" "uint128_t" trie_capacity_test.cpp)
+endif()

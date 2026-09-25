@@ -1,5 +1,6 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
+#include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/Dag.hpp"
 #include "neo/detail/DictTrie.hpp"
@@ -48,7 +49,7 @@ TEST(MixSegmentNeoTest, SpanSubrangeUsesLocalOffsets) {
     EXPECT_EQ(words, std::vector<std::string>({"我", "来自", "北京邮电大学"}));
     ASSERT_FALSE(result.empty());
     EXPECT_EQ(result.front().begin, 0u);
-    EXPECT_EQ(result.back().end, static_cast<uint32_t>(span.size()));
+    EXPECT_EQ(result.back().end, static_cast<RuneIndex>(span.size()));
 }
 
 TEST(MixSegmentNeoTest, ClassicSentence) {
@@ -149,7 +150,7 @@ TEST(MixSegmentNeoTest, WordRangeContiguous) {
     for (size_t i = 1; i < result.size(); ++i) {
         EXPECT_EQ(result[i].begin, result[i - 1].end) << "gap between word " << (i - 1) << " and " << i;
     }
-    EXPECT_EQ(result.back().end, static_cast<uint32_t>(runes.size()));
+    EXPECT_EQ(result.back().end, static_cast<RuneIndex>(runes.size()));
 }
 
 TEST(MixSegmentNeoTest, ReconstructsOriginal) {

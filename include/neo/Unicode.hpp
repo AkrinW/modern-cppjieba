@@ -1,10 +1,10 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Traits.hpp"
 #include "neo/UnicodeTypes.hpp"
 #include "neo/detail/Unicode.hpp"
 
-#include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
@@ -57,7 +57,7 @@ inline auto encode(std::span<const Rune> input) -> std::basic_string<CharT> {
 // fast lookup. it is faster than re-encoding each Rune when the target encoding matches the source encoding, as it can
 // directly copy source code units. The source and offsets must come from the same validated input.
 template <CharType CharT = char>
-inline auto encode(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets, WordRange range)
+inline auto encode(std::basic_string_view<CharT> source, std::span<const SourceOffset> offsets, WordRange range)
     -> std::basic_string<CharT> {
     return detail::encode_source_impl(source, offsets, range);
 }

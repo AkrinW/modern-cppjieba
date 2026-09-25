@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/Dag.hpp"
@@ -17,6 +18,36 @@
 #include <vector>
 
 namespace neo_cppjieba {
+
+namespace detail {
+
+/// A transition retains the full parent id and rune independently of the configured node width.
+template <CapacityInteger NodeId>
+struct TrieTransitionKey {
+    NodeId parent;
+    Rune rune;
+
+    auto operator==(const TrieTransitionKey &) const noexcept -> bool = default;
+};
+
+/// Narrow ids retain the packed-key hash; wider ids contribute all 64-bit chunks to the hash.
+struct TrieTransitionHash {
+    template <CapacityInteger NodeId>
+    auto operator()(const TrieTransitionKey<NodeId> &key) const noexcept -> std::size_t {
+        const auto rune = static_cast<std::uint32_t>(key.rune);
+        if constexpr (sizeof(NodeId) <= sizeof(std::uint32_t)) {
+            const auto packed = (static_cast<std::uint64_t>(key.parent) << 32) | rune;
+            return gtl::Hash<std::uint64_t>{}(packed);
+        } else if constexpr (sizeof(NodeId) <= sizeof(std::uint64_t)) {
+            return gtl::HashState::combine(0, key.parent, rune);
+        } else {
+            return gtl::HashState::combine(0, static_cast<std::uint64_t>(key.parent),
+                                           static_cast<std::uint64_t>(key.parent >> 64), rune);
+        }
+    }
+};
+
+} // namespace detail
 
 /// Compact dictionary entry — 8 bytes total, stored by value in trie nodes (no pointer indirection).
 ///
@@ -41,15 +72,18 @@ static_assert(alignof(DictUnit) == 4);
 /// A read-only character trie with direct BMP root transitions and one flat hash table.
 /// Each transition carries its dictionary value and a filter for the child's outgoing runes.
 class Trie {
-    /// A negative child marks an absent root slot; zero marks a terminal edge without a child node.
+    static constexpr auto kAbsentNode = std::numeric_limits<TrieNodeId>::max();
+
+    /// The maximum child id marks an absent root slot; zero marks a terminal edge without a child node.
     struct Entry {
-        int32_t child{-1};
+        TrieNodeId child{kAbsentNode};
         uint32_t filter{0};
         DictUnit value{};
     };
-    static_assert(sizeof(Entry) == 16);
+    static_assert(sizeof(TrieNodeId) > sizeof(std::uint32_t) || sizeof(Entry) == 16);
 
-    using Transitions = gtl::flat_hash_map<uint64_t, Entry>;
+    using TransitionKey = detail::TrieTransitionKey<TrieNodeId>;
+    using Transitions = gtl::flat_hash_map<TransitionKey, Entry, detail::TrieTransitionHash>;
     static constexpr size_t kRootTableLimit = 0x10000;
 
     std::vector<Entry> root_;
@@ -57,9 +91,9 @@ class Trie {
     size_t node_count_{0};
 
     /// Keep all rune bits separate from the parent id; root transitions use parent id zero.
-    [[nodiscard]] static constexpr auto transition_key(int32_t parent, Rune rune) noexcept -> uint64_t {
-        assert_check([&] { return parent >= 0; }, "Trie: negative transition parent");
-        return (static_cast<uint64_t>(parent) << 32) | static_cast<uint32_t>(rune);
+    [[nodiscard]] static constexpr auto transition_key(TrieNodeId parent, Rune rune) noexcept -> TransitionKey {
+        assert_check([&] { return parent != kAbsentNode; }, "Trie: absent transition parent");
+        return {parent, rune};
     }
 
     /// Collisions only add a table lookup; both 16-bit halves must match before probing.
@@ -72,14 +106,14 @@ class Trie {
         assert_check([this] { return node_count_ > 0; }, "Trie: root lookup on an empty trie");
         if (rune < root_.size()) {
             const auto &entry = root_[rune];
-            return entry.child >= 0 ? &entry : nullptr;
+            return entry.child != kAbsentNode ? &entry : nullptr;
         }
         const auto it = transitions_.find(transition_key(0, rune));
         return it != transitions_.end() ? &it->second : nullptr;
     }
 
     [[nodiscard]] auto find_child(const Entry &parent, Rune rune) const noexcept -> const Entry * {
-        assert_check([&] { return parent.child >= 0 && static_cast<size_t>(parent.child) < node_count_; },
+        assert_check([&] { return parent.child != kAbsentNode && parent.child < node_count_; },
                      "Trie: invalid transition parent");
         const auto bits = child_bits(rune);
         if ((parent.filter & bits) != bits) {
@@ -94,11 +128,11 @@ class Trie {
     }
 
     /// The returned reference is consumed before the next insertion, which may rehash the table.
-    auto ensure_transition(int32_t parent, Rune rune) -> Entry & {
+    auto ensure_transition(TrieNodeId parent, Rune rune) -> Entry & {
         if (parent == 0 && rune < kRootTableLimit) {
             assert_check([&] { return rune < root_.size(); }, "Trie: root table does not cover a dictionary rune");
             auto &entry = root_[rune];
-            if (entry.child < 0) {
+            if (entry.child == kAbsentNode) {
                 entry.child = 0;
             }
             return entry;
@@ -107,12 +141,12 @@ class Trie {
     }
 
     auto insert_word(std::span<const Rune> key, DictUnit value, std::vector<uint32_t> &filters) -> void {
-        auto parent = int32_t{0};
+        auto parent = TrieNodeId{0};
         for (size_t i = 0; i < key.size(); ++i) {
-            assert_check([&] { return parent >= 0 && static_cast<size_t>(parent) < filters.size(); },
+            assert_check([&] { return parent != kAbsentNode && parent < filters.size(); },
                          "Trie: invalid build node index");
             auto &entry = ensure_transition(parent, key[i]);
-            filters[parent] |= child_bits(key[i]);
+            filters[static_cast<size_t>(parent)] |= child_bits(key[i]);
             if (i + 1 == key.size()) {
                 // Superseded by the last-value-wins policy; only the value is replaced.
                 // assert_check([&] { return !it->second.value.has_value(); },
@@ -122,8 +156,9 @@ class Trie {
             }
             if (entry.child == 0) {
                 // Lazy materialization: allocate a child node now.
-                check(std::in_range<int32_t>(filters.size()), "Trie: node count exceeds the supported index range");
-                entry.child = static_cast<int32_t>(filters.size());
+                assert_check([&] { return filters.size() < kAbsentNode; },
+                             "Trie: node count exceeds the configured index range");
+                entry.child = static_cast<TrieNodeId>(filters.size());
                 filters.push_back(0);
             }
             parent = entry.child;
@@ -148,19 +183,17 @@ class Trie {
         root_.resize(root_extent);
         transitions_.reserve(word_count);
         auto filters = std::vector<uint32_t>{0};
-        check(word_count <= filters.max_size(), "Trie: too many dictionary words to reserve build nodes");
+        assert_check([&] { return word_count <= filters.max_size(); },
+                     "Trie: too many dictionary words to reserve build nodes");
         filters.reserve(word_count);
         for (size_t i = 0; i < keys.size(); ++i) {
             insert_word(keys[i], values[i], filters);
         }
         const auto set_filter = [&](Entry &entry) {
-            assert_check(
-                [&] {
-                    return entry.child >= -1 && (entry.child < 0 || static_cast<size_t>(entry.child) < filters.size());
-                },
-                "Trie: invalid built child index");
-            if (entry.child > 0) {
-                entry.filter = filters[entry.child];
+            assert_check([&] { return entry.child == kAbsentNode || entry.child < filters.size(); },
+                         "Trie: invalid built child index");
+            if (entry.child != kAbsentNode && entry.child > 0) {
+                entry.filter = filters[static_cast<size_t>(entry.child)];
                 assert_check([&] { return entry.filter != 0; }, "Trie: materialized node has no children");
             }
         };
@@ -232,7 +265,7 @@ public:
     auto find_dag_into(std::span<const Rune> sentence, Dag &dag) const -> void {
         const auto n = sentence.size();
         assert_check(
-            [&] { return n <= std::numeric_limits<uint32_t>::max() && n < std::numeric_limits<size_t>::max(); },
+            [&] { return n <= std::numeric_limits<RuneIndex>::max() && n < std::numeric_limits<size_t>::max(); },
             "Trie: sentence has {} runes, exceeding the supported DAG index range", n);
         dag.offsets.clear();
         dag.edges.clear();
@@ -247,25 +280,25 @@ public:
 
         // We accumulate the edges directly into a flat vector.
         for (size_t i = 0; i < n; ++i) {
-            check(dag.edges.size() <= std::numeric_limits<uint32_t>::max(),
-                  "Trie: DAG edge count exceeds the supported offset range");
-            dag.offsets.push_back(static_cast<uint32_t>(dag.edges.size()));
+            assert_check([&] { return dag.edges.size() <= std::numeric_limits<DagOffset>::max(); },
+                         "Trie: DAG edge count exceeds the supported offset range");
+            dag.offsets.push_back(static_cast<DagOffset>(dag.edges.size()));
 
             // In typical jieba, an edge for length-1 (single character) is always added first,
             // even if it does not form a word (weight = 0.0f).
             // The former zero sentinel is now kMissingWordWeight; known zero weights are retained.
             const auto *entry = find_root(sentence[i]);
-            dag.edges.push_back({static_cast<uint32_t>(i + 1), entry ? entry->value.weight : kMissingWordWeight});
+            dag.edges.push_back({static_cast<RuneIndex>(i + 1), entry ? entry->value.weight : kMissingWordWeight});
             for (size_t j = i + 1; entry && j < n; ++j) {
                 entry = find_child(*entry, sentence[j]);
                 if (entry && entry->value.has_value()) {
-                    dag.edges.push_back({static_cast<uint32_t>(j + 1), entry->value.weight});
+                    dag.edges.push_back({static_cast<RuneIndex>(j + 1), entry->value.weight});
                 }
             }
         }
-        check(dag.edges.size() <= std::numeric_limits<uint32_t>::max(),
-              "Trie: DAG edge count exceeds the supported offset range");
-        dag.offsets.push_back(static_cast<uint32_t>(dag.edges.size()));
+        assert_check([&] { return dag.edges.size() <= std::numeric_limits<DagOffset>::max(); },
+                     "Trie: DAG edge count exceeds the supported offset range");
+        dag.offsets.push_back(static_cast<DagOffset>(dag.edges.size()));
     }
 
     template <StringLike T>
@@ -297,33 +330,34 @@ public:
         struct NodeInfo {
             size_t depth{0};
             size_t fanout{0};
-            int32_t parent{-1};
+            TrieNodeId parent{kAbsentNode};
         };
         auto nodes = std::vector<NodeInfo>(node_count_);
-        const auto visit = [&](int32_t parent, const Entry &entry) {
-            assert_check([&] { return parent >= 0 && static_cast<size_t>(parent) < node_count_; },
+        const auto visit = [&](TrieNodeId parent, const Entry &entry) {
+            assert_check([&] { return parent != kAbsentNode && parent < node_count_; },
                          "Trie: invalid statistics parent");
-            assert_check([&] { return entry.child >= 0; }, "Trie: absent transition in statistics");
-            ++nodes[parent].fanout;
+            assert_check([&] { return entry.child != kAbsentNode; }, "Trie: absent transition in statistics");
+            ++nodes[static_cast<size_t>(parent)].fanout;
             ++stats.edge_count;
             stats.value_count += entry.value.has_value();
             if (entry.child == 0) {
                 ++stats.lazy_edge_count;
                 return;
             }
-            assert_check([&] { return parent < entry.child && static_cast<size_t>(entry.child) < node_count_; },
+            assert_check([&] { return parent < entry.child && entry.child < node_count_; },
                          "Trie: child ids must follow their parents");
-            assert_check([&] { return nodes[entry.child].parent == -1; }, "Trie: statistics revisited a node");
-            nodes[entry.child].parent = parent;
+            auto &child = nodes[static_cast<size_t>(entry.child)];
+            assert_check([&] { return child.parent == kAbsentNode; }, "Trie: statistics revisited a node");
+            child.parent = parent;
         };
         for (const auto &entry : root_) {
-            if (entry.child >= 0) {
+            if (entry.child != kAbsentNode) {
                 visit(0, entry);
                 ++stats.direct_root_edge_count;
             }
         }
         for (const auto &[key, entry] : transitions_) {
-            visit(static_cast<int32_t>(key >> 32), entry);
+            visit(key.parent, entry);
         }
         stats.hashed_edge_count = transitions_.size();
 
@@ -332,9 +366,9 @@ public:
         for (size_t i = 0; i < nodes.size(); ++i) {
             auto &node = nodes[i];
             if (i > 0) {
-                assert_check([&] { return node.parent >= 0 && static_cast<size_t>(node.parent) < i; },
+                assert_check([&] { return node.parent != kAbsentNode && node.parent < i; },
                              "Trie: unreachable statistics node");
-                node.depth = nodes[node.parent].depth + 1;
+                node.depth = nodes[static_cast<size_t>(node.parent)].depth + 1;
             }
             total_depth += node.depth;
             if (node.fanout == 0) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neo/Config.hpp"
 #include "neo/Traits.hpp"
 #include "neo/UnicodeTypes.hpp"
 #include "neo/detail/Logging.hpp"
@@ -285,7 +286,7 @@ constexpr auto checked_encode_step(Rune rune, size_t index) -> EncodedRune<CharT
 // Copy source code units after range and offset validity has been established by the caller.
 // Generated offsets and segmentation ranges are internal invariants; keep their diagnostics in debug builds.
 template <CharType CharT>
-inline auto encode_validated_source(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets,
+inline auto encode_validated_source(std::basic_string_view<CharT> source, std::span<const SourceOffset> offsets,
                                     WordRange range) -> std::basic_string<CharT> {
     assert_check([&] { return range.begin <= range.end && range.end < offsets.size(); },
                  "Invalid internal rune range [{}, {}) for {} Unicode offsets", range.begin, range.end, offsets.size());
@@ -296,15 +297,17 @@ inline auto encode_validated_source(std::basic_string_view<CharT> source, std::s
     if (begin == end) {
         return {};
     }
-    return std::basic_string<CharT>{source.data() + begin, end - begin};
+    return std::basic_string<CharT>{source.data() + static_cast<size_t>(begin), static_cast<size_t>(end - begin)};
 }
 
 // Check representability before narrowing positions or allocating the offset sentinel.
-constexpr auto checked_offset_count(size_t source_size) -> size_t {
-    if (source_size > std::numeric_limits<uint32_t>::max() || source_size == std::numeric_limits<size_t>::max())
-        [[unlikely]] {
-        check(false, "Source length {} exceeds the supported Unicode offset range", source_size);
-    }
+constexpr auto offset_count_for_source(size_t source_size) -> size_t {
+    assert_check(
+        [&] {
+            return source_size <= std::numeric_limits<SourceOffset>::max()
+                   && source_size < std::numeric_limits<size_t>::max();
+        },
+        "Source length {} exceeds the configured Unicode offset range", source_size);
     return source_size + 1;
 }
 
@@ -315,7 +318,7 @@ inline auto valid_decoded_offsets(const UnicodeWithOffset &decoded, size_t sourc
         return false;
     }
     return std::adjacent_find(decoded.offsets.begin(), decoded.offsets.end(),
-                              [](uint32_t left, uint32_t right) { return left >= right; })
+                              [](SourceOffset left, SourceOffset right) { return left >= right; })
            == decoded.offsets.end();
 }
 
@@ -349,7 +352,7 @@ auto decode_into_impl(std::span<const CharT> input,
         assert_check([&] { return !overlaps_decode_buffer(input, result.offsets); },
                      "Decoding input aliases its offset buffer");
         result.offsets.clear();
-        result.offsets.reserve(checked_offset_count(input.size()));
+        result.offsets.reserve(offset_count_for_source(input.size()));
     }
     runes.reserve(input.size()); // reserve enough space to avoid multiple allocations
 
@@ -357,13 +360,13 @@ auto decode_into_impl(std::span<const CharT> input,
         // Invalid UTF-8/UTF-16 sequences throw instead of discarding the decoded prefix.
         const auto decoded = checked_decode_step(input.subspan(i), i);
         if constexpr (Mode == OffsetMode::Record) {
-            result.offsets.push_back(static_cast<uint32_t>(i));
+            result.offsets.push_back(static_cast<SourceOffset>(i));
         }
         runes.push_back(decoded.rune);
         i += decoded.code_units;
     }
     if constexpr (Mode == OffsetMode::Record) {
-        result.offsets.push_back(static_cast<uint32_t>(input.size()));
+        result.offsets.push_back(static_cast<SourceOffset>(input.size()));
         assert_check([&] { return valid_decoded_offsets(result, input.size()); }, "Invalid generated Unicode offsets");
     }
 }
@@ -421,8 +424,8 @@ inline auto encode_impl(std::span<const Rune> input) -> std::basic_string<CharT>
 
 // Validate caller-supplied ranges and offsets before copying source code units.
 template <CharType CharT>
-inline auto encode_source_impl(std::basic_string_view<CharT> source, std::span<const uint32_t> offsets, WordRange range)
-    -> std::basic_string<CharT> {
+inline auto encode_source_impl(std::basic_string_view<CharT> source, std::span<const SourceOffset> offsets,
+                               WordRange range) -> std::basic_string<CharT> {
     check(range.begin <= range.end && range.end < offsets.size(), "Invalid rune range [{}, {}) for {} Unicode offsets",
           range.begin, range.end, offsets.size());
     const auto begin = offsets[range.begin];

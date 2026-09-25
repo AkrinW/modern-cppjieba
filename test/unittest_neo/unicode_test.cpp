@@ -7,8 +7,6 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
-#include <cstdint>
-#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -46,7 +44,7 @@ TYPED_TEST(UnicodeByteTest, DecodesKnownUtf8OctetsWithByteOffsets) {
     EXPECT_EQ(decode_one(input), U'A');
     EXPECT_EQ(decode(input), expected);
     EXPECT_EQ(decoded.runes, expected);
-    EXPECT_EQ(decoded.offsets, (std::vector<uint32_t>{0, 1, 2, 4, 7, 11, 12}));
+    EXPECT_EQ(decoded.offsets, (std::vector<SourceOffset>{0, 1, 2, 4, 7, 11, 12}));
 }
 
 TYPED_TEST(UnicodeByteTest, FixedByteArraysRetainLeadingAndTrailingNul) {
@@ -76,7 +74,7 @@ TYPED_TEST(UnicodeByteTest, EmptyBuffersHaveOnlyTheSentinelOffset) {
     const auto decoded = decode_with_offset(input);
     EXPECT_TRUE(decode(input).empty());
     EXPECT_TRUE(decoded.runes.empty());
-    EXPECT_EQ(decoded.offsets, (std::vector<uint32_t>{0}));
+    EXPECT_EQ(decoded.offsets, (std::vector<SourceOffset>{0}));
     EXPECT_THROW(decode_one(input), LogConfig::Exception);
 }
 
@@ -181,7 +179,7 @@ TEST(UnicodeWithSourceTest, EmptyDecodeIntoReplacesPreviousContentWithSentinel) 
     auto buffer = decode_with_offset("中国");
     decode_with_offset_into(std::string_view{}, buffer);
     EXPECT_TRUE(buffer.runes.empty());
-    EXPECT_EQ(buffer.offsets, (std::vector<uint32_t>{0}));
+    EXPECT_EQ(buffer.offsets, (std::vector<SourceOffset>{0}));
 }
 
 TEST(UnicodeWithSourceTest, DecodeIntoCanReuseBuffersAfterInvalidInput) {
@@ -189,7 +187,7 @@ TEST(UnicodeWithSourceTest, DecodeIntoCanReuseBuffersAfterInvalidInput) {
     EXPECT_THROW(decode_with_offset_into(std::string_view{"中\xE4\xB8"}, buffer), LogConfig::Exception);
     decode_with_offset_into("😀", buffer);
     EXPECT_EQ(buffer.runes, (Unicode{U'😀'}));
-    EXPECT_EQ(buffer.offsets, (std::vector<uint32_t>{0, 4}));
+    EXPECT_EQ(buffer.offsets, (std::vector<SourceOffset>{0, 4}));
 }
 
 TYPED_TEST(UnicodeCharacterTest, MatchesKnownEncodedUnitsAndSourceOffsets) {
@@ -204,7 +202,7 @@ TYPED_TEST(UnicodeCharacterTest, MatchesKnownEncodedUnitsAndSourceOffsets) {
     EXPECT_EQ(decoded.offsets.back(), input.size());
 
     for (auto i = size_t{0}; i < expected.size(); ++i) {
-        const auto range = WordRange{static_cast<uint32_t>(i), static_cast<uint32_t>(i + 1)};
+        const auto range = WordRange{static_cast<RuneIndex>(i), static_cast<RuneIndex>(i + 1)};
         const auto one = encode_one<TypeParam>(expected[i]);
         EXPECT_EQ(encode(input, decoded.offsets, range), one);
         EXPECT_EQ(decoded.offsets[i + 1] - decoded.offsets[i], one.size());
@@ -329,34 +327,36 @@ TEST(UnicodeTest, DecodedStorageCannotBeBorrowedFromTemporaries) {
     static_assert(!CanBorrowOffsets<UnicodeWithOffset> && !CanBorrowOffsets<const UnicodeWithOffset>);
 }
 
-TEST(UnicodeTest, OffsetCountRejectsUnrepresentableLengthsWithoutAllocating) {
-    EXPECT_EQ(detail::checked_offset_count(0), 1u);
-    EXPECT_THROW(detail::checked_offset_count(std::numeric_limits<size_t>::max()), LogConfig::Exception);
-    if constexpr (std::numeric_limits<size_t>::max() > std::numeric_limits<uint32_t>::max()) {
-        const auto limit = static_cast<size_t>(std::numeric_limits<uint32_t>::max());
-        EXPECT_EQ(detail::checked_offset_count(limit), limit + 1);
-        EXPECT_THROW(detail::checked_offset_count(limit + 1), LogConfig::Exception);
-    }
-}
-
 TEST(UnicodeTest, SourceEncodingRejectsInvalidRuneRanges) {
     const auto source = std::string_view{"abc"};
-    const auto offsets = std::array<uint32_t, 4>{0, 1, 2, 3};
+    const auto offsets = std::array<SourceOffset, 4>{0, 1, 2, 3};
     EXPECT_THROW(encode(source, offsets, WordRange{2, 1}), LogConfig::Exception);
     EXPECT_THROW(encode(source, offsets, WordRange{0, 4}), LogConfig::Exception);
-    EXPECT_THROW(encode(source, std::span<const uint32_t>{}, WordRange{0, 0}), LogConfig::Exception);
+    EXPECT_THROW(encode(source, std::span<const SourceOffset>{}, WordRange{0, 0}), LogConfig::Exception);
+}
+
+TEST(UnicodeTest, LongUtf8SourcePreservesDistinctRuneAndCodeUnitOffsets) {
+    const auto prefix = std::string(65'536, 'a');
+    const auto source = prefix + "你𠮷";
+    const auto decoded = decode_with_offset(source);
+    const auto begin = static_cast<RuneIndex>(prefix.size());
+    const auto end = static_cast<RuneIndex>(decoded.runes.size());
+    EXPECT_EQ(decoded.runes.size(), prefix.size() + 2);
+    EXPECT_EQ(decoded.offsets[begin], static_cast<SourceOffset>(prefix.size()));
+    EXPECT_EQ(decoded.offsets[end], static_cast<SourceOffset>(source.size()));
+    EXPECT_EQ(encode(std::string_view{source}, decoded.offsets, WordRange{begin, end}), "你𠮷");
 }
 
 TEST(UnicodeTest, SourceEncodingRejectsInvalidCodeUnitOffsets) {
     const auto source = std::string_view{"abc"};
-    const auto reversed = std::array<uint32_t, 2>{2, 1};
-    const auto oversized = std::array<uint32_t, 2>{0, 4};
+    const auto reversed = std::array<SourceOffset, 2>{2, 1};
+    const auto oversized = std::array<SourceOffset, 2>{0, 4};
     EXPECT_THROW(encode(source, reversed, WordRange{0, 1}), LogConfig::Exception);
     EXPECT_THROW(encode(source, oversized, WordRange{0, 1}), LogConfig::Exception);
 }
 
 TEST(UnicodeTest, EmptySourceCanBeEncodedWithItsSentinel) {
-    const auto offsets = std::array<uint32_t, 1>{0};
+    const auto offsets = std::array<SourceOffset, 1>{0};
     EXPECT_TRUE(encode(std::string_view{}, offsets, WordRange{0, 0}).empty());
 }
 
@@ -449,7 +449,7 @@ TEST(UnicodeWithSourceTest, EncodeRangeFull) {
     const auto &runes = result.get_runes();
     const auto &offsets = result.get_offsets();
 
-    auto range = WordRange{0, static_cast<uint32_t>(runes.size())};
+    auto range = WordRange{0, static_cast<RuneIndex>(runes.size())};
     auto encoded = encode(view, offsets, range);
 
     EXPECT_EQ(encoded, input);
@@ -488,7 +488,7 @@ TEST(UnicodeWithSourceTest, EncodeAll) {
     auto view = as_view(input);
     const auto &offsets = result.get_offsets();
 
-    auto range = WordRange{0, static_cast<uint32_t>(result.get_runes().size())};
+    auto range = WordRange{0, static_cast<RuneIndex>(result.get_runes().size())};
     auto encoded = encode(view, offsets, range);
     EXPECT_EQ(encoded, input);
 }
@@ -523,7 +523,7 @@ TEST(UnicodeWithSourceTest, RoundtripMatchesNormalEncode) {
     // Full encode must match
     auto view = as_view(input);
     const auto &offsets = sourced.get_offsets();
-    auto fast_encoded = encode(view, offsets, WordRange{0, static_cast<uint32_t>(sourced.get_runes().size())});
+    auto fast_encoded = encode(view, offsets, WordRange{0, static_cast<RuneIndex>(sourced.get_runes().size())});
     auto normal_encoded = encode(std::span<const Rune>(normal));
     EXPECT_EQ(fast_encoded, normal_encoded);
     EXPECT_EQ(fast_encoded, input);
@@ -532,7 +532,7 @@ TEST(UnicodeWithSourceTest, RoundtripMatchesNormalEncode) {
     for (size_t start = 0; start < normal.size(); ++start) {
         for (size_t count = 0; count + start <= normal.size() && count <= 5; ++count) {
             auto fast =
-                encode(view, offsets, WordRange{static_cast<uint32_t>(start), static_cast<uint32_t>(start + count)});
+                encode(view, offsets, WordRange{static_cast<RuneIndex>(start), static_cast<RuneIndex>(start + count)});
             auto slow = encode(std::span<const Rune>(normal.data() + start, count));
             EXPECT_EQ(fast, slow) << "Mismatch at start=" << start << " count=" << count;
         }
@@ -557,7 +557,7 @@ TEST(UnicodeWithSourceTest, Utf16Basic) {
         EXPECT_EQ(result.offsets[i], i);
     }
 
-    auto encoded = encode(view, offsets, WordRange{0, static_cast<uint32_t>(result.get_runes().size())});
+    auto encoded = encode(view, offsets, WordRange{0, static_cast<RuneIndex>(result.get_runes().size())});
     EXPECT_EQ(encoded, input);
     EXPECT_EQ(encode(view, offsets, WordRange{1, 3}), u"好世");
 }
@@ -575,7 +575,7 @@ TEST(UnicodeWithSourceTest, Utf16Surrogate) {
     EXPECT_EQ(result.offsets[0], 0u);
     EXPECT_EQ(result.offsets[1], 2u); // 2 code units for surrogate pair
 
-    auto encoded = encode(view, offsets, WordRange{0, static_cast<uint32_t>(result.get_runes().size())});
+    auto encoded = encode(view, offsets, WordRange{0, static_cast<RuneIndex>(result.get_runes().size())});
     EXPECT_EQ(encoded, input);
 }
 
@@ -597,7 +597,7 @@ TEST(UnicodeWithSourceTest, Utf32Basic) {
         EXPECT_EQ(result.offsets[i], i);
     }
 
-    auto encoded = encode(view, offsets, WordRange{0, static_cast<uint32_t>(result.get_runes().size())});
+    auto encoded = encode(view, offsets, WordRange{0, static_cast<RuneIndex>(result.get_runes().size())});
     EXPECT_EQ(encoded, input);
     EXPECT_EQ(encode(view, offsets, WordRange{1, 3}), U"好世");
 }

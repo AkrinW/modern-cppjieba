@@ -1,5 +1,6 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
+#include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/MPSegment.hpp"
@@ -7,7 +8,6 @@
 
 #include "test_paths.h"
 
-#include <cstdint>
 #include <limits>
 #include <span>
 #include <string>
@@ -101,7 +101,7 @@ TEST(MPSegmentTest, AppendsIndependentSegmentsWithRuneOffsets) {
 TEST(MPSegmentTest, PreservesExistingOutputWhenAppendingAtTheRuneOffsetLimit) {
     const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode(std::string_view{"𠮷😀"});
-    const auto pos = std::numeric_limits<uint32_t>::max() - uint32_t{2};
+    const auto pos = std::numeric_limits<RuneIndex>::max() - RuneIndex{2};
     auto result = std::vector<WordRange>{{7, 8}};
     auto scratch = detail::SegmentScratch{};
     detail::mp_cut_one_segment(dict, result, runes, pos, scratch);
@@ -138,7 +138,7 @@ TEST(MPSegmentTest, WordRangeContiguous) {
     for (size_t i = 1; i < result.size(); ++i) {
         EXPECT_EQ(result[i].begin, result[i - 1].end) << "gap between word " << (i - 1) << " and " << i;
     }
-    EXPECT_EQ(result.back().end, static_cast<uint32_t>(runes.size()));
+    EXPECT_EQ(result.back().end, static_cast<RuneIndex>(runes.size()));
 }
 
 TEST(MPSegmentTest, AllSingleChars) {
