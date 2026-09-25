@@ -23,7 +23,8 @@ struct SegmentScratch {
     std::vector<uint32_t> separators;
     std::vector<WordRange> mp_words;
     std::vector<WordRange> hmm_words;
-    std::vector<std::array<uint8_t, kHMMStatesNum>> hmm_path;
+    // Typed one-byte states avoid unsigned-char aliasing of model and vector metadata.
+    std::vector<std::array<HMMState, kHMMStatesNum>> hmm_path;
 };
 
 } // namespace neo_cppjieba::detail

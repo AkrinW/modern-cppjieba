@@ -477,6 +477,35 @@ TEST_F(HMModelTest, HmmSegmentationPreservesOffsetsAtWordRangeLimit) {
     EXPECT_EQ(words, (std::vector<WordRange>{{limit - 4, limit - 2}, {limit - 2, limit - 1}, {limit - 1, limit}}));
 }
 
+TEST_F(HMModelTest, ReusedViterbiRowsKeepCurrentBoundariesAfterGrowth) {
+    auto lines = model_lines_;
+    for (auto i = size_t{0}; i < lines.size(); ++i) {
+        lines[i] = i < 5 ? "0 0 0 0" : "甲:0,𠮷:0";
+    }
+    ASSERT_NO_FATAL_FAILURE(write_model(lines));
+    const auto model = HMModel{model_path()};
+    auto scratch = detail::SegmentScratch{};
+    auto words = std::vector<WordRange>{};
+    const auto long_run = std::u32string(64, U'甲');
+    const auto longer_run = std::u32string(256, U'𠮷');
+    const auto inputs = std::array<std::u32string_view, 6>{long_run, U"甲𠮷", U"", longer_run, U"𠮷", long_run};
+
+    // Equal scores select B predecessors and a final E, forming one word over the active input.
+    for (const auto input : inputs) {
+        HMMSegment::cut_into(model, std::span<const Rune>{input.data(), input.size()}, words, scratch);
+        if (input.empty()) {
+            EXPECT_TRUE(words.empty());
+        } else {
+            EXPECT_EQ(words, (std::vector<WordRange>{{0, static_cast<uint32_t>(input.size())}}));
+        }
+    }
+
+    // Missing emissions must overwrite those predecessors with the legacy E fallback.
+    constexpr auto missing = std::u32string_view{U"乙😀"};
+    HMMSegment::cut_into(model, std::span<const Rune>{missing.data(), missing.size()}, words, scratch);
+    EXPECT_EQ(words, (std::vector<WordRange>{{0, 1}, {1, 2}}));
+}
+
 TEST(HMMSegmentTest, EmptyInput) {
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = Unicode{};

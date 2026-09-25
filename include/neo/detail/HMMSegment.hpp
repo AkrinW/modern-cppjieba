@@ -33,19 +33,20 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     // These layout notes are historical; paths now use contiguous [position][state] rows.
     auto previous_weight = std::array<double, Y>{};
     auto current_weight = std::array<double, Y>{};
-    auto &path = scratch.hmm_path;
     // Every active row is overwritten before backtrace; retain the high-water size between HMM runs.
-    if (path.size() < X) {
-        path.resize(X);
+    if (scratch.hmm_path.size() < X) {
+        scratch.hmm_path.resize(X);
     }
+    // Keep the active row view stable after growth; Viterbi never resizes this storage.
+    const auto path = std::span{scratch.hmm_path}.first(X);
 
     // ── Initialization (t = 0) ──────────────────────────────────────
     const auto first_emit = model.get_emit_probs(runes[begin]);
     for (auto y = size_t{0}; y < Y; ++y) {
         previous_weight[y] = model.get_start_prob(static_cast<HMMState>(y)) + first_emit[y];
         assert_check([&] { return std::isfinite(previous_weight[y]); }, "HMMSegment: non-finite initial weight");
-        path[0][y] = 0;
     }
+    path[0].fill(HMMState::B);
 
     // ── Recursion (t = 1 .. X-1) ────────────────────────────────────
     for (auto x = size_t{1}; x < X; ++x) {
@@ -59,7 +60,7 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 
             // Missing runes are now emitted before Viterbi; the historical default no longer floors path scores.
             // That policy is retired: preserve the legacy score floor and E predecessor for compatibility.
-            auto best_prev = static_cast<uint8_t>(HMMState::E);
+            auto best_prev = HMMState::E;
 
             for (auto prev_y = size_t{0}; prev_y < Y; ++prev_y) {
                 auto w = previous_weight[prev_y]
@@ -67,11 +68,11 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
                 assert_check([&] { return std::isfinite(w); }, "HMMSegment: non-finite accumulated weight");
                 if (w > best_weight) {
                     best_weight = w;
-                    best_prev = static_cast<uint8_t>(prev_y);
+                    best_prev = static_cast<HMMState>(prev_y);
                 }
             }
 
-            assert_check([&] { return best_prev < Y && std::isfinite(best_weight); },
+            assert_check([&] { return static_cast<size_t>(best_prev) < Y && std::isfinite(best_weight); },
                          "HMMSegment: Viterbi must select a valid predecessor");
             current_weight[y] = best_weight;
             path[x][y] = best_prev;
@@ -82,10 +83,10 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     // ── Termination: pick the best final state (must be E or S) ─────
     auto last = X - 1;
     auto end_weight = previous_weight[static_cast<size_t>(HMMState::E)];
-    auto end_state = uint8_t{static_cast<uint8_t>(HMMState::E)};
+    auto end_state = HMMState::E;
     auto s_weight = previous_weight[static_cast<size_t>(HMMState::S)];
     if (s_weight > end_weight) {
-        end_state = static_cast<uint8_t>(HMMState::S);
+        end_state = HMMState::S;
     }
 
     // ── Backtrace ───────────────────────────────────────────────────
@@ -93,8 +94,9 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     // Reuse slot 0 for its decoded state so emitting words needs no separate status buffer.
     auto backtrace_state = end_state;
     for (auto x = last; x > 0; --x) {
-        assert_check([&] { return backtrace_state < Y; }, "HMMSegment: traceback state is out of range");
-        const auto previous_state = path[x][backtrace_state];
+        assert_check([&] { return static_cast<size_t>(backtrace_state) < Y; },
+                     "HMMSegment: traceback state is out of range");
+        const auto previous_state = path[x][static_cast<size_t>(backtrace_state)];
         path[x][0] = backtrace_state;
         backtrace_state = previous_state;
     }
@@ -103,8 +105,8 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     // Emit word ranges based on E/S boundaries.
     auto word_begin = begin;
     for (auto i = size_t{0}; i < X; ++i) {
-        assert_check([&] { return path[i][0] < Y; }, "HMMSegment: emitted state is out of range");
-        auto state = static_cast<HMMState>(path[i][0]);
+        assert_check([&] { return static_cast<size_t>(path[i][0]) < Y; }, "HMMSegment: emitted state is out of range");
+        const auto state = path[i][0];
         if (state == HMMState::E || state == HMMState::S) {
             result.push_back(WordRange{pos + word_begin, pos + begin + static_cast<uint32_t>(i) + 1});
             word_begin = begin + static_cast<uint32_t>(i) + 1;
