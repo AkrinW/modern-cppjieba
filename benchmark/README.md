@@ -3,8 +3,8 @@
 All benchmark executables live here and are enabled with
 `CPPJIEBA_BUILD_BENCHMARKS=ON`. They are separate from GoogleTest and CTest.
 
-Latest recorded comparison: [2026-09-22 upstream dependency refresh](results/2026-09-22/README.md),
-including pinned versions, output mismatches, repeated timings and raw logs.
+Keep benchmark measurements, environment records and raw logs locally under
+`benchmark/results/`. This directory is ignored by Git.
 
 ```sh
 git submodule update --init deps/cppjieba deps/limonp

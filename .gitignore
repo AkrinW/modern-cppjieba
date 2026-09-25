@@ -25,3 +25,4 @@ Testing/Temporary/LastTest.log
 .vscode
 /AGENTS.md
 /deps/rust-jieba/target/
+/benchmark/results/

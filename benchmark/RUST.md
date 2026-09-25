@@ -2,7 +2,7 @@
 
 本基准固定使用 `jieba-rs 0.11.0`，由 `Cargo.lock` 锁定传递依赖。Rust 使用 release / opt-level=3，C++ 使用 C++23 / Release。生产分词代码保持不变。
 
-更新官方 cppjieba、limonp submodule 后的结果与原始输出见 [2026-09-22 上游更新复测](results/2026-09-22/README.md)。本页末尾保留的是目录迁移前的历史记录。
+测量结果、环境信息及原始输出保存在本地 `benchmark/results/`，该目录由 Git 忽略。本页末尾保留的是目录迁移前的历史记录。
 
 ## 原对比的问题
 
