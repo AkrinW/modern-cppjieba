@@ -27,10 +27,15 @@
 | --- | --- |
 | `neo/Jieba.hpp` | 分词入口与 `CutMode` |
 | `neo/Token.hpp` | token 视图、位置、借用与拥有结果 |
+| `neo/TokenView.hpp` | 仅使用 token 视图与位置类型时的入口 |
 | `neo/Unicode.hpp` | Unicode 类型、编解码、可复用解码缓冲 |
+| `neo/UnicodeTypes.hpp` | `Rune`、`Unicode`、`UnicodeWithOffset`、`WordRange` 类型 |
 | `neo/Workspace.hpp` | 调用方独占的解码与分词工作区 |
 | `neo/Traits.hpp` | 输入类型约束、编码识别及无拷贝输入适配 |
 | `neo/Config.hpp` | 日志配置与异常类型 |
+
+编解码操作统一包含 `neo/Unicode.hpp`，其中也提供 `WordRange::to_string<CharT>()` 的定义。
+只使用 Unicode 数据类型和范围操作时，可包含 `neo/UnicodeTypes.hpp`。
 
 `detail/` 是内部实现边界，供库代码、内部测试与基准直接引用。词典和 HMM 模型由 `Jieba` 私有持有，
 公开入口不再提供 `dict()`、`model()`。实现头的旧路径已移除。
@@ -94,7 +99,9 @@ UTF-16 为 `char16_t` 单元，宽字符串为 `wchar_t` 单元。rune 区间始
 `CutMode` 显式区分 `MIX`、`MIX_NO_HMM`、`MP`、`FULL`、`SEARCH`、`SEARCH_NO_HMM`、`HMM`。
 Unicode 解码和编码使用 `Unicode.hpp` 的自由函数。已有 `CutMethod` 模板入口和 Jieba 静态编码包装已移除。
 
-`Token.hpp` 定义 token 区间、视图及结果容器；`Unicode.hpp` 负责解码；`Jieba.hpp` 负责模式选择和输出转换。
+`TokenView.hpp` 定义 `SourceRange`、`TokenPosition` 和 `TokenView<CharT>`；`Token.hpp` 包含这些类型，
+并提供借用原文的 `Tokens<CharT>` 和持有原文的 `OwnedTokens<CharT>`。两类结果均支持 `size()`、`empty()`、
+下标与遍历，以及 `source()`、`positions()` 视图访问。`Unicode.hpp` 负责解码；`Jieba.hpp` 提供分词入口。
 高频调用使用 `Workspace workspace`，复用解码、源偏移、分隔位置、DAG、DP、MP/HMM 和内部结果存储。
 所有分词模式共用该工作区；同一输入的分隔段之间及后续调用之间均保留容量，`workspace.release()` 显式释放。
 `UnicodeWithOffset` 仍用于独立编解码，`decode_with_offset_into(text, decoded)` 的接口保持不变。

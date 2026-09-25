@@ -2,6 +2,7 @@
 #include "neo/Config.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/detail/Unicode.hpp"
 
 #include <array>
 #include <concepts>
@@ -215,6 +216,18 @@ TYPED_TEST(UnicodeCharacterTest, ScalarBoundariesRoundTrip) {
     const auto runes = Unicode{0, 0x7F, 0x80, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFE, 0xFFFF, 0x10000, 0x10FFFF};
     const auto encoded = encode<TypeParam>(std::span<const Rune>{runes});
     EXPECT_EQ(decode(encoded), runes);
+}
+
+TYPED_TEST(UnicodeCharacterTest, WordRangeEncodesSelectedRunes) {
+    const auto runes = std::array{U'A', U'\0', U'中', U'😀'};
+    const auto range = WordRange{1, 4};
+    EXPECT_EQ(range.to_string<TypeParam>(runes), (std::basic_string<TypeParam>{sample_text<TypeParam>().substr(1)}));
+}
+
+TYPED_TEST(UnicodeCharacterTest, EmptyWordRangeEncodesToEmptyString) {
+    const auto runes = std::array{U'中', U'😀'};
+    const auto range = WordRange{1, 1};
+    EXPECT_TRUE(range.to_string<TypeParam>(runes).empty());
 }
 
 TYPED_TEST(UnicodeCharacterTest, InvalidScalarsThrowConfiguredException) {

@@ -1,4 +1,6 @@
 #include "neo/Jieba.hpp"
+#include "neo/Token.hpp"
+#include "neo/TokenView.hpp"
 #include "neo/Workspace.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/FullSegment.hpp"
@@ -64,6 +66,19 @@ inline constexpr bool jieba_cut_invocable_v<
 template <typename Input>
 concept JiebaImplicitModeInvocable = requires { std::declval<const Jieba &>().cut(std::declval<Input>()); };
 
+// Reusable output accepts documented value types and preserves the input's character encoding.
+template <typename Input, typename Output>
+concept JiebaCutIntoInvocable =
+    requires(const Jieba &jieba, const Input &input, std::vector<Output> &out, Workspace &workspace) {
+        { jieba.cut_into(input, CutMode::MIX, out, workspace) } -> std::same_as<void>;
+    };
+
+// Visitors receive the matching token character type and return void.
+template <typename Input, typename Emit>
+concept JiebaCutEachInvocable = requires(const Jieba &jieba, const Input &input, Emit &&emit, Workspace &workspace) {
+    { jieba.cut_each(input, CutMode::MIX, std::forward<Emit>(emit), workspace) } -> std::same_as<void>;
+};
+
 // Result views require a live result object, including when the result owns its source.
 // Borrowed resources must remain accessible through lvalues, including const owners.
 template <typename Result>
@@ -112,6 +127,23 @@ static_assert(TokenViewsAccessible<OwnedTokens<char> &>);
 static_assert(TokenViewsAccessible<const OwnedTokens<char> &>);
 static_assert(!TokenViewsAccessible<OwnedTokens<char> &&>);
 static_assert(!TokenViewsAccessible<const OwnedTokens<char> &&>);
+
+static_assert(JiebaCutIntoInvocable<std::string_view, SourceRange>);
+static_assert(JiebaCutIntoInvocable<std::string_view, TokenPosition>);
+static_assert(JiebaCutIntoInvocable<std::string_view, std::string>);
+static_assert(JiebaCutIntoInvocable<std::u16string_view, std::u16string>);
+static_assert(JiebaCutIntoInvocable<std::span<const std::byte>, std::string>);
+static_assert(!JiebaCutIntoInvocable<std::string_view, WordRange>);
+static_assert(!JiebaCutIntoInvocable<std::string_view, TokenView<char>>);
+static_assert(!JiebaCutIntoInvocable<std::string_view, std::string_view>);
+static_assert(!JiebaCutIntoInvocable<std::string_view, std::u16string>);
+static_assert(!JiebaCutIntoInvocable<std::u16string_view, std::string>);
+
+static_assert(JiebaCutEachInvocable<std::string_view, void (*)(TokenView<char>)>);
+static_assert(JiebaCutEachInvocable<std::u16string_view, void (*)(TokenView<char16_t>)>);
+static_assert(JiebaCutEachInvocable<std::span<const std::byte>, void (*)(TokenView<char>)>);
+static_assert(!JiebaCutEachInvocable<std::string_view, int (*)(TokenView<char>)>);
+static_assert(!JiebaCutEachInvocable<std::u16string_view, void (*)(TokenView<char>)>);
 
 static_assert(full_segment_invocable_v<std::span<const Rune>>);
 static_assert(!full_segment_invocable_v<std::string_view>);

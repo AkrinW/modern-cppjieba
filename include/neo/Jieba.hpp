@@ -11,17 +11,15 @@
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/MPSegment.hpp"
 #include "neo/detail/MixSegment.hpp"
+#include "neo/detail/Output.hpp"
 #include "neo/detail/QuerySegment.hpp"
 
 #include <algorithm>
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -102,37 +100,22 @@ public:
     // Input must not alias the output array or either decoding buffer.
     // The workspace also retains DAG, DP, HMM, separator, and rune-result storage.
     template <StringLike Input, typename Output>
-        requires(std::same_as<Output, SourceRange> || std::same_as<Output, TokenPosition>
-                 || std::same_as<Output, std::basic_string<output_char_type_t<Input>>>)
+        requires detail::OutputValue<Output, output_char_type_t<Input>>
     auto cut_into(const Input &input, CutMode mode, std::vector<Output> &out, Workspace &workspace) const -> void {
         out.clear();
         const auto source = as_view(input);
         const auto ranges = prepare_and_cut(source, mode, workspace);
-        out.reserve(ranges.size());
-        for (const auto &range : ranges) {
-            const auto source_range = to_source_range(range, workspace.decoded_.offsets);
-            if constexpr (std::same_as<Output, SourceRange>) {
-                out.push_back(source_range);
-            } else if constexpr (std::same_as<Output, TokenPosition>) {
-                out.push_back({range, source_range});
-            } else {
-                out.emplace_back(source_range.slice(source));
-            }
-        }
+        detail::fill_output(source, ranges, workspace.decoded_.offsets, out);
     }
 
     // No public token array is built; the current segmenters still compute rune ranges first.
     // Visitors may throw, but must not reuse this decoding buffer or invalidate the input text.
     template <StringLike Input, typename Emit>
-        requires std::invocable<Emit &, TokenView<output_char_type_t<Input>>>
-                 && std::same_as<std::invoke_result_t<Emit &, TokenView<output_char_type_t<Input>>>, void>
+        requires detail::TokenVisitor<Emit, output_char_type_t<Input>>
     auto cut_each(const Input &input, CutMode mode, Emit &&emit, Workspace &workspace) const -> void {
         const auto source = as_view(input);
         const auto ranges = prepare_and_cut(source, mode, workspace);
-        for (const auto &range : ranges) {
-            const auto source_range = to_source_range(range, workspace.decoded_.offsets);
-            std::invoke(emit, TokenView<output_char_type_t<Input>>{source_range.slice(source), {range, source_range}});
-        }
+        detail::emit_tokens(source, ranges, workspace.decoded_.offsets, emit);
     }
 
     // Move the source into its final owner before building positions, including for small strings.
@@ -184,12 +167,6 @@ private:
         decode_with_offset_into(source, workspace.decoded_);
         cut_impl(workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
         return workspace.ranges_;
-    }
-
-    [[nodiscard]] static auto to_source_range(WordRange range, std::span<const uint32_t> offsets) -> SourceRange {
-        assert_check([&] { return range.begin <= range.end && range.end < offsets.size(); },
-                     "Jieba rune range exceeds its source offset table");
-        return {offsets[range.begin], offsets[range.end]};
     }
 
     auto cut_impl(std::span<const Rune> runes, CutMode mode, std::vector<WordRange> &result,
