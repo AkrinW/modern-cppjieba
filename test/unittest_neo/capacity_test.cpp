@@ -61,6 +61,16 @@ TEST(CapacityTest, RuneRangesPreserveTheEightBitEndpoint) {
     EXPECT_EQ(words.back(), (WordRange{254, 255}));
 }
 
+TEST(CapacityTest, NoHmmPreservesWordsEndingAtTheEightBitRuneLimit) {
+    auto runes = Unicode(252, U' ');
+    runes.insert(runes.end(), {U'北', U'京', U'😀'});
+    const auto words = capacity_jieba().cut_runes(runes, CutMode::MIX_NO_HMM);
+
+    ASSERT_EQ(words.size(), 254u);
+    EXPECT_EQ(words[252], (WordRange{252, 254}));
+    EXPECT_EQ(words.back(), (WordRange{254, 255}));
+}
+
 TEST(CapacityTest, AppendedWordsPreserveTheConfiguredRuneLimit) {
     const auto dict = DictTrie{DICT_DIR "/jieba.dict.utf8", "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = Unicode{U'𠮷', U'😀'};

@@ -48,7 +48,11 @@ struct MixSegment {
                      "MixSegment: input exceeds the word-range limit");
         result.clear();
         result.reserve(runes.size() / 2);
-        cut(dict, model, runes, result, 0, scratch);
+        if constexpr (hmm) {
+            cut(dict, model, runes, result, 0, scratch);
+        } else {
+            detail::mp_cut_append(dict, runes, result, 0, scratch);
+        }
     }
 
 private:
@@ -95,14 +99,6 @@ private:
                      "MixSegment: global word offsets overflow");
         assert_check([&] { return detail::valid_segment_partition(mp_words, runes.size()); },
                      "MixSegment: MP words must cover the rune span exactly once");
-        if constexpr (!hmm) {
-            for (const auto &word : mp_words) {
-                result.push_back(
-                    WordRange{static_cast<RuneIndex>(pos + word.begin), static_cast<RuneIndex>(pos + word.end)});
-            }
-            return;
-        }
-
         auto i = size_t{0};
         while (i < mp_words.size()) {
             const auto &word = mp_words[i];

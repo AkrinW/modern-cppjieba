@@ -6,6 +6,7 @@
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/MixSegment.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 #include "neo/detail/StringUtil.hpp"
 
 #include "test_paths.h"
@@ -81,6 +82,58 @@ TEST(MixSegmentNeoTest, HangyanBuildingNoHMM) {
     auto words = to_strings(runes, result);
 
     EXPECT_EQ(join(words), "他/来到/了/网易/杭/研/大厦") << "actual: " << join(words);
+}
+
+TEST(MixSegmentNeoTest, NoHmmPreservesRuneOffsetsAroundConsecutiveSeparators) {
+    const auto dict = DictTrie{DICT_FILE};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto runes = decode(std::string_view{"甲 \t杭研，，北京。𠮷😀\n乙"});
+    const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
+    const auto result = MixSegment<false>::cut(dict, model, input);
+
+    EXPECT_EQ(to_strings(input, result),
+              (std::vector<std::string>{" ", "\t", "杭", "研", "，", "，", "北京", "。", "𠮷", "😀", "\n"}));
+    EXPECT_EQ(result, (std::vector<WordRange>{
+                          {0, 1},
+                          {1, 2},
+                          {2, 3},
+                          {3, 4},
+                          {4, 5},
+                          {5, 6},
+                          {6, 8},
+                          {8, 9},
+                          {9, 10},
+                          {10, 11},
+                          {11, 12},
+                      }));
+}
+
+TEST(MixSegmentNeoTest, NoHmmEmptyInputClearsReusedOutput) {
+    const auto dict = DictTrie{DICT_FILE};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    auto result = std::vector<WordRange>{{0, 1}};
+    auto scratch = detail::SegmentScratch{};
+
+    MixSegment<false>::cut_into(dict, model, std::span<const Rune>{}, result, scratch);
+
+    EXPECT_TRUE(result.empty());
+}
+
+TEST(MixSegmentNeoTest, SharedScratchPreservesOutputsWhenHmmModeChanges) {
+    const auto dict = DictTrie{DICT_FILE};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto runes = decode(std::string_view{"杭研。杭研"});
+    const auto with_hmm = std::vector<WordRange>{{0, 2}, {2, 3}, {3, 5}};
+    const auto without_hmm = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}, {3, 4}, {4, 5}};
+    auto result = std::vector<WordRange>{};
+    auto scratch = detail::SegmentScratch{};
+
+    MixSegment<true>::cut_into(dict, model, runes, result, scratch);
+    EXPECT_EQ(result, with_hmm);
+    MixSegment<false>::cut_into(dict, model, runes, result, scratch);
+    EXPECT_EQ(result, without_hmm);
+    MixSegment<true>::cut_into(dict, model, runes, result, scratch);
+    EXPECT_EQ(result, with_hmm);
 }
 
 TEST(MixSegmentNeoTest, UnicodeOverloadWithSeparators) {
