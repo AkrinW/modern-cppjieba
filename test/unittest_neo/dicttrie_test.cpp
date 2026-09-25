@@ -511,6 +511,13 @@ TEST(DagTest, FormatsSupplementaryUnicodeUsingRuneIndices) {
     EXPECT_EQ(dag.to_string(runes, ", "), "𠮷中(-1)");
 }
 
+TEST(DagTest, FormatsUnicodeAndEmbeddedNul) {
+    const auto dag = Dag{{0, 1, 2, 3}, {{1, -1.0f}, {2, -2.0f}, {3, -3.0f}}};
+    const auto runes = Unicode{U'中', U'\0', U'😀'};
+    const auto expected = std::string{"中(-1), "} + '\0' + "(-2), 😀(-3)";
+    EXPECT_EQ(dag.to_string(runes, ", "), expected);
+}
+
 TEST(DagTest, SizeMismatchReturnsEmpty) {
     // Build a DAG for 2 runes but pass 3 runes to to_string → empty
     auto dag = Dag{};

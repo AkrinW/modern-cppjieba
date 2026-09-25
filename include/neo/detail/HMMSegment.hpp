@@ -26,7 +26,10 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
                  "HMMSegment: global word offsets overflow");
     constexpr auto Y = kHMMStatesNum; // 4 states: B, E, M, S
     const auto X = static_cast<size_t>(end - begin);
-    check(X <= std::numeric_limits<size_t>::max() / Y, "HMMSegment: input exceeds the Viterbi table size limit");
+    // A valid Rune span already bounds the storage needed for each row of HMM states.
+    static_assert(Y <= sizeof(Rune));
+    assert_check([&] { return X <= std::numeric_limits<size_t>::max() / Y; },
+                 "HMMSegment: input exceeds the Viterbi table size limit");
 
     // Flat 2D arrays laid out as [state * X + position] for cache-friendly access.
     // Only paths retain this layout; scores need the previous and current columns.

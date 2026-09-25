@@ -393,6 +393,18 @@ constexpr auto encode_one_impl(Rune rune) -> std::basic_string<CharT> {
     return std::basic_string<CharT>{encoded.units.data(), encoded.size};
 }
 
+// Encode validated runes using the shared scalar kernel and its debug assertions.
+template <CharType CharT>
+inline auto encode_validated_runes(std::span<const Rune> input) -> std::basic_string<CharT> {
+    auto result = std::basic_string<CharT>{};
+    result.reserve(input.size());
+    for (const auto rune : input) {
+        const auto encoded = encode_step<CharT>(rune);
+        result.append(encoded.units.data(), encoded.size);
+    }
+    return result;
+}
+
 // Encode each rune while retaining its index for user-facing diagnostics.
 template <CharType CharT>
 inline auto encode_impl(std::span<const Rune> input) -> std::basic_string<CharT> {

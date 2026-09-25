@@ -3,6 +3,7 @@
 #include "neo/Unicode.hpp"
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/StringUtil.hpp"
+#include "neo/detail/Unicode.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -69,7 +70,7 @@ struct Dag {
                     result.append(sep);
                 }
                 first = false;
-                result.append(encode(runes.subspan(i, edge.next_pos - i)));
+                result.append(detail::encode_validated_runes<char>(runes.subspan(i, edge.next_pos - i)));
                 result.push_back('(');
                 result.append(encode_value(edge.weight));
                 result.push_back(')');
