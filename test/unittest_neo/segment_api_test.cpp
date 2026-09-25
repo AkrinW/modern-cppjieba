@@ -1,4 +1,5 @@
 #include "neo/Jieba.hpp"
+#include "neo/Workspace.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/FullSegment.hpp"
 #include "neo/detail/HMMSegment.hpp"
@@ -164,6 +165,9 @@ static_assert(std::same_as<decltype(std::declval<const Jieba &>().cut_runes(std:
                            std::vector<WordRange>>);
 
 // Rune output has no decoding state and therefore needs no decoding-buffer argument.
-static_assert(requires(const Jieba &jieba, std::span<const Rune> runes, std::vector<WordRange> &out) {
-    jieba.cut_runes_into(runes, CutMode::MIX, out);
-});
+// The explicit workspace now retains algorithm buffers; its decoding storage remains unused here.
+static_assert(requires(const Jieba &jieba, std::span<const Rune> runes, std::vector<WordRange> &out,
+                       Workspace &workspace) { jieba.cut_runes_into(runes, CutMode::MIX, out, workspace); });
+static_assert(std::default_initializable<Workspace>);
+static_assert(std::movable<Workspace>);
+static_assert(!std::copy_constructible<Workspace>);

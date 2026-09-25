@@ -1,5 +1,6 @@
 #include "cppjieba/Jieba.hpp"
 #include "neo/Jieba.hpp"
+#include "neo/Workspace.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "RustJiebaCapi.hpp"
@@ -84,10 +85,10 @@ auto bench_cut(const CutFn &fn, const std::vector<std::string> &lines, size_t ro
 
 // Verify every Neo output representation before timing its allocation strategy.
 auto verify_neo_outputs(const neo_cppjieba::Jieba &neo, neo_cppjieba::CutMode mode, const std::string &line,
-                        const std::vector<std::string> &expected, neo_cppjieba::UnicodeWithOffset &decoded,
+                        const std::vector<std::string> &expected, neo_cppjieba::Workspace &workspace,
                         std::vector<neo_cppjieba::TokenPosition> &positions) -> void {
     const auto borrowed = neo.cut(line, mode);
-    neo.cut_into(line, mode, positions, decoded);
+    neo.cut_into(line, mode, positions, workspace);
     if (borrowed.size() != expected.size() || positions.size() != expected.size()) {
         throw std::runtime_error("Neo output representations have different token counts");
     }
@@ -105,12 +106,12 @@ auto verify(const OldFn &old_fn, const neo_cppjieba::Jieba &neo, neo_cppjieba::C
             const CopiedFn &copied_fn, const std::vector<std::string> &lines) -> Verification {
     auto result = Verification{};
     auto previews = size_t{0};
-    auto decoded = neo_cppjieba::UnicodeWithOffset{};
+    auto workspace = neo_cppjieba::Workspace{};
     auto positions = std::vector<neo_cppjieba::TokenPosition>{};
     for (const auto &line : lines) {
         const auto old_words = old_fn(line);
         const auto neo_words = neo.cut_strings(line, mode);
-        verify_neo_outputs(neo, mode, line, neo_words, decoded, positions);
+        verify_neo_outputs(neo, mode, line, neo_words, workspace, positions);
         const auto rust_words = rust_fn(line);
         if (rust_words != copied_fn(line)) {
             throw std::runtime_error("Rust copied and borrowed FFI results disagree");
@@ -158,10 +159,10 @@ auto run_shared_method(const char *name, RustCutMethod method, neo_cppjieba::Cut
     const auto borrowed_fn = [&](const std::string &line) {
         return neo.cut(line, mode);
     };
-    auto decoded = neo_cppjieba::UnicodeWithOffset{};
+    auto workspace = neo_cppjieba::Workspace{};
     auto positions = std::vector<neo_cppjieba::TokenPosition>{};
     const auto reused_fn = [&](const std::string &line) -> const std::vector<neo_cppjieba::TokenPosition> & {
-        neo.cut_into(line, mode, positions, decoded);
+        neo.cut_into(line, mode, positions, workspace);
         return positions;
     };
     const auto rust_fn = [&](const std::string &line) {
@@ -288,8 +289,8 @@ auto run(int argc, char *argv[]) -> int {
                 rounds, samples);
     std::printf("FFI copied reproduces the upstream C API copy pattern; FFI views removes that extra copy.\n");
     std::printf("Native owned returns Vec<String>; native borrowed returns tokens/offsets without string copies.\n");
-    std::printf(
-        "Neo borrowed returns source text plus rune/source positions; reused retains decoding/output capacity.\n");
+    std::printf("Neo borrowed returns source text plus rune/source positions; reused retains decoding, segmentation, "
+                "and output capacity.\n");
     std::printf("Reuse includes per-line clear/refill; final retained-buffer destruction is outside the timer.\n");
     std::printf("All Neo representations are checked against string output before timing.\n");
     const auto lines = load_lines(text_path);

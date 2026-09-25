@@ -3,6 +3,7 @@
 #include "neo/Config.hpp"
 #include "neo/Jieba.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/Workspace.hpp"
 
 #include "test_paths.h"
 
@@ -97,7 +98,7 @@ TYPED_TEST(JiebaCharacterTest, OutputFormsPreserveWordsAndBothCoordinatesInEvery
     const auto &jieba = test_jieba();
     const auto inputs = std::array{Unicode{}, Unicode{U'中', U'国', U'科', U'学', U'院'},
                                    Unicode{U'甲', U' ', U'A', U'\0', U'中', U'国', U'😀', U'𠀀', U'乙', U'!'}};
-    auto buffer = UnicodeWithOffset{};
+    auto buffer = Workspace{};
     auto source_ranges = std::vector<SourceRange>{};
     auto positions = std::vector<TokenPosition>{};
     auto strings = std::vector<std::basic_string<TypeParam>>{};
@@ -277,32 +278,26 @@ TEST(JiebaNeoTest, BorrowedSubviewKeepsRelativeByteOffsetsAndOriginalStorage) {
 }
 
 TEST(JiebaNeoTest, CutIntoReplacesOutputAndRetainsReservedCapacity) {
-    auto buffer = UnicodeWithOffset{};
-    buffer.runes.reserve(128);
-    buffer.offsets.reserve(129);
+    auto buffer = Workspace{};
     auto out = std::vector<SourceRange>{{99, 100}};
     out.reserve(64);
     const auto capacity = out.capacity();
-    const auto rune_capacity = buffer.runes.capacity();
-    const auto offset_capacity = buffer.offsets.capacity();
     test_jieba().cut_into("中国科学院", CutMode::SEARCH, out, buffer);
     EXPECT_EQ(out, (std::vector<SourceRange>{{0, 6}, {6, 12}, {9, 15}, {6, 15}, {0, 15}}));
     EXPECT_EQ(out.capacity(), capacity);
     test_jieba().cut_into("", CutMode::MIX, out, buffer);
     EXPECT_TRUE(out.empty());
     EXPECT_EQ(out.capacity(), capacity);
-    EXPECT_EQ(buffer.runes.capacity(), rune_capacity);
-    EXPECT_EQ(buffer.offsets.capacity(), offset_capacity);
 }
 
-TEST(JiebaNeoTest, SeparateResultsSurviveDecodeBufferReuseAndRelease) {
-    auto buffer = UnicodeWithOffset{};
+TEST(JiebaNeoTest, SeparateResultsSurviveWorkspaceReuseAndRelease) {
+    auto buffer = Workspace{};
     auto first = std::vector<TokenPosition>{};
     auto second = std::vector<TokenPosition>{};
     test_jieba().cut_into("中国科学院", CutMode::SEARCH, first, buffer);
     const auto expected = first;
     test_jieba().cut_into("北京", CutMode::MIX, second, buffer);
-    buffer = UnicodeWithOffset{};
+    buffer.release();
     EXPECT_EQ(first, expected);
     EXPECT_EQ(second, (std::vector<TokenPosition>{{{0, 2}, {0, 6}}}));
     test_jieba().cut_into("中国", CutMode::MIX, second, buffer);
@@ -310,13 +305,14 @@ TEST(JiebaNeoTest, SeparateResultsSurviveDecodeBufferReuseAndRelease) {
 }
 
 TEST(JiebaNeoTest, RuneOutputCanBeReusedWithoutChangingCoordinates) {
+    auto buffer = Workspace{};
     const auto runes = decode("中国科学院");
     auto out = std::vector<WordRange>{{99, 100}};
     out.reserve(32);
     const auto capacity = out.capacity();
-    test_jieba().cut_runes_into(runes, CutMode::SEARCH, out);
+    test_jieba().cut_runes_into(runes, CutMode::SEARCH, out, buffer);
     EXPECT_EQ(out, (std::vector<WordRange>{{0, 2}, {2, 4}, {3, 5}, {2, 5}, {0, 5}}));
-    test_jieba().cut_runes_into(runes, CutMode::MP, out);
+    test_jieba().cut_runes_into(runes, CutMode::MP, out, buffer);
     EXPECT_EQ(out, (std::vector<WordRange>{{0, 5}}));
     EXPECT_EQ(out.capacity(), capacity);
 }
@@ -348,8 +344,8 @@ TEST(JiebaNeoTest, OwnedLongTextSurvivesSourceChangesCopyAndMove) {
     }
 }
 
-TEST(JiebaNeoTest, VisitorExceptionPropagatesAndDecodeBufferRemainsReusable) {
-    auto buffer = UnicodeWithOffset{};
+TEST(JiebaNeoTest, VisitorExceptionPropagatesAndWorkspaceRemainsReusable) {
+    auto buffer = Workspace{};
     const auto fail = [](TokenView<char>) -> void {
         throw std::runtime_error("visitor failure");
     };
@@ -359,9 +355,9 @@ TEST(JiebaNeoTest, VisitorExceptionPropagatesAndDecodeBufferRemainsReusable) {
     EXPECT_EQ(words, (std::vector<std::string>{"中国"}));
 }
 
-TEST(JiebaNeoTest, VisitorCanUseAnotherDecodeBufferWithoutChangingOuterResults) {
-    auto outer = UnicodeWithOffset{};
-    auto inner = UnicodeWithOffset{};
+TEST(JiebaNeoTest, VisitorCanUseAnotherWorkspaceWithoutChangingOuterResults) {
+    auto outer = Workspace{};
+    auto inner = Workspace{};
     auto words = std::vector<std::string>{};
     test_jieba().cut_each(
         "中国科学院", CutMode::SEARCH,
@@ -375,8 +371,8 @@ TEST(JiebaNeoTest, VisitorCanUseAnotherDecodeBufferWithoutChangingOuterResults) 
     EXPECT_EQ(words, (std::vector<std::string>{"中国", "科学", "学院", "科学院", "中国科学院"}));
 }
 
-TEST(JiebaNeoTest, InvalidTextDoesNotInvokeVisitorAndDecodeBufferCanRecover) {
-    auto buffer = UnicodeWithOffset{};
+TEST(JiebaNeoTest, InvalidTextDoesNotInvokeVisitorAndWorkspaceCanRecover) {
+    auto buffer = Workspace{};
     auto calls = size_t{0};
     const auto count = [&](TokenView<char>) {
         ++calls;
@@ -391,7 +387,7 @@ TEST(JiebaNeoTest, InvalidTextDoesNotInvokeVisitorAndDecodeBufferCanRecover) {
 TEST(JiebaNeoTest, UnknownModesUseTheConfiguredErrorPathForEveryEntryPoint) {
     const auto &jieba = test_jieba();
     const auto mode = static_cast<CutMode>(uint8_t{255});
-    auto buffer = UnicodeWithOffset{};
+    auto buffer = Workspace{};
     auto source_ranges = std::vector<SourceRange>{};
     auto rune_ranges = std::vector<WordRange>{};
     const auto runes = decode("中国");
@@ -401,5 +397,54 @@ TEST(JiebaNeoTest, UnknownModesUseTheConfiguredErrorPathForEveryEntryPoint) {
     EXPECT_THROW(jieba.cut_into("中国", mode, source_ranges, buffer), LogConfig::Exception);
     EXPECT_THROW(jieba.cut_each("中国", mode, [](TokenView<char>) {}, buffer), LogConfig::Exception);
     EXPECT_THROW(static_cast<void>(jieba.cut_runes(runes, mode)), LogConfig::Exception);
-    EXPECT_THROW(jieba.cut_runes_into(runes, mode, rune_ranges), LogConfig::Exception);
+    EXPECT_THROW(jieba.cut_runes_into(runes, mode, rune_ranges, buffer), LogConfig::Exception);
+}
+
+TEST(JiebaNeoTest, WorkspaceMatchesFreshResultsAfterGrowthAndModeChanges) {
+    const auto &jieba = test_jieba();
+    auto workspace = Workspace{};
+    auto positions = std::vector<TokenPosition>{};
+    auto long_text = std::string{};
+    constexpr auto fragment = std::string_view{"小明来到中国科学院，研究量子计算ABC123；𠀀😀！"};
+    long_text.reserve(fragment.size() * 64);
+    for (auto i = 0; i < 64; ++i) {
+        long_text.append(fragment);
+    }
+    const auto inputs = std::array<std::string_view, 6>{long_text, "中国科学院", "", "， !", "𠀀😀AB 3.14", long_text};
+    for (const auto input : inputs) {
+        for (const auto mode : all_modes) {
+            const auto expected = jieba.cut(input, mode);
+            jieba.cut_into(input, mode, positions, workspace);
+            ASSERT_EQ(positions.size(), expected.size());
+            for (auto i = size_t{0}; i < positions.size(); ++i) {
+                EXPECT_EQ(positions[i], expected[i].position);
+            }
+        }
+    }
+}
+
+TEST(JiebaNeoTest, WorkspaceCanMoveAndBeReleasedWithoutChangingStoredResults) {
+    auto workspace = Workspace{};
+    auto first = std::vector<TokenPosition>{};
+    auto second = std::vector<TokenPosition>{};
+    test_jieba().cut_into("中国科学院", CutMode::SEARCH, first, workspace);
+    const auto expected = first;
+    auto moved = std::move(workspace);
+    test_jieba().cut_into("北京", CutMode::MIX, second, moved);
+    moved.release();
+    EXPECT_EQ(first, expected);
+    EXPECT_EQ(second, (std::vector<TokenPosition>{{{0, 2}, {0, 6}}}));
+    test_jieba().cut_into("中国", CutMode::MIX, second, workspace);
+    EXPECT_EQ(second, (std::vector<TokenPosition>{{{0, 2}, {0, 6}}}));
+}
+
+TEST(JiebaNeoTest, InvalidTextClearsOutputAndWorkspaceCanRecoverInAnotherMode) {
+    auto workspace = Workspace{};
+    auto out = std::vector<TokenPosition>{};
+    test_jieba().cut_into("中国科学院", CutMode::SEARCH, out, workspace);
+    EXPECT_THROW(test_jieba().cut_into(std::string_view{"中国\xE4\xB8"}, CutMode::MIX, out, workspace),
+                 LogConfig::Exception);
+    EXPECT_TRUE(out.empty());
+    test_jieba().cut_into("北京", CutMode::HMM, out, workspace);
+    EXPECT_EQ(out, (std::vector<TokenPosition>{{{0, 2}, {0, 6}}}));
 }

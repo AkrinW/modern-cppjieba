@@ -3,6 +3,7 @@
 #include "neo/Token.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
+#include "neo/Workspace.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/FullSegment.hpp"
 #include "neo/detail/HMMSegment.hpp"
@@ -91,25 +92,25 @@ public:
     [[nodiscard]] auto cut(Input &&input, CutMode mode) const -> Tokens<output_char_type_t<Input>> {
         const auto source = as_view(std::forward<Input>(input));
         auto positions = std::vector<TokenPosition>{};
-        auto decoded = UnicodeWithOffset{};
-        cut_into(source, mode, positions, decoded);
+        auto workspace = Workspace{};
+        cut_into(source, mode, positions, workspace);
         return Tokens<output_char_type_t<Input>>{source, std::move(positions)};
     }
 
     // Replaces output while retaining its capacity. Output records contain no decoding-buffer pointers.
     // Caller-owned decoding buffers can be reused across inputs; results never borrow this storage.
     // Input must not alias the output array or either decoding buffer.
+    // The workspace also retains DAG, DP, HMM, separator, and rune-result storage.
     template <StringLike Input, typename Output>
         requires(std::same_as<Output, SourceRange> || std::same_as<Output, TokenPosition>
                  || std::same_as<Output, std::basic_string<output_char_type_t<Input>>>)
-    auto cut_into(const Input &input, CutMode mode, std::vector<Output> &out, UnicodeWithOffset &decoded) const
-        -> void {
+    auto cut_into(const Input &input, CutMode mode, std::vector<Output> &out, Workspace &workspace) const -> void {
         out.clear();
         const auto source = as_view(input);
-        const auto ranges = prepare_and_cut(source, mode, decoded);
+        const auto ranges = prepare_and_cut(source, mode, workspace);
         out.reserve(ranges.size());
         for (const auto &range : ranges) {
-            const auto source_range = to_source_range(range, decoded.offsets);
+            const auto source_range = to_source_range(range, workspace.decoded_.offsets);
             if constexpr (std::same_as<Output, SourceRange>) {
                 out.push_back(source_range);
             } else if constexpr (std::same_as<Output, TokenPosition>) {
@@ -125,11 +126,11 @@ public:
     template <StringLike Input, typename Emit>
         requires std::invocable<Emit &, TokenView<output_char_type_t<Input>>>
                  && std::same_as<std::invoke_result_t<Emit &, TokenView<output_char_type_t<Input>>>, void>
-    auto cut_each(const Input &input, CutMode mode, Emit &&emit, UnicodeWithOffset &decoded) const -> void {
+    auto cut_each(const Input &input, CutMode mode, Emit &&emit, Workspace &workspace) const -> void {
         const auto source = as_view(input);
-        const auto ranges = prepare_and_cut(source, mode, decoded);
+        const auto ranges = prepare_and_cut(source, mode, workspace);
         for (const auto &range : ranges) {
-            const auto source_range = to_source_range(range, decoded.offsets);
+            const auto source_range = to_source_range(range, workspace.decoded_.offsets);
             std::invoke(emit, TokenView<output_char_type_t<Input>>{source_range.slice(source), {range, source_range}});
         }
     }
@@ -138,8 +139,8 @@ public:
     template <CharType CharT>
     [[nodiscard]] auto cut_owned(std::basic_string<CharT> source, CutMode mode) const -> OwnedTokens<CharT> {
         auto result = OwnedTokens<CharT>{std::move(source), {}};
-        auto decoded = UnicodeWithOffset{};
-        cut_into(result.source_, mode, result.positions_, decoded);
+        auto workspace = Workspace{};
+        cut_into(result.source_, mode, result.positions_, workspace);
         return result;
     }
 
@@ -147,31 +148,42 @@ public:
     template <StringLike Input>
     [[nodiscard]] auto cut_strings(const Input &input, CutMode mode) const
         -> std::vector<std::basic_string<output_char_type_t<Input>>> {
-        auto decoded = UnicodeWithOffset{};
+        auto workspace = Workspace{};
         auto result = std::vector<std::basic_string<output_char_type_t<Input>>>{};
-        cut_into(input, mode, result, decoded);
+        cut_into(input, mode, result, workspace);
         return result;
     }
 
     // Predecoded input retains rune coordinates and never constructs source text or an offset table.
     [[nodiscard]] auto cut_runes(std::span<const Rune> runes, CutMode mode) const -> std::vector<WordRange> {
-        detail::check_cut_mode(mode);
-        return cut_impl(runes, mode);
+        auto result = std::vector<WordRange>{};
+        auto workspace = Workspace{};
+        cut_runes_into(runes, mode, result, workspace);
+        return result;
     }
 
-    auto cut_runes_into(std::span<const Rune> runes, CutMode mode, std::vector<WordRange> &out) const -> void {
+    // Fill the caller's rune output directly; decoding storage is unused for predecoded input.
+    auto cut_runes_into(std::span<const Rune> runes, CutMode mode, std::vector<WordRange> &out,
+                        Workspace &workspace) const -> void {
         out.clear();
-        const auto ranges = cut_runes(runes, mode);
-        out.assign(ranges.begin(), ranges.end());
+        detail::check_cut_mode(mode);
+        try {
+            cut_impl(runes, mode, out, workspace.scratch_);
+        } catch (...) {
+            // Preserve the previous empty-output guarantee when segmentation fails.
+            out.clear();
+            throw;
+        }
     }
 
 private:
     template <CharType CharT>
-    auto prepare_and_cut(std::basic_string_view<CharT> source, CutMode mode, UnicodeWithOffset &decoded) const
-        -> std::vector<WordRange> {
+    auto prepare_and_cut(std::basic_string_view<CharT> source, CutMode mode, Workspace &workspace) const
+        -> std::span<const WordRange> {
         detail::check_cut_mode(mode);
-        decode_with_offset_into(source, decoded);
-        return cut_impl(decoded.runes, mode);
+        decode_with_offset_into(source, workspace.decoded_);
+        cut_impl(workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
+        return workspace.ranges_;
     }
 
     [[nodiscard]] static auto to_source_range(WordRange range, std::span<const uint32_t> offsets) -> SourceRange {
@@ -180,29 +192,29 @@ private:
         return {offsets[range.begin], offsets[range.end]};
     }
 
-    [[nodiscard]] auto cut_impl(std::span<const Rune> runes, CutMode mode) const -> std::vector<WordRange> {
-        auto result = std::vector<WordRange>{};
+    auto cut_impl(std::span<const Rune> runes, CutMode mode, std::vector<WordRange> &result,
+                  detail::SegmentScratch &scratch) const -> void {
         switch (mode) {
             case CutMode::MIX:
-                result = MixSegment<true>::cut(dict_, model_, runes);
+                MixSegment<true>::cut_into(dict_, model_, runes, result, scratch);
                 break;
             case CutMode::MIX_NO_HMM:
-                result = MixSegment<false>::cut(dict_, model_, runes);
+                MixSegment<false>::cut_into(dict_, model_, runes, result, scratch);
                 break;
             case CutMode::FULL:
-                result = FullSegment::cut(dict_, runes);
+                FullSegment::cut_into(dict_, runes, result, scratch);
                 break;
             case CutMode::SEARCH:
-                result = QuerySegment<true>::cut(dict_, model_, runes);
+                QuerySegment<true>::cut_into(dict_, model_, runes, result, scratch);
                 break;
             case CutMode::SEARCH_NO_HMM:
-                result = QuerySegment<false>::cut(dict_, model_, runes);
+                QuerySegment<false>::cut_into(dict_, model_, runes, result, scratch);
                 break;
             case CutMode::HMM:
-                result = HMMSegment::cut(model_, runes);
+                HMMSegment::cut_into(model_, runes, result, scratch);
                 break;
             case CutMode::MP:
-                result = MPSegment::cut(dict_, runes);
+                MPSegment::cut_into(dict_, runes, result, scratch);
                 break;
             default:
                 assert_check([] { return false; }, "Unchecked Jieba cut mode reached internal dispatch");
@@ -210,7 +222,6 @@ private:
         }
         assert_check([&] { return detail::valid_jieba_result(mode, result, runes.size()); },
                      "Jieba: invalid segmentation result for {} runes", runes.size());
-        return result;
     }
 
     DictTrie dict_;

@@ -6,6 +6,7 @@
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/MPSegment.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 #include "neo/detail/StringUtil.hpp"
 
 #include <cstddef>
@@ -34,50 +35,60 @@ template <bool hmm = true>
 struct MixSegment {
     [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes)
         -> std::vector<WordRange> {
-        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "MixSegment: input exceeds the word-range limit");
         auto result = std::vector<WordRange>{};
-        result.reserve(runes.size() / 2);
-        cut(dict, model, runes, result);
+        auto scratch = detail::SegmentScratch{};
+        cut_into(dict, model, runes, result, scratch);
         return result;
+    }
+
+    // Replace output while keeping MP and HMM storage alive for later segments and calls.
+    static auto cut_into(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
+                         std::vector<WordRange> &result, detail::SegmentScratch &scratch) -> void {
+        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "MixSegment: input exceeds the word-range limit");
+        result.clear();
+        result.reserve(runes.size() / 2);
+        cut(dict, model, runes, result, 0, scratch);
     }
 
 private:
     /// Append mix-mode segmentation results while preserving separator runes as standalone tokens.
     static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
-                    std::vector<WordRange> &result, uint32_t pos = 0) -> void {
+                    std::vector<WordRange> &result, uint32_t pos, detail::SegmentScratch &scratch) -> void {
         assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
                      "MixSegment: global word offsets overflow");
-        auto segments = get_pre_filter_separators(runes);
+        get_pre_filter_separators(runes, scratch.separators);
+        const auto &segments = scratch.separators;
         auto segment_pos = pos;
         // First text segment before the first separator.
-        cut_one_segment(dict, model, result, runes.subspan(0, segments[0]), segment_pos);
+        cut_one_segment(dict, model, result, runes.subspan(0, segments[0]), segment_pos, scratch);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // Emit the separator rune itself.
             result.push_back(WordRange{pos + segments[i], pos + segments[i] + 1});
             auto next_begin = segments[i] + 1;
             segment_pos = pos + next_begin;
             // Continue with the following text segment.
-            cut_one_segment(dict, model, result, runes.subspan(next_begin, segments[i + 1] - next_begin), segment_pos);
+            cut_one_segment(dict, model, result, runes.subspan(next_begin, segments[i + 1] - next_begin), segment_pos,
+                            scratch);
         }
     }
 
     /// Perform mix-mode segmentation on a separator-free Unicode rune sequence.
     static auto cut_one_segment(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
-                                std::span<const Rune> runes, uint32_t pos) -> void {
+                                std::span<const Rune> runes, uint32_t pos, detail::SegmentScratch &scratch) -> void {
         assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
                      "MixSegment: global word offsets overflow");
         if (runes.empty()) {
             return;
         }
 
-        auto mp_result = detail::mp_cut_segment(dict, runes);
-        append_mix_words(dict, model, result, mp_result.words, runes, pos);
+        detail::mp_cut_segment(dict, runes, scratch);
+        append_mix_words(dict, model, result, scratch.mp_words, runes, pos, scratch);
     }
 
     /// Re-segment MP single-character runs with HMM so OOV multi-character words can be recovered.
     static auto append_mix_words(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
-                                 const std::vector<WordRange> &mp_words, std::span<const Rune> runes, uint32_t pos)
-        -> void {
+                                 const std::vector<WordRange> &mp_words, std::span<const Rune> runes, uint32_t pos,
+                                 detail::SegmentScratch &scratch) -> void {
         assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
                      "MixSegment: global word offsets overflow");
         assert_check([&] { return detail::valid_segment_partition(mp_words, runes.size()); },
@@ -111,7 +122,8 @@ private:
             auto run_begin = mp_words[i].begin;
             auto run_end = mp_words[j - 1].end;
             // The outer cut already removed separators; retain the HMM helper's ASCII handling and rune offsets.
-            detail::hmm_cut_one_segment(model, result, runes.subspan(run_begin, run_end - run_begin), pos + run_begin);
+            detail::hmm_cut_one_segment(model, result, runes.subspan(run_begin, run_end - run_begin), pos + run_begin,
+                                        scratch);
 
             i = j;
         }

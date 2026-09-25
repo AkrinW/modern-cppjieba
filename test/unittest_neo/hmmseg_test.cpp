@@ -6,6 +6,7 @@
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/MixSegment.hpp"
 #include "neo/detail/QuerySegment.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
@@ -471,7 +472,8 @@ TEST_F(HMModelTest, HmmSegmentationPreservesOffsetsAtWordRangeLimit) {
     const auto runes = decode("AB，𠀀");
     constexpr auto limit = std::numeric_limits<uint32_t>::max();
     auto words = std::vector<WordRange>{};
-    detail::hmm_cut_append(model, runes, words, limit - 4);
+    auto scratch = detail::SegmentScratch{};
+    detail::hmm_cut_append(model, runes, words, limit - 4, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{limit - 4, limit - 2}, {limit - 2, limit - 1}, {limit - 1, limit}}));
 }
 

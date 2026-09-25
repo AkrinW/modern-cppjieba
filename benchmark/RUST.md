@@ -26,11 +26,11 @@
 | Rust native owned strings | `Vec<String>` | 整段循环在 Rust 内执行，包含字符串物化和析构 |
 | Rust native borrowed tokens | `Vec<Token>` | Rust 原生借用结果，携带位置，不复制词文本 |
 | Neo borrowed tokens | `Tokens<char>` | `cut` 返回借用原文的位置数组，包含每次调用的分配和结果析构 |
-| Neo reused token positions | `vector<TokenPosition>` | `cut_into` 复用调用方的输出数组、解码数组和偏移表 |
+| Neo reused token positions | `vector<TokenPosition>` | `cut_into` 复用调用方输出数组及 `Workspace` 内的解码、DAG、DP、MP/HMM 与结果存储 |
 
 输入读取、引擎初始化、正确性校验和预热均不计时。Rust 原生路径的输入视图构造和 UTF-8 校验也在计时前完成，模拟 Rust 调用者已经持有 `&str` 的情形。每个样本包含指定轮数的完整语料遍历，分词结果通过优化屏障消费；所有路径均核对 token 总数。
 
-计时前逐词核对 Neo 的字符串、借用和复用输出，并检查两种位置数组一致。`Neo reused` 在预热及后续样本之间保留缓冲容量，每行的清空、解码和填充都计时，最终缓冲析构在计时外；它代表调用方复用存储的场景。计时器保留返回的引用，避免为测量额外复制结果。Neo 两条新路径都保留 rune 和源区间，不通过省略位置字段降低工作量；分词器内部结果数组仍按现有实现分配。
+计时前逐词核对 Neo 的字符串、借用和复用输出，并检查两种位置数组一致。`Neo reused` 在预热及后续样本之间保留缓冲容量，每行的清空、解码和填充都计时，最终缓冲析构在计时外；它代表调用方复用存储的场景。计时器保留返回的引用，避免为测量额外复制结果。Neo 两条新路径都保留 rune 和源区间，不通过省略位置字段降低工作量；分词器内部结果数组也保留容量；预热后已有容量能够覆盖输入时，算法临时缓冲不再逐句分配。
 
 `FFI copied` 是在同一个新版本上重现旧拷贝模式，**并非恢复了历史 Rust 二进制**。`native borrowed` 与 C++ 字符串输出的成本口径不同；`Vec<String>` 和 C++ 字符串的分配策略也不同。Rust 使用外部运行时 HMM 模型，本测试不测其默认内置模型的性能。
 

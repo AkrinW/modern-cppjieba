@@ -51,6 +51,11 @@ public:
         return trie_.find_dag(runes);
     }
 
+    // Reuse a caller-owned DAG without changing dictionary matching semantics.
+    auto find_dag_into(std::span<const Rune> runes, Dag &dag) const -> void {
+        trie_.find_dag_into(runes, dag);
+    }
+
     template <StringLike T>
     [[nodiscard]] auto find_dag(const T &input) const -> Dag {
         auto unicode = decode(input);

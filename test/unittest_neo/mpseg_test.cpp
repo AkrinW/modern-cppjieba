@@ -3,6 +3,7 @@
 #include "neo/Unicode.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/MPSegment.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
@@ -102,7 +103,8 @@ TEST(MPSegmentTest, PreservesExistingOutputWhenAppendingAtTheRuneOffsetLimit) {
     const auto runes = decode(std::string_view{"𠮷😀"});
     const auto pos = std::numeric_limits<uint32_t>::max() - uint32_t{2};
     auto result = std::vector<WordRange>{{7, 8}};
-    detail::mp_cut_one_segment(dict, result, runes, pos);
+    auto scratch = detail::SegmentScratch{};
+    detail::mp_cut_one_segment(dict, result, runes, pos, scratch);
 
     EXPECT_EQ(result, (std::vector<WordRange>{{7, 8}, {pos, pos + 1}, {pos + 1, pos + 2}}));
 }

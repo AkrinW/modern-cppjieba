@@ -6,6 +6,7 @@
 #include "neo/detail/MPSegment.hpp"
 #include "neo/detail/MixSegment.hpp"
 #include "neo/detail/QuerySegment.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
@@ -265,7 +266,8 @@ TEST_F(DictTrieInputTest, MpSegmentationPreservesOffsetsAtWordRangeLimit) {
     const auto runes = decode("外，𠮷");
     constexpr auto limit = std::numeric_limits<uint32_t>::max();
     auto words = std::vector<WordRange>{};
-    detail::mp_cut_append(trie, runes, words, limit - 3);
+    auto scratch = detail::SegmentScratch{};
+    detail::mp_cut_append(trie, runes, words, limit - 3, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{limit - 3, limit - 2}, {limit - 2, limit - 1}, {limit - 1, limit}}));
 }
 
@@ -654,4 +656,20 @@ TEST(DictTrieTest, TrieAccessor) {
     const auto &t = trie.trie();
     EXPECT_FALSE(t.empty());
     EXPECT_GT(t.node_count(), 0u);
+}
+
+TEST_F(DictTrieInputTest, ReusedDagReplacesPreviousMatchesIncludingEmptyInput) {
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto dag = Dag{};
+    for (const auto text : {"甲乙甲乙甲乙", "外", "", "甲乙"}) {
+        const auto runes = decode(std::string_view{text});
+        const auto expected = trie.find_dag(runes);
+        trie.find_dag_into(runes, dag);
+        EXPECT_EQ(dag.offsets, expected.offsets);
+        ASSERT_EQ(dag.edges.size(), expected.edges.size());
+        for (auto i = size_t{0}; i < dag.edges.size(); ++i) {
+            EXPECT_EQ(dag.edges[i].next_pos, expected.edges[i].next_pos);
+            EXPECT_EQ(dag.edges[i].weight, expected.edges[i].weight);
+        }
+    }
 }

@@ -224,12 +224,21 @@ public:
     /// Returns a Dag containing offsets and edges.
     [[nodiscard]] auto find_dag(std::span<const Rune> sentence) const -> Dag {
         auto dag = Dag{};
+        find_dag_into(sentence, dag);
+        return dag;
+    }
+
+    // Replace the DAG while retaining storage for subsequent segments and calls.
+    auto find_dag_into(std::span<const Rune> sentence, Dag &dag) const -> void {
         const auto n = sentence.size();
         check(n <= std::numeric_limits<uint32_t>::max() && n < std::numeric_limits<size_t>::max(),
               "Trie: sentence has {} runes, exceeding the supported DAG index range", n);
-        dag.offsets.resize(n + 1);
+        dag.offsets.clear();
+        dag.edges.clear();
+        dag.offsets.reserve(n + 1);
         if (empty() || n == 0) {
-            return dag;
+            dag.offsets.resize(n + 1);
+            return;
         }
 
         // Every rune contributes a single-rune edge, even when no dictionary word matches.
@@ -239,7 +248,7 @@ public:
         for (size_t i = 0; i < n; ++i) {
             check(dag.edges.size() <= std::numeric_limits<uint32_t>::max(),
                   "Trie: DAG edge count exceeds the supported offset range");
-            dag.offsets[i] = static_cast<uint32_t>(dag.edges.size());
+            dag.offsets.push_back(static_cast<uint32_t>(dag.edges.size()));
 
             // In typical jieba, an edge for length-1 (single character) is always added first,
             // even if it does not form a word (weight = 0.0f).
@@ -255,8 +264,7 @@ public:
         }
         check(dag.edges.size() <= std::numeric_limits<uint32_t>::max(),
               "Trie: DAG edge count exceeds the supported offset range");
-        dag.offsets[n] = static_cast<uint32_t>(dag.edges.size());
-        return dag;
+        dag.offsets.push_back(static_cast<uint32_t>(dag.edges.size()));
     }
 
     template <StringLike T>

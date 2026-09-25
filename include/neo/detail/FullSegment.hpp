@@ -4,6 +4,7 @@
 #include "neo/detail/Dag.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/Logging.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 #include "neo/detail/StringUtil.hpp"
 
 #include <algorithm>
@@ -25,34 +26,44 @@ namespace neo_cppjieba {
 /// dictionaries. The DictTrie is taken as a const reference parameter.
 struct FullSegment {
     [[nodiscard]] static auto cut(const DictTrie &dict, std::span<const Rune> runes) -> std::vector<WordRange> {
-        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "FullSegment: input exceeds the word-range limit");
         auto range = std::vector<WordRange>{};
+        auto scratch = detail::SegmentScratch{};
+        cut_into(dict, runes, range, scratch);
+        return range;
+    }
+
+    // Replace output and reuse the DAG between segments and calls.
+    static auto cut_into(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &range,
+                         detail::SegmentScratch &scratch) -> void {
+        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "FullSegment: input exceeds the word-range limit");
+        range.clear();
         range.reserve(runes.size() / 2);
-        auto segments = get_pre_filter_separators(runes);
+        get_pre_filter_separators(runes, scratch.separators);
+        const auto &segments = scratch.separators;
         auto pos = uint32_t{0};
         // first segment.
-        cut_one_segment(dict, range, runes.subspan(pos, segments[0] - pos), pos);
+        cut_one_segment(dict, range, runes.subspan(pos, segments[0] - pos), pos, scratch);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // separator segment.
             range.push_back(WordRange{segments[i], segments[i] + 1});
             pos = segments[i] + 1;
             // next text segment.
-            cut_one_segment(dict, range, runes.subspan(pos, segments[i + 1] - pos), pos);
+            cut_one_segment(dict, range, runes.subspan(pos, segments[i + 1] - pos), pos, scratch);
         }
-        return range;
     }
 
 private:
     /// Emit all dictionary matches inside one separator-free segment, plus uncovered single-rune fallbacks.
     static auto cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
-                                uint32_t pos) -> void {
+                                uint32_t pos, detail::SegmentScratch &scratch) -> void {
         assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
                      "FullSegment: global word offsets overflow");
         if (runes.empty()) {
             return;
         }
 
-        auto dag = dict.find_dag(runes);
+        dict.find_dag_into(runes, scratch.dag);
+        const auto &dag = scratch.dag;
         auto n = dag.size();
         assert_check([&] { return n == runes.size(); }, "FullSegment: DAG size must match the rune span");
 

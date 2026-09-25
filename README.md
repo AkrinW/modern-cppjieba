@@ -28,6 +28,7 @@
 | `neo/Jieba.hpp` | 分词入口与 `CutMode` |
 | `neo/Token.hpp` | token 视图、位置、借用与拥有结果 |
 | `neo/Unicode.hpp` | Unicode 类型、编解码、可复用解码缓冲 |
+| `neo/Workspace.hpp` | 调用方独占的解码与分词工作区 |
 | `neo/Traits.hpp` | 输入类型约束、编码识别及无拷贝输入适配 |
 | `neo/Config.hpp` | 日志配置与异常类型 |
 
@@ -84,24 +85,31 @@ UTF-16 为 `char16_t` 单元，宽字符串为 `wchar_t` 单元。rune 区间始
 | 入口 | 输出与所有权 |
 | --- | --- |
 | `cut(text, mode)` | 自有位置数组，借用原文 |
-| `cut_into(text, mode, out, decoded)` | 替换并复用调用方的源区间、token 位置或字符串数组 |
-| `cut_each(text, mode, emit, decoded)` | 调用返回 `void` 的 visitor，逐词交付 `TokenView` |
+| `cut_into(text, mode, out, workspace)` | 替换并复用调用方的源区间、token 位置或字符串数组 |
+| `cut_each(text, mode, emit, workspace)` | 调用返回 `void` 的 visitor，逐词交付 `TokenView` |
 | `cut_owned(text, mode)` | 持有整段原文和位置数组；传入 string 移动值可转移其存储 |
 | `cut_strings(text, mode)` | 每个词都有独立的字符串存储 |
-| `cut_runes(runes, mode)` / `cut_runes_into(runes, mode, out)` | 合法预解码输入，返回或填写 `WordRange` |
+| `cut_runes(runes, mode)` / `cut_runes_into(runes, mode, out, workspace)` | 合法预解码输入，返回或填写 `WordRange` |
 
 `CutMode` 显式区分 `MIX`、`MIX_NO_HMM`、`MP`、`FULL`、`SEARCH`、`SEARCH_NO_HMM`、`HMM`。
 Unicode 解码和编码使用 `Unicode.hpp` 的自由函数。已有 `CutMethod` 模板入口和 Jieba 静态编码包装已移除。
 
 `Token.hpp` 定义 token 区间、视图及结果容器；`Unicode.hpp` 负责解码；`Jieba.hpp` 负责模式选择和输出转换。
-高频调用直接复用 `UnicodeWithOffset decoded`，其中的 `runes` 和 `offsets` 各自保留容量，
-需要释放内存时赋值为 `UnicodeWithOffset{}`。`decode_with_offset_into(text, decoded)` 也使用同一套校验与缓冲复用逻辑。
+高频调用使用 `Workspace workspace`，复用解码、源偏移、分隔位置、DAG、DP、MP/HMM 和内部结果存储。
+所有分词模式共用该工作区；同一输入的分隔段之间及后续调用之间均保留容量，`workspace.release()` 显式释放。
+`UnicodeWithOffset` 仍用于独立编解码，`decode_with_offset_into(text, decoded)` 的接口保持不变。
 
-输入不能借用输出数组或解码缓冲的存储。同一份解码缓冲须由调用方独占使用，visitor 内嵌套分词应使用另一份缓冲；
-这里没有内部锁或重入状态。visitor 异常直接传播，已执行的副作用不回滚，解码缓冲仍可用于下一次调用。
+输入不能借用输出数组的存储。同一份工作区须由调用方独占使用，visitor 内嵌套分词应使用另一份工作区；
+`Jieba` 只持有只读词典与模型，没有线程局部缓存或内部锁。visitor 异常直接传播，已执行的副作用不回滚，工作区仍可继续使用。
 
-输出数组独立于解码缓冲。现有分词器仍先生成内部 rune 区间，`cut_each` 随后逐词调用 visitor；
-DAG、DP、HMM 的内部缓冲尚未复用。拥有原文的结果通过偏移访问文本，移动结果后应重新取得视图。
+输出数组独立于工作区，复用、移动或释放工作区不影响已经返回的位置。`cut_runes_into` 直接填写调用方数组，
+其余分词器仍先在工作区生成 rune 区间，`cut_each` 随后逐词调用 visitor。拥有原文的结果移动后应重新取得视图。
+
+```cpp
+neo_cppjieba::Workspace workspace;
+std::vector<neo_cppjieba::TokenPosition> positions;
+jieba.cut_into("中国科学院", neo_cppjieba::CutMode::SEARCH, positions, workspace);
+```
 
 ## 单元测试
 

@@ -6,6 +6,7 @@
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/MPSegment.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 #include "neo/detail/StringUtil.hpp"
 
 #include <cstddef>
@@ -33,24 +34,33 @@ template <bool hmm = true>
 struct QuerySegment {
     [[nodiscard]] static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes)
         -> std::vector<WordRange> {
-        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "QuerySegment: input exceeds the word-range limit");
         auto result = std::vector<WordRange>{};
-        result.reserve(runes.size());
-        cut(dict, model, runes, result);
+        auto scratch = detail::SegmentScratch{};
+        cut_into(dict, model, runes, result, scratch);
         return result;
+    }
+
+    // Retain the current segment's DAG for sub-words while reusing all algorithm buffers.
+    static auto cut_into(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
+                         std::vector<WordRange> &result, detail::SegmentScratch &scratch) -> void {
+        check(runes.size() <= std::numeric_limits<uint32_t>::max(), "QuerySegment: input exceeds the word-range limit");
+        result.clear();
+        result.reserve(runes.size());
+        cut(dict, model, runes, result, 0, scratch);
     }
 
 private:
     /// Append query-mode segmentation results while preserving separator runes as standalone tokens.
     static auto cut(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
-                    std::vector<WordRange> &result, uint32_t pos = 0) -> void {
+                    std::vector<WordRange> &result, uint32_t pos, detail::SegmentScratch &scratch) -> void {
         assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
                      "QuerySegment: global word offsets overflow");
-        auto segments = get_pre_filter_separators(runes);
+        get_pre_filter_separators(runes, scratch.separators);
+        const auto &segments = scratch.separators;
         auto segment_pos = pos;
 
         // First text segment before the first separator.
-        cut_one_segment_with_inline_dag(dict, model, runes.subspan(0, segments[0]), segment_pos, result);
+        cut_one_segment_with_inline_dag(dict, model, runes.subspan(0, segments[0]), segment_pos, result, scratch);
         for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
             // Emit the separator rune itself.
             result.push_back(WordRange{pos + segments[i], pos + segments[i] + 1});
@@ -58,7 +68,7 @@ private:
             segment_pos = pos + next_begin;
             // Continue with the following text segment.
             cut_one_segment_with_inline_dag(dict, model, runes.subspan(next_begin, segments[i + 1] - next_begin),
-                                            segment_pos, result);
+                                            segment_pos, result, scratch);
         }
     }
 
@@ -128,16 +138,17 @@ private:
 
     /// Query mode piggybacks on MP segmentation so it can reuse the DAG for sub-word generation.
     static auto cut_one_segment_with_inline_dag(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
-                                                uint32_t pos, std::vector<WordRange> &result) -> void {
+                                                uint32_t pos, std::vector<WordRange> &result,
+                                                detail::SegmentScratch &scratch) -> void {
         assert_check([&] { return runes.size() <= std::numeric_limits<uint32_t>::max() - pos; },
                      "QuerySegment: global word offsets overflow");
         if (runes.empty()) {
             return;
         }
 
-        auto mp_result = detail::mp_cut_segment(dict, runes);
-        auto &dag = mp_result.dag;
-        auto &mp_words = mp_result.words;
+        detail::mp_cut_segment(dict, runes, scratch);
+        const auto &dag = scratch.dag;
+        const auto &mp_words = scratch.mp_words;
         assert_check([&] { return dag.size() == runes.size(); }, "QuerySegment: DAG size must match the rune span");
         assert_check([&] { return detail::valid_segment_partition(mp_words, runes.size()); },
                      "QuerySegment: MP words must cover the rune span exactly once");
@@ -151,7 +162,7 @@ private:
 
         // Scratch buffer for HMM segmentation — allocated once and reused
         // across iterations to avoid repeated heap allocations.
-        auto hmm_scratch = std::vector<WordRange>{};
+        auto &hmm_scratch = scratch.hmm_words;
 
         auto i = size_t{0};
         while (i < mp_words.size()) {
@@ -177,7 +188,7 @@ private:
             // Call hmm_cut_one_segment instead of HMMSegment::cut to skip
             // redundant separator detection — runes are already separator-free.
             hmm_scratch.clear();
-            detail::hmm_cut_one_segment(model, hmm_scratch, runes.subspan(run_begin, run_end - run_begin), 0);
+            detail::hmm_cut_one_segment(model, hmm_scratch, runes.subspan(run_begin, run_end - run_begin), 0, scratch);
             assert_check([&] { return detail::valid_segment_partition(hmm_scratch, run_end - run_begin); },
                          "QuerySegment: HMM words must cover their input span exactly once");
 

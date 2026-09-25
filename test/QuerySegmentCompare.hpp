@@ -6,6 +6,7 @@
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/MPSegment.hpp"
 #include "neo/detail/MixSegment.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 #include "neo/detail/StringUtil.hpp"
 
 #include <cstdint>
@@ -107,8 +108,9 @@ inline auto append_mix_words(const DictTrie &dict, const HMModel &model, std::ve
 
         auto run_begin = mp_words[i].begin;
         auto run_end = mp_words[j - 1].end;
+        auto scratch = neo_cppjieba::detail::SegmentScratch{};
         neo_cppjieba::detail::hmm_cut_append(model, runes.subspan(run_begin, run_end - run_begin), result,
-                                             pos + run_begin);
+                                             pos + run_begin, scratch);
 
         i = j;
     }
@@ -142,9 +144,10 @@ inline auto mix_cut_with_dag_buffered(const DictTrie &dict, const HMModel &model
         if (segment_runes.empty()) {
             return;
         }
-        auto mp_result = neo_cppjieba::detail::mp_cut_segment(dict, segment_runes);
-        result.dags.push_back(typename BufferedMixResult<hmm>::SegmentDag{segment_pos, std::move(mp_result.dag)});
-        append_mix_words<hmm>(dict, model, result.words, mp_result.words, segment_runes, segment_pos);
+        auto scratch = neo_cppjieba::detail::SegmentScratch{};
+        neo_cppjieba::detail::mp_cut_segment(dict, segment_runes, scratch);
+        result.dags.push_back(typename BufferedMixResult<hmm>::SegmentDag{segment_pos, std::move(scratch.dag)});
+        append_mix_words<hmm>(dict, model, result.words, scratch.mp_words, segment_runes, segment_pos);
     };
 
     cut_one(runes.subspan(pos, segments[0] - pos), pos);
