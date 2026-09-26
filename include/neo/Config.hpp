@@ -53,6 +53,7 @@ using SourceOffset = std::uint32_t;
 // An n-code-point segment needs n edges plus longer-word matches, at most n * (n + 1) / 2.
 // With every substring matched, 8/16/32 bits cover segments of 22/361/92,681 code points.
 using DagOffset = std::uint32_t;
+// Only FULL segmentation and DAG comparison helpers currently materialize these offsets.
 
 // Size this for the combined main/user dictionary: word count, word length and shared prefixes.
 // For words of at most four code points, 8/16 bits cover at least 84/21,844 entries by node capacity.

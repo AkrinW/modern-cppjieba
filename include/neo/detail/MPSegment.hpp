@@ -41,6 +41,9 @@ namespace detail {
 /// Select local result construction or appending ranges with global rune offsets.
 enum class MPOutput : uint8_t { Local, Append };
 
+/// Select route construction alone or also retain short-word matches for SEARCH.
+enum class MPMatchMode : uint8_t { PathOnly, Search };
+
 /// Run MP segmentation on a separator-free rune span and keep the DAG for downstream reuse.
 /// The caller owns the DAG and destination; only the DP scratch is local to this call.
 // DP storage now belongs to the caller's reusable algorithm scratch.
@@ -177,13 +180,27 @@ inline auto mp_cut_segment(const DictTrie &dict, std::span<const Rune> runes, Se
 
 /// Append MP segmentation results for a separator-free segment with a caller-provided global offset.
 // Matching now prepares only the route; mp_cut_one_segment below appends the output.
+template <MPMatchMode mode>
 inline auto mp_build_route_from_matches(const DictTrie &dict, std::span<const Rune> runes, SegmentScratch &scratch)
     -> void {
+    if constexpr (mode == MPMatchMode::Search) {
+        if (scratch.search_subwords.size() < runes.size()) {
+            scratch.search_subwords.resize(runes.size());
+        }
+    }
     const auto for_each_edge = [&](RuneIndex begin, const auto &emit) {
+        if constexpr (mode == MPMatchMode::Search) {
+            scratch.search_subwords[begin] = {};
+        }
         const auto single_end = static_cast<RuneIndex>(begin + 1);
         auto has_single = false;
         dict.for_each_match_from(runes, begin, [&](RuneIndex end, const DictUnit &word) {
             has_single |= end == single_end;
+            if constexpr (mode == MPMatchMode::Search) {
+                auto &subwords = scratch.search_subwords[begin];
+                subwords.bigram |= end - begin == 2;
+                subwords.trigram |= end - begin == 3;
+            }
             emit(end, word.weight);
         });
         // A known single rune replaces the fallback. Otherwise score the fallback last;
@@ -203,7 +220,7 @@ inline auto mp_cut_one_segment(const DictTrie &dict, std::vector<WordRange> &res
     if (runes.empty()) {
         return;
     }
-    mp_build_route_from_matches(dict, runes, scratch);
+    mp_build_route_from_matches<MPMatchMode::PathOnly>(dict, runes, scratch);
     mp_trace_route<MPOutput::Append>(runes.size(), result, pos, scratch);
 }
 

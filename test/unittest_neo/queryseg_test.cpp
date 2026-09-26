@@ -6,6 +6,7 @@
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/QuerySegment.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
@@ -95,6 +96,50 @@ TEST_F(QuerySegmentHmmWordsTest, OmitsMissingSubwordsWhenLongerDictionaryMatches
 
     EXPECT_EQ(to_strings(runes, result), (std::vector<std::string>{"ab", "abc", "bcd", "abcd"}));
     EXPECT_EQ(result, test::query_cut_requery(dict, model, runes));
+}
+
+TEST_F(QuerySegmentHmmWordsTest, ReusedScratchPreservesWordsAcrossDifferentInputsAndModes) {
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto long_input = decode("abcd");
+    const auto short_input = decode("dcb");
+    const auto expanded = std::vector<WordRange>{{0, 2}, {1, 3}, {2, 4}, {0, 3}, {1, 4}, {0, 4}};
+    auto scratch = detail::SegmentScratch{};
+    auto result = std::vector<WordRange>{};
+
+    QuerySegment<true>::cut_into(dict, model, long_input, result, scratch);
+    EXPECT_EQ(result, expanded);
+    QuerySegment<true>::cut_into(dict, model, short_input, result, scratch);
+    EXPECT_EQ(result, (std::vector<WordRange>{{0, 3}}));
+    QuerySegment<true>::cut_into(dict, model, std::span<const Rune>{}, result, scratch);
+    EXPECT_TRUE(result.empty());
+    QuerySegment<false>::cut_into(dict, model, long_input, result, scratch);
+    EXPECT_EQ(result, (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}, {3, 4}}));
+    QuerySegment<true>::cut_into(dict, model, long_input, result, scratch);
+    EXPECT_EQ(result, expanded);
+}
+
+TEST_F(QuerySegmentHmmWordsTest, NonBmpSubwordsUseRuneOffsetsAfterASeparator) {
+    ASSERT_NO_FATAL_FAILURE(
+        write_dictionary("𠮷甲😀乙 100000 n\n𠮷甲 1 n\n甲😀 1 n\n😀乙 1 n\n𠮷甲😀 1 n\n甲😀乙 1 n\n"));
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto runes = decode("前，𠮷甲😀乙");
+    const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {3, 5}, {4, 6}, {2, 5}, {3, 6}, {2, 6}};
+
+    EXPECT_EQ(QuerySegment<true>::cut(dict, model, runes), expected);
+    EXPECT_EQ(QuerySegment<false>::cut(dict, model, runes), expected);
+}
+
+TEST(QuerySegmentNeoTest, HmmWordsSurroundingDictionaryWordsPreserveOrder) {
+    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto runes = decode("杭研中国科学院杭研");
+    const auto result = QuerySegment<true>::cut(dict, model, runes);
+
+    EXPECT_EQ(to_strings(runes, result),
+              (std::vector<std::string>{"杭研", "中国", "科学", "学院", "科学院", "中国科学院", "杭研"}));
+    EXPECT_EQ(result, (std::vector<WordRange>{{0, 2}, {2, 4}, {4, 6}, {5, 7}, {4, 7}, {2, 7}, {7, 9}}));
 }
 
 TEST(QuerySegmentNeoTest, EmptyInput) {

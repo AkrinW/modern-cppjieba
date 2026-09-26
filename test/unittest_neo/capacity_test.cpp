@@ -82,6 +82,41 @@ TEST(CapacityTest, MixPreservesHmmRunsEndingAtTheEightBitRuneLimit) {
     EXPECT_EQ(words[251], (WordRange{253, 255}));
 }
 
+TEST(CapacityTest, SearchPreservesSubwordsEndingAtTheEightBitRuneLimit) {
+    auto runes = Unicode(250, U' ');
+    runes.insert(runes.end(), {U'中', U'国', U'科', U'学', U'院'});
+    for (const auto mode : std::array{CutMode::SEARCH, CutMode::SEARCH_NO_HMM}) {
+        const auto words = capacity_jieba().cut_runes(runes, mode);
+
+        ASSERT_EQ(words.size(), 255u);
+        EXPECT_EQ(words[250], (WordRange{250, 252}));
+        EXPECT_EQ(words[251], (WordRange{252, 254}));
+        EXPECT_EQ(words[252], (WordRange{253, 255}));
+        EXPECT_EQ(words[253], (WordRange{252, 255}));
+        EXPECT_EQ(words[254], (WordRange{250, 255}));
+    }
+}
+
+TEST(CapacityTest, SearchHandlesDenseMatchesBeyondTheEightBitDagCapacity) {
+    auto runes = Unicode{};
+    runes.reserve(255);
+    const auto word = Unicode{U'中', U'国', U'科', U'学', U'院'};
+    const auto group = std::vector<std::string>{"中国", "科学", "学院", "科学院", "中国科学院"};
+    auto expected = std::vector<std::string>{};
+    expected.reserve(255);
+    for (auto i = 0; i < 51; ++i) {
+        runes.insert(runes.end(), word.begin(), word.end());
+        expected.insert(expected.end(), group.begin(), group.end());
+    }
+
+    for (const auto mode : std::array{CutMode::SEARCH, CutMode::SEARCH_NO_HMM}) {
+        const auto words = capacity_jieba().cut_runes(runes, mode);
+        EXPECT_EQ(to_strings(runes, words), expected);
+        ASSERT_FALSE(words.empty());
+        EXPECT_EQ(words.back(), (WordRange{250, 255}));
+    }
+}
+
 TEST(CapacityTest, AppendedWordsPreserveTheConfiguredRuneLimit) {
     const auto dict = DictTrie{DICT_DIR "/jieba.dict.utf8", "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = Unicode{U'𠮷', U'😀'};

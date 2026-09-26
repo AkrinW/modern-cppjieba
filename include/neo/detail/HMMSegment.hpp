@@ -19,8 +19,9 @@ namespace neo_cppjieba {
 namespace detail {
 
 /// Run the Viterbi algorithm on runes[begin..end) and append segmented WordRanges to result.
+template <typename Emit>
 inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, RuneIndex begin, RuneIndex end,
-                             std::vector<WordRange> &result, RuneIndex pos, SegmentScratch &scratch) -> void {
+                             const Emit &emit_word, RuneIndex pos, SegmentScratch &scratch) -> void {
     assert_check([&] { return begin < end && end <= runes.size(); }, "HMMSegment: invalid Viterbi rune range");
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "HMMSegment: global word offsets overflow");
@@ -111,8 +112,7 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
         assert_check([&] { return static_cast<size_t>(path[i][0]) < Y; }, "HMMSegment: emitted state is out of range");
         const auto state = path[i][0];
         if (state == HMMState::E || state == HMMState::S) {
-            result.push_back(
-                WordRange{static_cast<RuneIndex>(pos + word_begin), static_cast<RuneIndex>(pos + begin + i + 1)});
+            emit_word(WordRange{static_cast<RuneIndex>(pos + word_begin), static_cast<RuneIndex>(pos + begin + i + 1)});
             word_begin = begin + static_cast<RuneIndex>(i) + 1;
         }
     }
@@ -165,8 +165,9 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 // The separate missing-rune classifier is retired; legacy Viterbi handles those runes directly.
 
 /// Append HMM segmentation results for a separator-free segment, preserving ASCII runs as whole tokens.
-inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &range, std::span<const Rune> runes,
-                                RuneIndex pos, SegmentScratch &scratch) -> void {
+template <typename Emit>
+inline auto hmm_emit_one_segment(const HMModel &model, const Emit &emit_word, std::span<const Rune> runes,
+                                 RuneIndex pos, SegmentScratch &scratch) -> void {
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "HMMSegment: global word offsets overflow");
     if (runes.empty()) {
@@ -183,7 +184,7 @@ inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &ra
         if (runes[right] < 0x80) {
             // Flush pending Chinese characters to HMM before handling ASCII.
             if (left < right) {
-                hmm_internal_cut(model, runes, left, right, range, pos, scratch);
+                hmm_internal_cut(model, runes, left, right, emit_word, pos, scratch);
             }
             left = right;
 
@@ -196,7 +197,7 @@ inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &ra
                 end = left + 1;
             }
             assert_check([&] { return left < end && end <= n; }, "HMMSegment: ASCII scan must advance in bounds");
-            range.push_back(WordRange{static_cast<RuneIndex>(pos + left), static_cast<RuneIndex>(pos + end)});
+            emit_word(WordRange{static_cast<RuneIndex>(pos + left), static_cast<RuneIndex>(pos + end)});
             right = end;
             left = right;
         } else {
@@ -208,8 +209,17 @@ inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &ra
 
     // Flush the trailing Chinese run after the last ASCII span, if any.
     if (left < right) {
-        hmm_internal_cut(model, runes, left, right, range, pos, scratch);
+        hmm_internal_cut(model, runes, left, right, emit_word, pos, scratch);
     }
+}
+
+/// Collect emitted HMM words in a caller-owned vector without changing its existing prefix.
+inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &range, std::span<const Rune> runes,
+                                RuneIndex pos, SegmentScratch &scratch) -> void {
+    const auto emit_word = [&](WordRange word) {
+        range.push_back(word);
+    };
+    hmm_emit_one_segment(model, emit_word, runes, pos, scratch);
 }
 
 /// Append HMM segmentation results while preserving separator runes as standalone tokens.

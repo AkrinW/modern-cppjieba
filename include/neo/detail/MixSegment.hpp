@@ -88,7 +88,7 @@ private:
             return;
         }
 
-        detail::mp_build_route_from_matches(dict, runes, scratch);
+        detail::mp_build_route_from_matches<detail::MPMatchMode::PathOnly>(dict, runes, scratch);
         append_mix_route(dict, model, result, runes, pos, scratch);
     }
 
