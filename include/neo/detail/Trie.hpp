@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 #include <span>
 #include <utility>
 #include <vector>
@@ -83,12 +84,23 @@ class Trie {
     };
     static_assert(sizeof(TrieNodeId) > sizeof(std::uint32_t) || sizeof(Entry) == 16);
 
+    /// Small child sets keep complete entries together without per-edge hash keys.
+    struct CompactTransition {
+        Rune rune;
+        Entry entry;
+    };
+    static constexpr auto kCompactFanout = size_t{4};
+    static constexpr auto kCompactFlag = uint32_t{1} << 31;
+    static constexpr auto kFilterMask = ~kCompactFlag;
+
     using TransitionKey = detail::TrieTransitionKey<TrieNodeId>;
     using Transitions = gtl::flat_hash_map<TransitionKey, Entry, detail::TrieTransitionHash>;
     static constexpr size_t kRootTableLimit = 0x10000;
 
     std::vector<Entry> root_;
     Transitions transitions_;
+    std::vector<size_t> compact_offsets_;
+    std::vector<CompactTransition> compact_;
     size_t node_count_{0};
 
     /// Keep all rune bits separate from the parent id; root transitions use parent id zero.
@@ -98,6 +110,7 @@ class Trie {
     }
 
     /// Collisions only add a table lookup; both 16-bit halves must match before probing.
+    // Queries now reserve the top bit for storage selection and test the other 31 filter bits.
     [[nodiscard]] static constexpr auto child_bits(Rune rune) noexcept -> uint32_t {
         const uint32_t hash = static_cast<uint32_t>(rune) * uint32_t{0x9E3779B1};
         return (uint32_t{1} << (hash >> 28)) | (uint32_t{1} << (16 + ((hash >> 24) & 15)));
@@ -113,19 +126,32 @@ class Trie {
         return it != transitions_.end() ? &it->second : nullptr;
     }
 
+    // The filter tag selects storage without reserving any bits from the configured node id.
+    [[nodiscard]] auto find_transition(const Entry &parent, Rune rune) const noexcept -> const Entry * {
+        assert(parent.child > 0 && parent.child < node_count_);
+        if ((parent.filter & kCompactFlag) != 0) {
+            const auto id = static_cast<size_t>(parent.child);
+            const auto begin = compact_offsets_[id];
+            const auto end = compact_offsets_[id + 1];
+            const auto children = std::span<const CompactTransition>{compact_}.subspan(begin, end - begin);
+            const auto it = std::ranges::find(children, rune, &CompactTransition::rune);
+            return it != children.end() ? &it->entry : nullptr;
+        }
+        const auto it = transitions_.find(transition_key(parent.child, rune));
+        return it != transitions_.end() ? &it->second : nullptr;
+    }
+
     [[nodiscard]] auto find_child(const Entry &parent, Rune rune) const noexcept -> const Entry * {
         assert_check([&] { return parent.child != kAbsentNode && parent.child < node_count_; },
                      "Trie: invalid transition parent");
-        const auto bits = child_bits(rune);
+        const auto bits = child_bits(rune) & kFilterMask;
         if ((parent.filter & bits) != bits) {
-            assert_check(
-                [&] { return parent.child == 0 || !transitions_.contains(transition_key(parent.child, rune)); },
-                "Trie: child filter rejected an existing rune");
+            assert_check([&] { return parent.child == 0 || find_transition(parent, rune) == nullptr; },
+                         "Trie: child filter rejected an existing rune");
             return nullptr;
         }
         assert_check([&] { return parent.child > 0; }, "Trie: terminal edge has a nonempty child filter");
-        const auto it = transitions_.find(transition_key(parent.child, rune));
-        return it != transitions_.end() ? &it->second : nullptr;
+        return find_transition(parent, rune);
     }
 
     /// The returned reference is consumed before the next insertion, which may rehash the table.
@@ -163,6 +189,69 @@ class Trie {
                 filters.push_back(0);
             }
             parent = entry.child;
+        }
+    }
+
+    // The compact ranges are finalized before any entry receives its storage tag.
+    auto mark_child_storage(Entry &entry) const -> void {
+        entry.filter &= kFilterMask;
+        if (entry.child == kAbsentNode || entry.child == 0) {
+            return;
+        }
+        const auto id = static_cast<size_t>(entry.child);
+        assert(id + 1 < compact_offsets_.size());
+        if (compact_offsets_[id] != compact_offsets_[id + 1]) {
+            entry.filter |= kCompactFlag;
+        }
+    }
+
+    // Freeze small child sets while the trie is private to build(), then shrink the shared table.
+    auto compact_children() -> void {
+        assert(node_count_ > 0);
+        if (node_count_ == 1) {
+            return;
+        }
+        compact_offsets_.resize(node_count_ + 1);
+        for (const auto &[key, entry] : transitions_) {
+            ++compact_offsets_[static_cast<size_t>(key.parent) + 1];
+        }
+        // Supplementary root transitions remain hashed; BMP roots already have direct storage.
+        compact_offsets_[1] = 0;
+        for (auto &count : compact_offsets_) {
+            if (count > kCompactFanout) {
+                count = 0;
+            }
+        }
+        std::partial_sum(compact_offsets_.begin(), compact_offsets_.end(), compact_offsets_.begin());
+        compact_.resize(compact_offsets_.back());
+        {
+            auto cursors = compact_offsets_;
+            for (auto it = transitions_.begin(); it != transitions_.end();) {
+                const auto parent = static_cast<size_t>(it->first.parent);
+                if (compact_offsets_[parent] == compact_offsets_[parent + 1]) {
+                    ++it;
+                    continue;
+                }
+                compact_[cursors[parent]++] = CompactTransition{it->first.rune, it->second};
+                transitions_.erase(it++);
+            }
+        }
+        // rehash(0) can produce a nearly full table. Keep at least two slots per remaining transition.
+        assert(transitions_.size() <= std::numeric_limits<size_t>::max() / 2);
+        auto remaining = Transitions{};
+        remaining.rehash(transitions_.size() * 2);
+        for (const auto &[key, entry] : transitions_) {
+            remaining.emplace(key, entry);
+        }
+        transitions_ = std::move(remaining);
+        for (auto &entry : root_) {
+            mark_child_storage(entry);
+        }
+        for (auto &[key, entry] : transitions_) {
+            mark_child_storage(entry);
+        }
+        for (auto &transition : compact_) {
+            mark_child_storage(transition.entry);
         }
     }
 
@@ -205,6 +294,7 @@ class Trie {
             set_filter(entry);
         }
         node_count_ = filters.size();
+        compact_children();
     }
 
 public:
@@ -214,6 +304,7 @@ public:
 
     Trie(Trie &&other) noexcept
         : root_{std::move(other.root_)}, transitions_{std::move(other.transitions_)},
+          compact_offsets_{std::move(other.compact_offsets_)}, compact_{std::move(other.compact_)},
           node_count_{std::exchange(other.node_count_, 0)} {
     }
 
@@ -221,6 +312,8 @@ public:
         if (this != &other) {
             root_ = std::move(other.root_);
             transitions_ = std::move(other.transitions_);
+            compact_offsets_ = std::move(other.compact_offsets_);
+            compact_ = std::move(other.compact_);
             node_count_ = std::exchange(other.node_count_, 0);
         }
         return *this;
@@ -382,7 +475,13 @@ public:
         for (const auto &[key, entry] : transitions_) {
             visit(key.parent, entry);
         }
+        for (auto parent = size_t{1}; parent < node_count_; ++parent) {
+            for (auto i = compact_offsets_[parent]; i < compact_offsets_[parent + 1]; ++i) {
+                visit(static_cast<TrieNodeId>(parent), compact_[i].entry);
+            }
+        }
         stats.hashed_edge_count = transitions_.size();
+        stats.compact_edge_count = compact_.size();
 
         size_t total_depth = 0;
         size_t total_leaf_depth = 0;
@@ -424,7 +523,9 @@ public:
             // Include slot payloads, control bytes, and an upper bound for SIMD/padding overhead.
             stats.transition_table_bytes = stats.transition_capacity * (sizeof(Transitions::value_type) + 1) + 32;
         }
-        stats.total_estimated_bytes = stats.root_table_bytes + stats.transition_table_bytes;
+        stats.compact_table_bytes =
+            compact_.capacity() * sizeof(CompactTransition) + compact_offsets_.capacity() * sizeof(size_t);
+        stats.total_estimated_bytes = stats.root_table_bytes + stats.transition_table_bytes + stats.compact_table_bytes;
         return stats;
     }
 };

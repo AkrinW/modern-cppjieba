@@ -311,6 +311,26 @@ TEST(TrieTest, MovedFromTrieCanBeQueriedAndRebuilt) {
     EXPECT_FLOAT_EQ(source.find("𠮷中").weight, 0.0f);
 }
 
+TEST(TrieTest, MoveAssignmentReplacesWordsAcrossDifferentChildCounts) {
+    const auto keys = std::vector<Unicode>{decode("甲一"), decode("甲二"),   decode("甲三"), decode("甲四"),
+                                           decode("甲五"), decode("甲一乙"), decode("𠮷中")};
+    const auto values = std::vector<DictUnit>(keys.size(), DictUnit{.weight = -1.0f});
+    auto source = Trie{};
+    source.build(keys, values);
+    auto destination = Trie{};
+    destination.build(std::array{decode("旧词")}, std::array{DictUnit{.weight = -2.0f}});
+    destination = std::move(source);
+
+    EXPECT_FALSE(destination.find("旧词").has_value());
+    for (const auto &key : keys) {
+        EXPECT_FLOAT_EQ(destination.find(key).weight, -1.0f);
+    }
+    EXPECT_TRUE(source.empty());
+    EXPECT_FALSE(source.find("甲一").has_value());
+    source.build(keys, values);
+    EXPECT_FLOAT_EQ(source.find("甲一乙").weight, -1.0f);
+}
+
 TEST(TrieTest, DagMatchesIndependentDictionaryAcrossSharedUnicodePrefixes) {
     const auto alphabet = std::array{U'\0', U'a', U'b', U'中', U'词', U'𠮷', U'😀', U'\uFFFF', U'\U00010000'};
     auto rng = std::mt19937{42};
@@ -360,7 +380,7 @@ TEST(TrieTest, DagMatchesIndependentDictionaryAcrossSharedUnicodePrefixes) {
     }
 }
 
-TEST(TrieStatsTest, AccountsForDirectAndHashedTransitions) {
+TEST(TrieStatsTest, AccountsForDirectHashedAndCompactTransitions) {
     const auto keys = std::vector<Unicode>{decode("a"), decode("ab"), decode("𠮷"), decode("𠮷中")};
     const auto values = std::vector<DictUnit>(keys.size(), DictUnit{0.0f, PosTag{}});
     auto trie = Trie{};
@@ -369,11 +389,14 @@ TEST(TrieStatsTest, AccountsForDirectAndHashedTransitions) {
     EXPECT_EQ(stats.node_count, 3u);
     EXPECT_EQ(stats.edge_count, 4u);
     EXPECT_EQ(stats.direct_root_edge_count, 1u);
-    EXPECT_EQ(stats.hashed_edge_count, 3u);
+    EXPECT_EQ(stats.hashed_edge_count, 1u);
+    EXPECT_EQ(stats.compact_edge_count, 2u);
     EXPECT_GT(stats.root_table_bytes, 0u);
     EXPECT_LT(stats.root_table_bytes, 4096u);
     EXPECT_GT(stats.transition_table_bytes, 0u);
-    EXPECT_EQ(stats.total_estimated_bytes, stats.root_table_bytes + stats.transition_table_bytes);
+    EXPECT_GT(stats.compact_table_bytes, 0u);
+    EXPECT_EQ(stats.total_estimated_bytes,
+              stats.root_table_bytes + stats.transition_table_bytes + stats.compact_table_bytes);
     EXPECT_FALSE(stats.to_string().empty());
 }
 

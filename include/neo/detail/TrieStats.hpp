@@ -37,6 +37,8 @@ struct TrieStats {
     size_t root_table_bytes = 0;       ///< Storage for direct BMP root transitions.
     size_t transition_table_bytes = 0; ///< Estimated flat hash table slots and control bytes.
     size_t total_estimated_bytes = 0;  ///< root_table_bytes + transition_table_bytes.
+    // The total now also includes compact entries and their per-node container offsets.
+    size_t compact_table_bytes = 0; ///< Storage for compact child arrays and offsets.
 
     // ── Hash map health ──────────────────────────────────────────────────
     double transition_load_factor = 0.0; ///< Load factor of the shared transition table.
@@ -48,6 +50,7 @@ struct TrieStats {
     // ── Hybrid storage ───────────────────────────────────────────────────
     size_t direct_root_edge_count = 0; ///< Root transitions stored in the BMP table.
     size_t hashed_edge_count = 0;      ///< Other transitions stored in the flat hash table.
+    size_t compact_edge_count = 0;     ///< Transitions stored in compact child arrays.
 
     /// Pretty-print the stats to a string.
     [[nodiscard]] auto to_string() const -> std::string {
@@ -56,13 +59,15 @@ struct TrieStats {
                      "TrieStats: inconsistent edge counts");
         assert_check(
             [this] {
-                return direct_root_edge_count <= edge_count && hashed_edge_count == edge_count - direct_root_edge_count;
+                return direct_root_edge_count <= edge_count && compact_edge_count <= edge_count - direct_root_edge_count
+                       && hashed_edge_count == edge_count - direct_root_edge_count - compact_edge_count;
             },
             "TrieStats: storage counts must cover all transitions");
         assert_check(
             [this] {
                 return root_table_bytes <= total_estimated_bytes
-                       && transition_table_bytes == total_estimated_bytes - root_table_bytes;
+                       && compact_table_bytes <= total_estimated_bytes - root_table_bytes
+                       && transition_table_bytes == total_estimated_bytes - root_table_bytes - compact_table_bytes;
             },
             "TrieStats: inconsistent memory estimates");
         assert_check([this] { return std::isfinite(avg_depth) && std::isfinite(avg_leaf_depth); },
@@ -104,6 +109,7 @@ struct TrieStats {
 
         line("Direct root bytes", root_table_bytes);
         line("Transition table bytes", transition_table_bytes);
+        line("Compact children bytes", compact_table_bytes);
         line("Total estimated bytes", total_estimated_bytes);
         s += std::format("  {:<30}  {:>9.2f} MB\n", "Total estimated",
                          static_cast<double>(total_estimated_bytes) / (1024.0 * 1024.0));
@@ -118,6 +124,7 @@ struct TrieStats {
         line("Hash table load factor", transition_load_factor);
         line("Direct root edges", direct_root_edge_count);
         line("Hashed edges", hashed_edge_count);
+        line("Compact edges", compact_edge_count);
 
         s += "├─────────────────────────────────────────────────┤\n";
 
