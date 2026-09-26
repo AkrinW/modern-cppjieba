@@ -26,3 +26,4 @@ Testing/Temporary/LastTest.log
 /AGENTS.md
 /deps/rust-jieba/target/
 /benchmark/results/
+*internal

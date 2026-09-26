@@ -8,6 +8,7 @@ These dependencies are loaded only for legacy tests or benchmarks. The public
 | cppjieba | Official upstream submodule, pinned commit | `cppjieba::cppjieba` |
 | limonp | Official upstream submodule, pinned commit | `limonp::limonp` |
 | jieba-rs | Cargo registry, exactly 0.11.0 with `Cargo.lock` | `jieba_rs::jieba_rs` |
+| Python jieba | Official upstream submodule, v0.42.1 | Standalone Python benchmark |
 
 ```sh
 git submodule update --init deps/cppjieba deps/limonp
@@ -46,3 +47,18 @@ The former upstream guide is retained in [cppjieba-upstream-history.md](cppjieba
 Cargo downloads the pinned library and locked dependencies when the Rust
 benchmark is built. The adapter sources remain in this repository, and all build
 outputs stay in the CMake build tree. See [the Rust benchmark guide](../benchmark/RUST.md).
+
+## Python dependency
+
+`python-jieba/` pins [fxsjy/jieba](https://github.com/fxsjy/jieba) at the
+`v0.42.1` release, commit `1e20c89b66f56c9301b0feed211733ffaa1bd72a`.
+Its upstream MIT license is retained in the submodule. Initialize it with:
+
+```sh
+git submodule update --init deps/python-jieba
+```
+
+The benchmark imports this checkout directly; no pip installation or Python
+development headers are required. Python is not a dependency of the C++ library
+or its ordinary build. The adapter reads the shared dictionary and HMM model
+before timing without patching upstream code. See [the Python comparison guide](../benchmark/PYTHON.md).

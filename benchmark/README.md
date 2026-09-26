@@ -28,10 +28,15 @@ subdirectory for multi-configuration generators).
 | `prefilter_benchmark` | Input prefiltering | none |
 | `query_segment_benchmark` | Query segmentation strategies | none |
 | `cut_compare_benchmark` | Old, neo and Rust segmentation | old cppjieba, jieba-rs |
+| `python_compare_benchmark.py` | The same native paths plus Python `list[str]` | `cut_compare_benchmark`, Python jieba |
 
 The first nine targets are built by the benchmark option. The Rust target also
 requires `CPPJIEBA_BUILD_RUST_BENCHMARKS=ON` and Cargo. Its adapter links through
 `jieba_rs::jieba_rs`; see [RUST.md](RUST.md) for the output contracts and commands.
+
+The Python script runs the native benchmark and Python serially using the same
+corpus, dictionary, HMM model, rounds and samples. It requires Python 3.11 or
+newer and the `deps/python-jieba` submodule; see [PYTHON.md](PYTHON.md).
 
 Shared input paths still refer to the repository's `dict/` and `test/testdata/`.
 `QuerySegmentCompare.hpp` in `test/` is shared by query tests and the corresponding

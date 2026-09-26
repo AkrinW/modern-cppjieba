@@ -58,6 +58,9 @@ taskset -c 2 ./build-rust-compare/benchmark/cut_compare_benchmark \
 
 用户词典参数目前只接受空字符串，避免三方默认词频策略不同。如果要加入其他词，应将明确的词频、词性写入共同主词典后另测。
 
+还可在最后追加 JSON 输出路径。该报告包含四种模式、八条路径的计时、差异计数和逐行 Neo token
+的 UTF-8 字节区间；导出在计时外进行，供 [Python 对比基准](PYTHON.md)核对输出。
+
 适配器单元测试覆盖四种分词模式、复制与借用输出一致性、UTF-8/内嵌 NUL/空输入，以及原生计时的轮数和 token 计数：
 
 ```sh

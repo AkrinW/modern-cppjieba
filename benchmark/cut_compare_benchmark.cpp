@@ -13,6 +13,10 @@
 #include <cstddef>
 #include <cstdio>
 #include <exception>
+#include <fstream>
+#include <iomanip>
+#include <locale>
+#include <ostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -52,6 +56,7 @@ struct Verification {
 // Stores all output representations for one segmentation mode.
 struct MethodResult {
     const char *name;
+    neo_cppjieba::CutMode mode;
     Verification verification;
     std::array<Timing, kLabels.size()> timings;
 };
@@ -213,7 +218,7 @@ auto run_shared_method(const char *name, RustCutMethod method, neo_cppjieba::Cut
             timings[variant].push_back(result.milliseconds);
         }
     }
-    auto result = MethodResult{name, verification, {}};
+    auto result = MethodResult{name, mode, verification, {}};
     std::printf("  %-36s %12s %12s %12s\n", "Path / output", "Median ms", "Min ms", "Max ms");
     for (auto variant = size_t{0}; variant < kLabels.size(); ++variant) {
         result.timings[variant] = summarize(std::move(timings[variant]));
@@ -269,6 +274,56 @@ auto positive_count(std::string_view value) -> size_t {
     return result;
 }
 
+// Export UTF-8 byte ranges outside timing so other languages can compare exact token sequences.
+auto write_ranges(std::ostream &out, const neo_cppjieba::Jieba &neo, neo_cppjieba::CutMode mode,
+                  const std::vector<std::string> &lines) -> void {
+    auto workspace = neo_cppjieba::Workspace{};
+    auto positions = std::vector<neo_cppjieba::TokenPosition>{};
+    out << '[';
+    for (auto line = size_t{0}; line < lines.size(); ++line) {
+        neo.cut_into(lines[line], mode, positions, workspace);
+        out << (line == 0 ? "[" : ",[");
+        for (auto token = size_t{0}; token < positions.size(); ++token) {
+            const auto &range = positions[token].source;
+            out << (token == 0 ? "[" : ",[") << static_cast<size_t>(range.begin) << ','
+                << static_cast<size_t>(range.end) << ']';
+        }
+        out << ']';
+    }
+    out << ']';
+}
+
+// All JSON labels are fixed ASCII literals; source text is represented only by numeric byte ranges.
+auto write_report(const std::string &path, const std::array<MethodResult, 4> &results, const neo_cppjieba::Jieba &neo,
+                  const std::vector<std::string> &lines, size_t bytes, size_t rounds, size_t samples) -> void {
+    auto out = std::ofstream{};
+    out.exceptions(std::ios::failbit | std::ios::badbit);
+    out.open(path);
+    out.imbue(std::locale::classic());
+    out << std::setprecision(17) << "{\"schema_version\":1,\"rounds\":" << rounds << ",\"samples\":" << samples
+        << ",\"lines\":" << lines.size() << ",\"utf8_bytes\":" << bytes << ",\"methods\":[";
+    for (auto method = size_t{0}; method < results.size(); ++method) {
+        const auto &result = results[method];
+        const auto &verification = result.verification;
+        out << (method == 0 ? "{" : ",{") << "\"name\":\"" << result.name
+            << "\",\"old_neo_mismatches\":" << verification.old_neo_mismatches
+            << ",\"neo_rust_mismatches\":" << verification.neo_rust_mismatches
+            << ",\"old_tokens\":" << verification.old_tokens << ",\"neo_tokens\":" << verification.neo_tokens
+            << ",\"rust_tokens\":" << verification.rust_tokens << ",\"timings\":[";
+        for (auto variant = size_t{0}; variant < kLabels.size(); ++variant) {
+            const auto &timing = result.timings[variant];
+            out << (variant == 0 ? "{" : ",{") << "\"label\":\"" << kLabels[variant]
+                << "\",\"median_ms\":" << timing.median << ",\"min_ms\":" << timing.minimum
+                << ",\"max_ms\":" << timing.maximum << '}';
+        }
+        out << "],\"neo_utf8_ranges\":";
+        write_ranges(out, neo, result.mode, lines);
+        out << '}';
+    }
+    out << "]}\n";
+    out.close();
+}
+
 // Run against a shared base dictionary and HMM file, excluding initialization from timing.
 auto run(int argc, char *argv[]) -> int {
     const auto dict_path = argc > 1 ? std::string{argv[1]} : std::string{DICT_DIR} + "/jieba.dict.utf8";
@@ -277,9 +332,10 @@ auto run(int argc, char *argv[]) -> int {
     const auto text_path = argc > 4 ? std::string{argv[4]} : std::string{TEST_DATA_DIR} + "/weicheng.utf8";
     const auto rounds = argc > 5 ? positive_count(argv[5]) : size_t{5};
     const auto samples = argc > 6 ? positive_count(argv[6]) : size_t{7};
-    if (argc > 7 || !user_dict_path.empty()) {
+    const auto report_path = argc > 7 ? std::string{argv[7]} : std::string{};
+    if (argc > 8 || !user_dict_path.empty()) {
         throw std::invalid_argument(
-            "Usage: cut_compare_benchmark [dict [model [\"\" [text [rounds [samples]]]]]]; "
+            "Usage: cut_compare_benchmark [dict [model [\"\" [text [rounds [samples [report.json]]]]]]]; "
             "user dictionaries have different default-frequency semantics; use one shared base dictionary");
     }
     std::printf("jieba-rs 0.11.0, Cargo release opt-level=3; C++ %ld\n", static_cast<long>(__cplusplus));
@@ -353,6 +409,9 @@ auto run(int argc, char *argv[]) -> int {
             return words;
         },
         [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::HMM); }, lines, rounds, samples);
+    if (!report_path.empty()) {
+        write_report(report_path, results, neo, lines, bytes, rounds, samples);
+    }
     return 0;
 }
 

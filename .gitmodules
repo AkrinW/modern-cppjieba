@@ -4,3 +4,6 @@
 [submodule "deps/cppjieba"]
 	path = deps/cppjieba
 	url = https://github.com/yanyiwu/cppjieba.git
+[submodule "deps/python-jieba"]
+	path = deps/python-jieba
+	url = https://github.com/fxsjy/jieba.git
