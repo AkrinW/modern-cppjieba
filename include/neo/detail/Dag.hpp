@@ -32,7 +32,7 @@ struct Dag {
     std::vector<DagEdge> edges;
 
     /// Return the outgoing edges from vertex `i`.
-    [[nodiscard]] auto get_edges(size_t i) const -> std::span<const DagEdge> {
+    [[nodiscard]] auto get_edges(size_t i) const noexcept -> std::span<const DagEdge> {
         if (i >= size()) {
             return {};
         }

@@ -30,13 +30,17 @@ public:
     /// @param user_word_weight_opt  strategy for default weight of user words without freq
     explicit DictTrie(std::string_view dict_path, std::string_view user_dict_path = "",
                       UserWordWeightOption user_word_weight_opt = UserWordWeightOption::WordWeightMedian) {
+        check(user_word_weight_opt == UserWordWeightOption::WordWeightMin
+                  || user_word_weight_opt == UserWordWeightOption::WordWeightMedian
+                  || user_word_weight_opt == UserWordWeightOption::WordWeightMax,
+              "DictTrie: invalid user word weight option {}", static_cast<uint8_t>(user_word_weight_opt));
         init(dict_path, user_dict_path, user_word_weight_opt);
     }
 
     // ── Query interface ──────────────────────────────────────────────────
 
     /// Find exact match by rune span.
-    [[nodiscard]] auto find(std::span<const Rune> key) const -> DictUnit {
+    [[nodiscard]] auto find(std::span<const Rune> key) const noexcept -> DictUnit {
         return trie_.find(key);
     }
 
@@ -48,7 +52,8 @@ public:
     }
 
     template <typename Emit>
-    auto for_each_match_from(std::span<const Rune> runes, RuneIndex begin, Emit &&emit) const -> void {
+    auto for_each_match_from(std::span<const Rune> runes, RuneIndex begin, Emit &&emit) const
+        noexcept(noexcept(trie_.for_each_match_from(runes, begin, std::forward<Emit>(emit)))) -> void {
         trie_.for_each_match_from(runes, begin, std::forward<Emit>(emit));
     }
 
@@ -68,7 +73,7 @@ public:
     }
 
     /// Check if a single Chinese character comes from the user dictionary.
-    [[nodiscard]] auto is_user_dict_single_chinese_word(Rune word) const -> bool {
+    [[nodiscard]] auto is_user_dict_single_chinese_word(Rune word) const noexcept -> bool {
         return user_dict_single_chinese_word_.contains(word);
     }
 
@@ -298,7 +303,7 @@ private:
         entries.push_back(RawEntry{std::move(word), freq, tag});
     }
 
-    auto set_user_default_weight(UserWordWeightOption opt) -> void {
+    auto set_user_default_weight(UserWordWeightOption opt) noexcept -> void {
         switch (opt) {
             case UserWordWeightOption::WordWeightMin: {
                 user_word_default_weight_ = min_weight_;
@@ -313,8 +318,9 @@ private:
                 break;
             }
             default: {
-                check(false, "DictTrie: invalid user word weight option {}", static_cast<uint8_t>(opt));
-                break;
+                assert_check([] { return false; }, "DictTrie: unchecked user word weight option {}",
+                             static_cast<uint8_t>(opt));
+                std::unreachable();
             }
         }
     }

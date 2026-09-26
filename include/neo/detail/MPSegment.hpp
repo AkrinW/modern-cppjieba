@@ -21,8 +21,8 @@ namespace neo_cppjieba {
 namespace detail {
 
 /// Check a word partition whose rune span starts at a caller-provided global offset.
-[[nodiscard]] inline auto valid_segment_partition_at(std::span<const WordRange> words, size_t rune_count, RuneIndex pos)
-    -> bool {
+[[nodiscard]] inline auto valid_segment_partition_at(std::span<const WordRange> words, size_t rune_count,
+                                                     RuneIndex pos) noexcept -> bool {
     auto next = pos;
     for (const auto &word : words) {
         if (word.begin != next || word.begin >= word.end || word.end - pos > rune_count) {
@@ -34,7 +34,8 @@ namespace detail {
 }
 
 /// Check that local word ranges form a nonempty-token partition of the rune span.
-[[nodiscard]] inline auto valid_segment_partition(std::span<const WordRange> words, size_t rune_count) -> bool {
+[[nodiscard]] inline auto valid_segment_partition(std::span<const WordRange> words, size_t rune_count) noexcept
+    -> bool {
     return valid_segment_partition_at(words, rune_count, 0);
 }
 

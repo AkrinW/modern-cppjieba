@@ -21,7 +21,8 @@ struct SourceRange {
     }
 
     template <CharType CharT>
-    [[nodiscard]] constexpr auto slice(std::basic_string_view<CharT> source) const -> std::basic_string_view<CharT> {
+    [[nodiscard]] constexpr auto slice(std::basic_string_view<CharT> source) const noexcept
+        -> std::basic_string_view<CharT> {
         assert_check([&] { return begin <= end && end <= source.size(); }, "SourceRange exceeds its input");
         return source.substr(static_cast<std::size_t>(begin), static_cast<std::size_t>(end - begin));
     }

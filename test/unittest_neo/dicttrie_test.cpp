@@ -16,6 +16,8 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -143,6 +145,26 @@ TEST_F(DictTrieInputTest, ZeroUserFrequencyUsesDefaultWeight) {
     const auto word = trie.find("新词");
     ASSERT_TRUE(word.has_value());
     EXPECT_FLOAT_EQ(word.weight, trie.user_word_default_weight());
+}
+
+TEST_F(DictTrieInputTest, RejectsUnknownWeightOptionBeforeOpeningDictionary) {
+    const auto invalid = static_cast<DictTrie::UserWordWeightOption>(255);
+    try {
+        const auto trie = DictTrie{file_path("missing.dict"), "", invalid};
+        FAIL() << "Expected an invalid weight option error";
+    } catch (const LogConfig::Exception &error) {
+        EXPECT_NE(std::string_view{error.what()}.find("invalid user word weight option 255"), std::string_view::npos);
+    }
+}
+
+TEST_F(DictTrieInputTest, MatchTraversalPropagatesVisitorExceptions) {
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("主词");
+    const auto fail = [](RuneIndex, const DictUnit &) {
+        throw std::runtime_error{"visitor failure"};
+    };
+    EXPECT_THROW(trie.for_each_match_from(runes, 0, fail), std::runtime_error);
+    EXPECT_TRUE(trie.find(std::span<const Rune>{runes}).has_value());
 }
 
 TEST_F(DictTrieInputTest, RejectsUnknownWeightOption) {

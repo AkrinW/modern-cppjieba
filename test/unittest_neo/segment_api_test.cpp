@@ -1,14 +1,20 @@
 #include "neo/Jieba.hpp"
 #include "neo/Token.hpp"
 #include "neo/TokenView.hpp"
+#include "neo/Unicode.hpp"
 #include "neo/Workspace.hpp"
+#include "neo/detail/Dag.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/FullSegment.hpp"
 #include "neo/detail/HMMSegment.hpp"
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/MPSegment.hpp"
 #include "neo/detail/MixSegment.hpp"
+#include "neo/detail/Output.hpp"
 #include "neo/detail/QuerySegment.hpp"
+#include "neo/detail/StringUtil.hpp"
+#include "neo/detail/Trie.hpp"
+#include "neo/detail/Unicode.hpp"
 
 #include <concepts>
 #include <cstddef>
@@ -223,3 +229,59 @@ static_assert(requires(const Jieba &jieba, std::span<const Rune> runes, std::vec
 static_assert(std::default_initializable<Workspace>);
 static_assert(std::movable<Workspace>);
 static_assert(!std::copy_constructible<Workspace>);
+
+// Computation on validated, borrowed storage must not introduce an exception boundary.
+static_assert(noexcept(detail::decode_step(std::declval<std::span<const char>>())));
+static_assert(noexcept(detail::decode_step(std::declval<std::span<const char16_t>>())));
+static_assert(noexcept(detail::decode_step(std::declval<std::span<const char32_t>>())));
+static_assert(noexcept(detail::encode_step<char>(U'中')));
+static_assert(noexcept(detail::encode_step<char16_t>(U'中')));
+static_assert(noexcept(detail::encode_step<char32_t>(U'中')));
+static_assert(noexcept(detail::offset_count_for_source(0)));
+static_assert(noexcept(detail::to_source_range(std::declval<WordRange>(),
+                                               std::declval<std::span<const SourceOffset>>())));
+static_assert(noexcept(std::declval<WordRange>().slice(std::declval<std::span<const Rune>>())));
+static_assert(noexcept(std::declval<SourceRange>().slice(std::declval<std::string_view>())));
+static_assert(noexcept(std::declval<const Tokens<char> &>()[0]));
+static_assert(noexcept(std::declval<const OwnedTokens<char> &>()[0]));
+static_assert(noexcept(*std::declval<Tokens<char>::const_iterator>()));
+static_assert(noexcept(++std::declval<Tokens<char>::const_iterator &>()));
+static_assert(noexcept(std::declval<Tokens<char>::const_iterator &>()++));
+static_assert(noexcept(get_line_view(std::declval<std::string_view>()).begin()));
+static_assert(noexcept(++std::declval<lines_view::iterator &>()));
+static_assert(noexcept(get_split_view(std::declval<std::string_view>(), ' ').begin()));
+static_assert(noexcept(++std::declval<split_view::iterator &>()));
+static_assert(noexcept(std::declval<const Dag &>().get_edges(0)));
+static_assert(noexcept(std::declval<const Trie &>().find(std::declval<std::span<const Rune>>())));
+static_assert(noexcept(std::declval<const DictTrie &>().find(std::declval<std::span<const Rune>>())));
+static_assert(noexcept(std::declval<const HMModel &>().get_start_prob(HMMState::B)));
+static_assert(noexcept(std::declval<const HMModel &>().get_trans_prob(HMMState::B, HMMState::E)));
+
+// Generic visitors determine whether allocation-free traversal can promise not to throw.
+using MatchVisitor = void (*)(RuneIndex, const DictUnit &);
+using NoThrowMatchVisitor = void (*)(RuneIndex, const DictUnit &) noexcept;
+using WordVisitor = void (*)(TokenView<char>);
+using NoThrowWordVisitor = void (*)(TokenView<char>) noexcept;
+static_assert(noexcept(std::declval<const Trie &>().for_each_match_from(std::declval<std::span<const Rune>>(), 0,
+                                                                        std::declval<NoThrowMatchVisitor>())));
+static_assert(!noexcept(std::declval<const Trie &>().for_each_match_from(std::declval<std::span<const Rune>>(), 0,
+                                                                         std::declval<MatchVisitor>())));
+static_assert(noexcept(std::declval<const DictTrie &>().for_each_match_from(std::declval<std::span<const Rune>>(), 0,
+                                                                            std::declval<NoThrowMatchVisitor>())));
+static_assert(!noexcept(std::declval<const DictTrie &>().for_each_match_from(std::declval<std::span<const Rune>>(), 0,
+                                                                             std::declval<MatchVisitor>())));
+static_assert(noexcept(detail::emit_tokens(std::declval<std::string_view>(), std::declval<std::span<const WordRange>>(),
+                                           std::declval<std::span<const SourceOffset>>(),
+                                           std::declval<NoThrowWordVisitor &>())));
+static_assert(
+    !noexcept(detail::emit_tokens(std::declval<std::string_view>(), std::declval<std::span<const WordRange>>(),
+                                  std::declval<std::span<const SourceOffset>>(), std::declval<WordVisitor &>())));
+
+// External validation and allocation failures remain recoverable through the existing exception paths.
+static_assert(!noexcept(decode(std::declval<std::string_view>())));
+static_assert(!noexcept(encode<char>(std::declval<std::span<const Rune>>())));
+static_assert(!noexcept(std::declval<const Trie &>().find(std::declval<std::string_view>())));
+static_assert(!noexcept(std::declval<const Jieba &>().cut(std::declval<std::string_view>(), CutMode::MIX)));
+static_assert(!noexcept(std::declval<const Jieba &>().cut_each(std::declval<std::string_view>(), CutMode::MIX,
+                                                               std::declval<NoThrowWordVisitor>(),
+                                                               std::declval<Workspace &>())));

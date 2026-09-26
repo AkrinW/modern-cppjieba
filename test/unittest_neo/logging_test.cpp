@@ -532,6 +532,53 @@ TEST(LoggingTest, CheckNoArgsFalseExceptionContainsLocation) {
 
 // ─── assert_check() ─────────────────────────────────────────────────────────
 
+TEST(LoggingTest, AssertionAndInputChecksHaveDistinctExceptionContracts) {
+    static_assert(noexcept(assert_check([] { return true; })));
+    static_assert(noexcept(assert_check([] { return true; }, "invariant {}", 1)));
+    static_assert(!noexcept(check(true)));
+    static_assert(!noexcept(check(true, "input {}", 1)));
+}
+
+TEST(LoggingTest, AssertCheckTerminatesWhenPredicateThrows) {
+    const auto predicate = []() -> bool {
+        throw std::runtime_error{"broken invariant predicate"};
+    };
+    if constexpr (compile_config::is_debug_build) {
+        EXPECT_EXIT(
+            {
+                prepare_assertion_death_test();
+                assert_check(predicate, "internal invariant");
+            },
+            ::testing::ExitedWithCode(73), "");
+    } else {
+        EXPECT_NO_THROW(assert_check(predicate, "internal invariant"));
+    }
+}
+
+TEST(LoggingTest, AssertCheckWithoutMessageTerminatesWhenPredicateThrows) {
+    const auto predicate = []() -> bool {
+        throw std::runtime_error{"broken invariant predicate"};
+    };
+    if constexpr (compile_config::is_debug_build) {
+        EXPECT_EXIT(
+            {
+                prepare_assertion_death_test();
+                assert_check(predicate);
+            },
+            ::testing::ExitedWithCode(73), "");
+    } else {
+        EXPECT_NO_THROW(assert_check(predicate));
+    }
+}
+
+TEST(LoggingTest, CheckPropagatesPredicateExceptions) {
+    const auto predicate = []() -> bool {
+        throw std::runtime_error{"input validation failed"};
+    };
+    EXPECT_THROW(check(predicate), std::runtime_error);
+    EXPECT_THROW(check(predicate, "external input"), std::runtime_error);
+}
+
 TEST(LoggingTest, AssertCheckTrueDoesNotThrow) {
     EXPECT_NO_THROW(assert_check([] { return true; }, "should not fire"));
 }

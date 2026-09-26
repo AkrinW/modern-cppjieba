@@ -78,7 +78,7 @@ private:
 
     /// Check whether the DAG contains a dictionary match covering [begin, end).
     [[nodiscard]] static auto has_short_match(std::span<const detail::SearchSubwords> matches, RuneIndex begin,
-                                              RuneIndex end) -> bool {
+                                              RuneIndex end) noexcept -> bool {
         assert(begin < end && end <= matches.size());
         // Trie construction appends dictionary edges in increasing end-position order.
         // Only two- and three-rune dictionary membership is retained here.

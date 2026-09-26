@@ -26,7 +26,9 @@ namespace neo_cppjieba {
 namespace detail {
 // LogLevel enum to string mapping for log output.
 inline constexpr auto LOG_LEVEL_ARRAY = std::array<std::string_view, 5>{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"};
-constexpr auto log_level_name(LogLevel level) -> std::string_view {
+constexpr auto log_level_name(LogLevel level) noexcept -> std::string_view {
+    // Logging cannot diagnose its own invalid level through assert_check without recursion.
+    assert(static_cast<size_t>(level) < LOG_LEVEL_ARRAY.size());
     return LOG_LEVEL_ARRAY[static_cast<size_t>(level)];
 }
 
@@ -40,11 +42,12 @@ inline constexpr auto LOG_LEVEL_COLOR_ARRAY = std::array<std::string_view, 5>{
 };
 inline constexpr auto LOG_COLOR_RESET = std::string_view{"\033[0m"};
 
-constexpr auto log_level_color(LogLevel level) -> std::string_view {
+constexpr auto log_level_color(LogLevel level) noexcept -> std::string_view {
+    assert(static_cast<size_t>(level) < LOG_LEVEL_COLOR_ARRAY.size());
     return LOG_LEVEL_COLOR_ARRAY[static_cast<size_t>(level)];
 }
 
-inline auto stderr_is_tty() -> bool {
+inline auto stderr_is_tty() noexcept -> bool {
     static const auto result = (isatty(STDERR_FILENO) != 0);
     return result;
 }
@@ -103,7 +106,7 @@ inline constexpr auto LOG_MAX_TIME_BUFFER_SIZE = size_t{32};
 inline constexpr auto LOG_MAX_BUFFER_SIZE = LogConfig::buffer_size;
 
 // cur_time fills the provided buffer with the current time formatted according to LOG_TIME_FORMAT.
-inline auto cur_time() -> std::array<char, LOG_MAX_TIME_BUFFER_SIZE> {
+inline auto cur_time() noexcept -> std::array<char, LOG_MAX_TIME_BUFFER_SIZE> {
     auto timeNow = std::time(nullptr);
     auto tmNow = std::tm{};
 #if defined(_WIN32) || defined(_WIN64)
@@ -205,7 +208,7 @@ struct LogFormatString {
     std::source_location loc;
 
     template <typename StringType>
-    consteval LogFormatString(StringType &&s, const std::source_location &l = std::source_location::current())
+    consteval LogFormatString(StringType &&s, const std::source_location &l = std::source_location::current()) noexcept
         : fmt(std::forward<StringType>(s)), loc(Config::show_source_location ? l : std::source_location{}) {
     }
 };
@@ -253,7 +256,7 @@ inline auto check(Condition &&condition, const std::source_location &loc = std::
 template <LogConfiguration Config = LogConfig, detail::CheckPredicate F, typename... Args>
 constexpr auto assert_check(F &&predicate,
                             std::type_identity_t<detail::LogFormatString<Config, detail::LogEvalType<Args>...>> fmt,
-                            Args &&...args) -> void {
+                            Args &&...args) noexcept -> void {
     if constexpr (detail::kNoDebug) {
         return;
     } else {
@@ -265,7 +268,8 @@ constexpr auto assert_check(F &&predicate,
 
 // Apply the same debug-only terminating assertion when no diagnostic message is supplied.
 template <LogConfiguration Config = LogConfig, detail::CheckPredicate F>
-constexpr auto assert_check(F &&predicate, const std::source_location &loc = std::source_location::current()) -> void {
+constexpr auto assert_check(F &&predicate, const std::source_location &loc = std::source_location::current()) noexcept
+    -> void {
     if constexpr (detail::kNoDebug) {
         return;
     } else {

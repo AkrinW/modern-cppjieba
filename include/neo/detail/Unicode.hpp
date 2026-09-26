@@ -47,7 +47,7 @@ struct DecodedRune {
 }
 
 // Describe the input failure without allocating inside the decoding kernel.
-constexpr auto decode_error_name(UnicodeDecodeError error) -> std::string_view {
+constexpr auto decode_error_name(UnicodeDecodeError error) noexcept -> std::string_view {
     switch (error) {
         case UnicodeDecodeError::None:
             return "none";
@@ -82,7 +82,7 @@ inline auto throw_decode_error(UnicodeDecodeError error, size_t offset) -> void 
 // decode_one_utf8 decodes a single Unicode code point from a UTF-8 encoded string and returns it as a Rune.
 template <CodeUnit CharT>
     requires(encoding_of_v<CharT> == Encoding::UTF8)
-constexpr auto decode_one_utf8(std::span<const CharT> input) -> DecodedRune {
+constexpr auto decode_one_utf8(std::span<const CharT> input) noexcept -> DecodedRune {
     assert_check([&] { return !input.empty(); }, "UTF-8 decoding requires a nonempty internal span");
     const auto first = static_cast<uint8_t>(input[0]);
     // one byte (ASCII)
@@ -150,7 +150,7 @@ constexpr auto decode_one_utf8(std::span<const CharT> input) -> DecodedRune {
 // decode_one_utf16 decodes a single Unicode code point from a UTF-16 encoded string and returns it as a Rune.
 template <CharType CharT>
     requires(encoding_of_v<CharT> == Encoding::UTF16)
-constexpr auto decode_one_utf16(std::span<const CharT> input) -> DecodedRune {
+constexpr auto decode_one_utf16(std::span<const CharT> input) noexcept -> DecodedRune {
     assert_check([&] { return !input.empty(); }, "UTF-16 decoding requires a nonempty internal span");
     const auto first = static_cast<uint16_t>(input[0]);
     // single code unit (BMP)
@@ -174,7 +174,7 @@ constexpr auto decode_one_utf16(std::span<const CharT> input) -> DecodedRune {
 // decode_one_utf32 decodes a single Unicode code point from a UTF-32 encoded string and returns it as a Rune.
 template <CharType CharT>
     requires(encoding_of_v<CharT> == Encoding::UTF32)
-constexpr auto decode_one_utf32(std::span<const CharT> input) -> DecodedRune {
+constexpr auto decode_one_utf32(std::span<const CharT> input) noexcept -> DecodedRune {
     assert_check([&] { return !input.empty(); }, "UTF-32 decoding requires a nonempty internal span");
     const auto rune = static_cast<Rune>(input[0]);
     if (rune > 0x10FFFF) {
@@ -188,7 +188,7 @@ constexpr auto decode_one_utf32(std::span<const CharT> input) -> DecodedRune {
 
 // Dispatch by encoding without reinterpreting pointers to distinct character types.
 template <CodeUnit CharT>
-constexpr auto decode_step(std::span<const CharT> input) -> DecodedRune {
+constexpr auto decode_step(std::span<const CharT> input) noexcept -> DecodedRune {
     if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
         return decode_one_utf8(input);
     } else if constexpr (encoding_of_v<CharT> == Encoding::UTF16) {
@@ -223,7 +223,7 @@ struct EncodedRune {
 // encode_one_utf8 encodes a single Rune into a UTF-8 sequence.
 template <CharType CharT>
     requires(encoding_of_v<CharT> == Encoding::UTF8)
-constexpr auto encode_one_utf8(Rune rune) -> EncodedRune<CharT> {
+constexpr auto encode_one_utf8(Rune rune) noexcept -> EncodedRune<CharT> {
     if (rune < 0x80) {
         return {{static_cast<CharT>(rune), 0, 0, 0}, 1};
     }
@@ -244,7 +244,7 @@ constexpr auto encode_one_utf8(Rune rune) -> EncodedRune<CharT> {
 // encode_one_utf16 encodes a single Rune into a UTF-16 sequence.
 template <CharType CharT>
     requires(encoding_of_v<CharT> == Encoding::UTF16)
-constexpr auto encode_one_utf16(Rune rune) -> EncodedRune<CharT> {
+constexpr auto encode_one_utf16(Rune rune) noexcept -> EncodedRune<CharT> {
     if (rune < 0x10000) {
         return {{static_cast<CharT>(rune), 0}, 1};
     }
@@ -256,14 +256,14 @@ constexpr auto encode_one_utf16(Rune rune) -> EncodedRune<CharT> {
 // encode_one_utf32 encodes a single Rune into a UTF-32 code unit (identity).
 template <CharType CharT>
     requires(encoding_of_v<CharT> == Encoding::UTF32)
-constexpr auto encode_one_utf32(Rune rune) -> EncodedRune<CharT> {
+constexpr auto encode_one_utf32(Rune rune) noexcept -> EncodedRune<CharT> {
     // Invalid code points are rejected before this encoding kernel is called.
     return {{static_cast<CharT>(rune)}, 1};
 }
 
 // Encode a validated scalar using storage of the requested output character type.
 template <CharType CharT>
-constexpr auto encode_step(Rune rune) -> EncodedRune<CharT> {
+constexpr auto encode_step(Rune rune) noexcept -> EncodedRune<CharT> {
     assert_check([=] { return is_unicode_scalar(rune); }, "Invalid internal Unicode scalar");
     if constexpr (encoding_of_v<CharT> == Encoding::UTF8) {
         return encode_one_utf8<CharT>(rune);
@@ -301,7 +301,7 @@ inline auto encode_validated_source(std::basic_string_view<CharT> source, std::s
 }
 
 // Check representability before narrowing positions or allocating the offset sentinel.
-constexpr auto offset_count_for_source(size_t source_size) -> size_t {
+constexpr auto offset_count_for_source(size_t source_size) noexcept -> size_t {
     assert_check(
         [&] {
             return source_size <= std::numeric_limits<SourceOffset>::max()
@@ -312,7 +312,7 @@ constexpr auto offset_count_for_source(size_t source_size) -> size_t {
 }
 
 // Verify generated offsets once in debug builds, rather than rescanning them for every word.
-inline auto valid_decoded_offsets(const UnicodeWithOffset &decoded, size_t source_size) -> bool {
+inline auto valid_decoded_offsets(const UnicodeWithOffset &decoded, size_t source_size) noexcept -> bool {
     if (decoded.offsets.size() != decoded.runes.size() + 1 || decoded.offsets.empty() || decoded.offsets.front() != 0
         || decoded.offsets.back() != source_size) {
         return false;
@@ -327,7 +327,7 @@ enum class OffsetMode { Omit, Record };
 
 // Decoding clears and may reallocate its output, so it cannot read from that same allocation.
 template <CodeUnit CharT, typename Value>
-auto overlaps_decode_buffer(std::span<const CharT> input, const std::vector<Value> &output) -> bool {
+auto overlaps_decode_buffer(std::span<const CharT> input, const std::vector<Value> &output) noexcept -> bool {
     if (input.empty() || output.empty()) {
         return false;
     }

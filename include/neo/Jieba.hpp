@@ -53,7 +53,7 @@ inline auto check_cut_mode(CutMode mode) -> void {
 }
 
 // Rune indices must fit WordRange, with room for the trailing DAG offset.
-inline auto assert_rune_count(size_t rune_count) -> void {
+inline auto assert_rune_count(size_t rune_count) noexcept -> void {
     assert_check(
         [&] {
             return rune_count <= std::numeric_limits<RuneIndex>::max()
@@ -63,7 +63,7 @@ inline auto assert_rune_count(size_t rune_count) -> void {
 }
 
 // Partition modes cover every rune once; full and search modes may emit overlapping words.
-[[nodiscard]] inline auto valid_jieba_result(CutMode mode, std::span<const WordRange> words, size_t rune_count)
+[[nodiscard]] inline auto valid_jieba_result(CutMode mode, std::span<const WordRange> words, size_t rune_count) noexcept
     -> bool {
     if (mode == CutMode::MIX || mode == CutMode::MIX_NO_HMM || mode == CutMode::HMM || mode == CutMode::MP) {
         return valid_segment_partition(words, rune_count);

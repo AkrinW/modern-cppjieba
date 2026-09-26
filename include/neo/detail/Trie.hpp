@@ -193,7 +193,7 @@ class Trie {
     }
 
     // The compact ranges are finalized before any entry receives its storage tag.
-    auto mark_child_storage(Entry &entry) const -> void {
+    auto mark_child_storage(Entry &entry) const noexcept -> void {
         entry.filter &= kFilterMask;
         if (entry.child == kAbsentNode || entry.child == 0) {
             return;
@@ -329,7 +329,7 @@ public:
     }
 
     /// Find an exact key, returning its dictionary payload by value.
-    [[nodiscard]] auto find(std::span<const Rune> key) const -> DictUnit {
+    [[nodiscard]] auto find(std::span<const Rune> key) const noexcept -> DictUnit {
         if (empty() || key.empty()) {
             return {};
         }
@@ -350,7 +350,8 @@ public:
     // Visit real dictionary matches from one rune position in increasing end order.
     // The callback borrows each dictionary value; unknown runes do not produce matches.
     template <typename Emit>
-    auto for_each_match_from(std::span<const Rune> runes, RuneIndex begin, Emit &&emit) const -> void {
+    auto for_each_match_from(std::span<const Rune> runes, RuneIndex begin, Emit &&emit) const
+        noexcept(noexcept(emit(RuneIndex{}, std::declval<const DictUnit &>()))) -> void {
         assert(runes.size() <= std::numeric_limits<RuneIndex>::max());
         assert(begin <= runes.size());
         if (empty() || begin == runes.size()) {

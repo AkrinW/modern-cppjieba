@@ -8,6 +8,7 @@
 #include <iterator>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -27,21 +28,21 @@ public:
     using difference_type = std::ptrdiff_t;
     using reference = value_type;
 
-    TokenIterator() = default;
-    TokenIterator(std::basic_string_view<CharT> source, std::vector<TokenPosition>::const_iterator position)
+    TokenIterator() noexcept = default;
+    TokenIterator(std::basic_string_view<CharT> source, std::vector<TokenPosition>::const_iterator position) noexcept
         : source_(source), position_(position) {
     }
 
-    [[nodiscard]] auto operator*() const -> value_type {
+    [[nodiscard]] auto operator*() const noexcept -> value_type {
         return {position_->source.slice(source_), *position_};
     }
 
-    auto operator++() -> TokenIterator & {
+    auto operator++() noexcept -> TokenIterator & {
         ++position_;
         return *this;
     }
 
-    auto operator++(int) -> TokenIterator {
+    auto operator++(int) noexcept -> TokenIterator {
         auto previous = *this;
         ++*this;
         return previous;
@@ -82,12 +83,12 @@ public:
     }
     auto positions() const && noexcept -> std::span<const TokenPosition> = delete;
 
-    [[nodiscard]] auto operator[](size_t index) const & -> value_type {
+    [[nodiscard]] auto operator[](size_t index) const & noexcept -> value_type {
         assert_check([&] { return index < positions_.size(); }, "Token index exceeds the result size");
         const auto &position = positions_[index];
         return {position.source.slice(source()), position};
     }
-    auto operator[](size_t) const && -> value_type = delete;
+    auto operator[](size_t) const && noexcept -> value_type = delete;
 
     [[nodiscard]] auto begin() const & noexcept -> const_iterator {
         return {source(), positions_.cbegin()};
@@ -102,7 +103,8 @@ public:
 private:
     friend class ::neo_cppjieba::Jieba;
 
-    BasicTokens(Storage source, std::vector<TokenPosition> positions)
+    BasicTokens(Storage source,
+                std::vector<TokenPosition> positions) noexcept(std::is_nothrow_move_constructible_v<Storage>)
         : source_(std::move(source)), positions_(std::move(positions)) {
     }
 

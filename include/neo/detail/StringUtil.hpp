@@ -79,12 +79,12 @@ public:
             return std::string_view{cur_, static_cast<size_t>(e - cur_)};
         }
 
-        constexpr auto operator++() -> iterator & {
+        constexpr auto operator++() noexcept -> iterator & {
             advance();
             return *this;
         }
 
-        constexpr auto operator++(int) -> iterator {
+        constexpr auto operator++(int) noexcept -> iterator {
             auto tmp = *this;
             advance();
             return tmp;
@@ -95,7 +95,7 @@ public:
         }
 
     private:
-        constexpr auto advance() -> void {
+        constexpr auto advance() noexcept -> void {
             if (next_ == nullptr) {
                 cur_ = nullptr;
                 return;
@@ -121,7 +121,7 @@ public:
     constexpr explicit lines_view(std::string_view content) noexcept : content_(content) {
     }
 
-    [[nodiscard]] constexpr auto begin() const -> iterator {
+    [[nodiscard]] constexpr auto begin() const noexcept -> iterator {
         return iterator{content_};
     }
     [[nodiscard]] constexpr auto end() const noexcept -> iterator {
@@ -133,7 +133,7 @@ private:
 };
 
 // get_line_view returns a lazy zero-copy range of lines over the given content.
-constexpr auto get_line_view(std::string_view content) -> lines_view {
+constexpr auto get_line_view(std::string_view content) noexcept -> lines_view {
     return lines_view{content};
 }
 
@@ -177,12 +177,12 @@ public:
             return std::string_view{cur_, static_cast<size_t>(end - cur_)};
         }
 
-        constexpr auto operator++() -> iterator & {
+        constexpr auto operator++() noexcept -> iterator & {
             advance();
             return *this;
         }
 
-        constexpr auto operator++(int) -> iterator {
+        constexpr auto operator++(int) noexcept -> iterator {
             auto tmp = *this;
             advance();
             return tmp;
@@ -193,7 +193,7 @@ public:
         }
 
     private:
-        constexpr auto advance() -> void {
+        constexpr auto advance() noexcept -> void {
             cur_ = next_field_;
             if (cur_ == nullptr) {
                 return;
@@ -215,7 +215,7 @@ public:
     constexpr split_view(std::string_view content, char delim) noexcept : content_(content), delim_(delim) {
     }
 
-    [[nodiscard]] constexpr auto begin() const -> iterator {
+    [[nodiscard]] constexpr auto begin() const noexcept -> iterator {
         return iterator{content_, delim_};
     }
     [[nodiscard]] constexpr auto end() const noexcept -> iterator {
@@ -228,7 +228,7 @@ private:
 };
 
 // get_split_view returns a lazy zero-copy range of tokens from content, split by delim.
-constexpr auto get_split_view(std::string_view content, char delim) -> split_view {
+constexpr auto get_split_view(std::string_view content, char delim) noexcept -> split_view {
     return split_view{content, delim};
 }
 

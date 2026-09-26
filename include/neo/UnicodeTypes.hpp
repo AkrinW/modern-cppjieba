@@ -49,7 +49,7 @@ struct WordRange {
     }
 
     /// Extract the corresponding sub-span from the original runes.
-    [[nodiscard]] auto slice(std::span<const Rune> runes) const -> std::span<const Rune> {
+    [[nodiscard]] auto slice(std::span<const Rune> runes) const noexcept -> std::span<const Rune> {
         assert_check([&] { return end <= runes.size(); }, "Internal WordRange end {} exceeds {} runes", end,
                      runes.size());
         return runes.subspan(static_cast<std::size_t>(begin), static_cast<std::size_t>(size()));
