@@ -18,6 +18,7 @@
 | `test/unittest/` | 可选的旧库回归测试 |
 | `test/testdata/` | 单测和 benchmark 共用的数据 |
 | `benchmark/` | 独立 benchmark 和比较程序，不注册为 CTest 测试 |
+| `examples/` | 可运行的应用示例：模式对比、批量处理、搜索高亮、词频与结果所有权 |
 | `deps/` | cppjieba 与 limonp submodule、Rust adapter 与锁文件 |
 | `tools/` | 格式化与静态分析脚本 |
 
@@ -155,6 +156,9 @@ cmake --install build-library --prefix install
 add_subdirectory(path/to/modern-cppjieba)
 target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 ```
+
+完整应用示例与构建、运行命令见 [examples/README.md](examples/README.md)。
+通过 `-DCPPJIEBA_BUILD_EXAMPLES=ON -DBUILD_TESTING=OFF` 可单独构建示例，无需比较库或测试依赖。
 
 在仓库根目录运行时的使用示例：
 

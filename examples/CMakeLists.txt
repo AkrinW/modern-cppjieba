@@ -1,0 +1,14 @@
+add_executable(jieba_basic_cut basic_cut.cpp)
+target_link_libraries(jieba_basic_cut PRIVATE neo_cppjieba::neo_cppjieba)
+
+add_executable(jieba_batch_cut batch_cut.cpp)
+target_link_libraries(jieba_batch_cut PRIVATE neo_cppjieba::neo_cppjieba)
+
+add_executable(jieba_search_highlight search_highlight.cpp)
+target_link_libraries(jieba_search_highlight PRIVATE neo_cppjieba::neo_cppjieba)
+
+add_executable(jieba_word_count word_count.cpp)
+target_link_libraries(jieba_word_count PRIVATE neo_cppjieba::neo_cppjieba)
+
+add_executable(jieba_owned_results owned_results.cpp)
+target_link_libraries(jieba_owned_results PRIVATE neo_cppjieba::neo_cppjieba)

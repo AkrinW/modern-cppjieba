@@ -34,6 +34,7 @@ install(DIRECTORY dict/
 
 option(BUILD_TESTING "Build unit tests" ${CPPJIEBA_TOP_LEVEL_PROJECT})
 option(CPPJIEBA_BUILD_LEGACY_TESTS "Build tests for the legacy dependency" OFF)
+option(CPPJIEBA_BUILD_EXAMPLES "Build standalone usage examples" OFF)
 option(CPPJIEBA_BUILD_BENCHMARKS "Build standalone benchmarks" OFF)
 option(CPPJIEBA_BUILD_RUST_BENCHMARKS "Build the pinned Rust comparison benchmark (requires Cargo)" OFF)
 
@@ -64,4 +65,7 @@ if(BUILD_TESTING)
 endif()
 if(CPPJIEBA_BUILD_BENCHMARKS)
     add_subdirectory(benchmark)
+endif()
+if(CPPJIEBA_BUILD_EXAMPLES)
+    add_subdirectory(examples)
 endif()
