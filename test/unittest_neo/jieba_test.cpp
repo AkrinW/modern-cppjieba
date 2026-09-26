@@ -109,8 +109,11 @@ TYPED_TEST(JiebaCharacterTest, OutputFormsPreserveWordsAndBothCoordinatesInEvery
             const auto ranges = jieba.cut_runes(decoded.runes, mode);
             const auto expected = encode_ranges(source, decoded.offsets, ranges);
             const auto tokens = jieba.cut(source, mode);
+            const auto reused = jieba.cut_with_workspace(source, mode, buffer);
             const auto owned = jieba.cut_owned(text, mode);
             EXPECT_EQ(copy_words(tokens), expected);
+            EXPECT_EQ(copy_words(reused), expected);
+            EXPECT_TRUE(std::ranges::equal(reused.positions(), tokens.positions()));
             EXPECT_EQ(copy_words(owned), expected);
             EXPECT_EQ(jieba.cut_strings(source, mode), expected);
             jieba.cut_into(source, mode, source_ranges, buffer);
@@ -118,6 +121,7 @@ TYPED_TEST(JiebaCharacterTest, OutputFormsPreserveWordsAndBothCoordinatesInEvery
             jieba.cut_into(source, mode, strings, buffer);
             EXPECT_EQ(strings, expected);
             ASSERT_EQ(tokens.size(), ranges.size());
+            ASSERT_EQ(reused.size(), ranges.size());
             ASSERT_EQ(source_ranges.size(), ranges.size());
             ASSERT_EQ(positions.size(), ranges.size());
             for (auto i = size_t{0}; i < ranges.size(); ++i) {
@@ -127,6 +131,7 @@ TYPED_TEST(JiebaCharacterTest, OutputFormsPreserveWordsAndBothCoordinatesInEvery
                 EXPECT_EQ(positions[i], tokens[i].position);
                 EXPECT_EQ(source_ranges[i], expected_source);
                 EXPECT_EQ(tokens[i].word.data(), source.data() + expected_source.begin);
+                EXPECT_EQ(reused[i].word.data(), source.data() + expected_source.begin);
                 EXPECT_EQ(owned[i].word.data(), owned.source().data() + expected_source.begin);
             }
             auto visited = size_t{0};
@@ -142,6 +147,46 @@ TYPED_TEST(JiebaCharacterTest, OutputFormsPreserveWordsAndBothCoordinatesInEvery
             EXPECT_EQ(visited, tokens.size());
         }
     }
+}
+
+TEST(JiebaNeoTest, BorrowedTokensSurviveWorkspaceReuseReleaseAndDestruction) {
+    const auto source = std::string{"中国科学院"};
+    const auto tokens = [&] {
+        auto workspace = Workspace{};
+        auto first = test_jieba().cut_with_workspace(source, CutMode::SEARCH, workspace);
+        const auto second = test_jieba().cut_with_workspace("北京", CutMode::MIX, workspace);
+        EXPECT_EQ(copy_words(second), (std::vector<std::string>{"北京"}));
+        workspace.release();
+        const auto third = test_jieba().cut_with_workspace("中国", CutMode::HMM, workspace);
+        EXPECT_EQ(copy_words(third), (std::vector<std::string>{"中国"}));
+        return first;
+    }();
+    const auto expected = std::vector<TokenPosition>{
+        {{0, 2}, {0, 6}}, {{2, 4}, {6, 12}}, {{3, 5}, {9, 15}}, {{2, 5}, {6, 15}}, {{0, 5}, {0, 15}}};
+    EXPECT_TRUE(std::ranges::equal(tokens.positions(), expected));
+    EXPECT_EQ(copy_words(tokens), (std::vector<std::string>{"中国", "科学", "学院", "科学院", "中国科学院"}));
+    for (const auto token : tokens) {
+        EXPECT_EQ(token.word.data(), source.data() + token.position.source.begin);
+    }
+}
+
+TEST(JiebaNeoTest, WorkspaceCutConvertsAnAdaptedViewOnce) {
+    auto workspace = Workspace{};
+    const auto input = ChangingTextView{};
+    const auto tokens = test_jieba().cut_with_workspace(input, CutMode::MIX, workspace);
+    EXPECT_EQ(copy_words(tokens), (std::vector<std::string>{"中国"}));
+    EXPECT_EQ(input.conversions, 1);
+}
+
+TEST(JiebaNeoTest, WorkspaceCutRejectsInvalidTextAndRecovers) {
+    auto workspace = Workspace{};
+    const auto first = test_jieba().cut_with_workspace("中国科学院", CutMode::SEARCH, workspace);
+    EXPECT_THROW(
+        static_cast<void>(test_jieba().cut_with_workspace(std::string_view{"中国\xE4\xB8"}, CutMode::MIX, workspace)),
+        LogConfig::Exception);
+    const auto recovered = test_jieba().cut_with_workspace("北京", CutMode::HMM, workspace);
+    EXPECT_EQ(copy_words(recovered), (std::vector<std::string>{"北京"}));
+    EXPECT_EQ(copy_words(first), (std::vector<std::string>{"中国", "科学", "学院", "科学院", "中国科学院"}));
 }
 
 TEST(JiebaNeoTest, DirectCutUsesTheSameViewForDecodingAndCopying) {
@@ -403,6 +448,9 @@ TEST(JiebaNeoTest, UnknownModesUseTheConfiguredErrorPathForEveryEntryPoint) {
     auto rune_ranges = std::vector<WordRange>{};
     const auto runes = decode("中国");
     EXPECT_THROW(static_cast<void>(jieba.cut("中国", mode)), LogConfig::Exception);
+    EXPECT_THROW(static_cast<void>(jieba.cut_with_workspace("中国", mode, buffer)), LogConfig::Exception);
+    const auto recovered = jieba.cut_with_workspace("北京", CutMode::MIX, buffer);
+    EXPECT_EQ(copy_words(recovered), (std::vector<std::string>{"北京"}));
     EXPECT_THROW(static_cast<void>(jieba.cut_strings("中国", mode)), LogConfig::Exception);
     EXPECT_THROW(static_cast<void>(jieba.cut_owned(std::string{"中国"}, mode)), LogConfig::Exception);
     EXPECT_THROW(jieba.cut_into("中国", mode, source_ranges, buffer), LogConfig::Exception);
@@ -425,6 +473,9 @@ TEST(JiebaNeoTest, WorkspaceMatchesFreshResultsAfterGrowthAndModeChanges) {
     for (const auto input : inputs) {
         for (const auto mode : all_modes) {
             const auto expected = jieba.cut(input, mode);
+            const auto tokens = jieba.cut_with_workspace(input, mode, workspace);
+            EXPECT_EQ(copy_words(tokens), copy_words(expected));
+            EXPECT_TRUE(std::ranges::equal(tokens.positions(), expected.positions()));
             jieba.cut_into(input, mode, positions, workspace);
             ASSERT_EQ(positions.size(), expected.size());
             for (auto i = size_t{0}; i < positions.size(); ++i) {

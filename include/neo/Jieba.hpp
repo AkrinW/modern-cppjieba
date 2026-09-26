@@ -100,9 +100,17 @@ public:
     // Borrowing rejects owning temporaries; callers keep the original text alive and stable.
     template <StringViewSource Input>
     [[nodiscard]] auto cut(Input &&input, CutMode mode) const -> Tokens<output_char_type_t<Input>> {
+        auto workspace = Workspace{};
+        return cut_with_workspace(std::forward<Input>(input), mode, workspace);
+    }
+
+    // Caller-owned workspace may be reused; each result owns its positions and borrows only the input.
+    // Convert the input once so decoding and the returned view refer to the same source.
+    template <StringViewSource Input>
+    [[nodiscard]] auto cut_with_workspace(Input &&input, CutMode mode, Workspace &workspace) const
+        -> Tokens<output_char_type_t<Input>> {
         const auto source = as_view(std::forward<Input>(input));
         auto positions = std::vector<TokenPosition>{};
-        auto workspace = Workspace{};
         cut_into(source, mode, positions, workspace);
         return Tokens<output_char_type_t<Input>>{source, std::move(positions)};
     }

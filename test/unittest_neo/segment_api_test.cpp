@@ -66,6 +66,14 @@ inline constexpr bool jieba_cut_invocable_v<
 template <typename Input>
 concept JiebaImplicitModeInvocable = requires { std::declval<const Jieba &>().cut(std::declval<Input>()); };
 
+// Explicit workspace borrowing keeps the same source lifetime and result type as cut.
+template <typename Input, typename Buffer>
+concept JiebaWorkspaceCutInvocable = requires(const Jieba &jieba) {
+    {
+        jieba.cut_with_workspace(std::declval<Input>(), CutMode::MIX, std::declval<Buffer>())
+    } -> std::same_as<Tokens<output_char_type_t<Input>>>;
+};
+
 // Reusable output accepts documented value types and preserves the input's character encoding.
 template <typename Input, typename Output>
 concept JiebaCutIntoInvocable =
@@ -116,6 +124,18 @@ static_assert(!jieba_cut_invocable_v<std::string>);
 static_assert(!jieba_cut_invocable_v<const std::string>);
 static_assert(jieba_cut_invocable_v<std::vector<std::byte> &>);
 static_assert(!jieba_cut_invocable_v<std::vector<std::byte>>);
+static_assert(JiebaWorkspaceCutInvocable<std::string &, Workspace &>);
+static_assert(JiebaWorkspaceCutInvocable<const std::string &, Workspace &>);
+static_assert(JiebaWorkspaceCutInvocable<std::string_view, Workspace &>);
+static_assert(JiebaWorkspaceCutInvocable<std::u16string_view, Workspace &>);
+static_assert(JiebaWorkspaceCutInvocable<std::span<const Rune>, Workspace &>);
+static_assert(JiebaWorkspaceCutInvocable<std::vector<std::byte> &, Workspace &>);
+static_assert(JiebaWorkspaceCutInvocable<std::span<const std::byte>, Workspace &>);
+static_assert(!JiebaWorkspaceCutInvocable<std::string, Workspace &>);
+static_assert(!JiebaWorkspaceCutInvocable<const std::string, Workspace &>);
+static_assert(!JiebaWorkspaceCutInvocable<std::vector<std::byte>, Workspace &>);
+static_assert(!JiebaWorkspaceCutInvocable<std::string_view, const Workspace &>);
+static_assert(!JiebaWorkspaceCutInvocable<std::string_view, Workspace>);
 static_assert(std::ranges::forward_range<Tokens<char>>);
 static_assert(std::ranges::sized_range<Tokens<char>>);
 static_assert(std::ranges::forward_range<OwnedTokens<char>>);

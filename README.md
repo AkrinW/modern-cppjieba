@@ -210,6 +210,20 @@ std::vector<neo_cppjieba::TokenPosition> positions;
 jieba.cut_into("中国科学院", neo_cppjieba::CutMode::SEARCH, positions, workspace);
 ```
 
+需要返回独立的 `Tokens` 时，可通过 `Jieba::cut_with_workspace` 显式复用工作区：
+
+```cpp
+neo_cppjieba::Workspace workspace;
+const auto first = jieba.cut_with_workspace("中国科学院", neo_cppjieba::CutMode::SEARCH, workspace);
+const auto second = jieba.cut_with_workspace("北京", neo_cppjieba::CutMode::MIX, workspace);
+```
+
+`Jieba` 直接持有词典和 HMM 模型，所有分词操作均由 `Jieba` 提供。
+`cut(text, mode)` 使用本次调用的局部工作区；`cut_with_workspace`、`cut_into`、`cut_each`
+由调用方显式传入工作区，也可以传入用户层的 `thread_local Workspace`。
+同一工作区同一时刻只能供一次调用使用，嵌套分词或并发调用使用不同工作区。
+工作区复用、`release()` 或销毁不影响已返回的 `Tokens`；原文仍须保持有效且稳定。
+
 ## 单元测试
 
 默认只构建 neo 单测；GoogleTest 在启用单测时获取。
