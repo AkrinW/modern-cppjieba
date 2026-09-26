@@ -152,3 +152,23 @@ TEST(MPSegmentTest, AllSingleChars) {
     EXPECT_EQ(words[1], "了");
     EXPECT_EQ(words[2], "是");
 }
+
+TEST(MPSegmentTest, ReusedOutputReplacesPreviousWordsIncludingEmptyInput) {
+    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto scratch = detail::SegmentScratch{};
+    auto words = std::vector<WordRange>{{7, 8}};
+
+    const auto long_input = decode("南京市长江大桥");
+    MPSegment::cut_into(dict, long_input, words, scratch);
+    EXPECT_EQ(words, (std::vector<WordRange>{{0, 3}, {3, 7}}));
+
+    const auto short_input = decode("𠮷，甲");
+    MPSegment::cut_into(dict, short_input, words, scratch);
+    EXPECT_EQ(words, (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}}));
+
+    MPSegment::cut_into(dict, Unicode{}, words, scratch);
+    EXPECT_TRUE(words.empty());
+
+    MPSegment::cut_into(dict, long_input, words, scratch);
+    EXPECT_EQ(words, (std::vector<WordRange>{{0, 3}, {3, 7}}));
+}

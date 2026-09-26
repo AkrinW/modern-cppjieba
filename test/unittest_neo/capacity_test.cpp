@@ -103,6 +103,16 @@ TEST(CapacityTest, DagOffsetsPreserve253OverlappingMatches) {
     EXPECT_EQ(dag.get_edges(21).front().next_pos, RuneIndex{22});
 }
 
+TEST(CapacityTest, MatchTraversalPreservesTheEightBitRuneEndpoint) {
+    const auto dict = DictTrie{DICT_DIR "/jieba.dict.utf8", "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto runes = Unicode(253, U' ');
+    runes.insert(runes.end(), {U'北', U'京'});
+    auto ends = std::vector<RuneIndex>{};
+    dict.for_each_match_from(runes, 253, [&](RuneIndex end, const DictUnit &) { ends.push_back(end); });
+
+    EXPECT_EQ(ends, (std::vector<RuneIndex>{254, 255}));
+}
+
 TEST(CapacityTest, PublicEncoderRejectsOffsetsBeyondTheHostAddressRange) {
     if constexpr (std::numeric_limits<SourceOffset>::digits > std::numeric_limits<std::size_t>::digits) {
         const auto host_limit = static_cast<SourceOffset>(std::numeric_limits<std::size_t>::max());

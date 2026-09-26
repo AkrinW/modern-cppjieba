@@ -10,6 +10,7 @@
 #include "neo/third_party/gtl.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -251,6 +252,28 @@ public:
     [[nodiscard]] auto find(const T &input) const -> DictUnit {
         const auto unicode = decode(input);
         return find(std::span<const Rune>{unicode});
+    }
+
+    // Visit real dictionary matches from one rune position in increasing end order.
+    // The callback borrows each dictionary value; unknown runes do not produce matches.
+    template <typename Emit>
+    auto for_each_match_from(std::span<const Rune> runes, RuneIndex begin, Emit &&emit) const -> void {
+        assert(runes.size() <= std::numeric_limits<RuneIndex>::max());
+        assert(begin <= runes.size());
+        if (empty() || begin == runes.size()) {
+            return;
+        }
+
+        const auto *entry = find_root(runes[static_cast<size_t>(begin)]);
+        for (auto end = static_cast<size_t>(begin) + 1; entry; ++end) {
+            if (entry->value.has_value()) {
+                emit(static_cast<RuneIndex>(end), entry->value);
+            }
+            if (end == runes.size()) {
+                break;
+            }
+            entry = find_child(*entry, runes[end]);
+        }
     }
 
     /// Find all matching prefixes in the trie to build a flat compressed DAG.

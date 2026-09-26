@@ -8,6 +8,7 @@
 #include "neo/detail/SegmentScratch.hpp"
 #include "neo/detail/StringUtil.hpp"
 
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -43,15 +44,15 @@ enum class MPOutput : uint8_t { Local, Append };
 /// Run MP segmentation on a separator-free rune span and keep the DAG for downstream reuse.
 /// The caller owns the DAG and destination; only the DP scratch is local to this call.
 // DP storage now belongs to the caller's reusable algorithm scratch.
-template <MPOutput output>
-inline auto mp_cut_dag(const DictTrie &dict, const Dag &dag, std::vector<WordRange> &words, RuneIndex pos,
-                       SegmentScratch &scratch) -> void {
-    assert_check([&] { return dag.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
+// Scoring and traceback now accept either stored DAG edges or direct dictionary matches.
+template <MPOutput output, typename ForEachEdge>
+inline auto mp_cut_matches(const DictTrie &dict, size_t n, const ForEachEdge &for_each_edge,
+                           std::vector<WordRange> &words, RuneIndex pos, SegmentScratch &scratch) -> void {
+    assert_check([&] { return n <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "MPSegment: global DAG offsets overflow");
     if constexpr (output == MPOutput::Local) {
         assert_check([&] { return pos == 0 && words.empty(); }, "MPSegment: local output must start empty at zero");
     }
-    const auto n = dag.size();
     if (n == 0) {
         return;
     }
@@ -84,34 +85,31 @@ inline auto mp_cut_dag(const DictTrie &dict, const Dag &dag, std::vector<WordRan
     for (auto i = n; i > 0;) {
         --i;
         dp[i] = MPNode{-std::numeric_limits<float>::infinity(), 0};
-        const auto edges = dag.get_edges(i);
-        assert_check([&] { return !edges.empty() && edges.front().next_pos == i + 1; },
-                     "MPSegment: each DAG position must start with a single-rune edge");
         auto best_is_dictionary_word = false;
 
-        for (const auto &edge : edges) {
-            assert_check([&] { return i < edge.next_pos && edge.next_pos <= n; },
+        for_each_edge(static_cast<RuneIndex>(i), [&](RuneIndex next_pos, float word_weight) {
+            assert_check([&] { return i < next_pos && next_pos <= n; },
                          "MPSegment: DAG edge must advance within the rune span");
             // weight == 0.0f ⇒ not a real dictionary word (sentinel).
             // All genuine log-weights are strictly negative.
             // Only the missing-weight sentinel uses the fallback; a real zero weight participates in scoring as-is.
-            const auto is_dictionary_word = edge.weight != kMissingWordWeight;
-            const auto weight = is_dictionary_word ? edge.weight : fallback;
+            const auto is_dictionary_word = word_weight != kMissingWordWeight;
+            const auto weight = is_dictionary_word ? word_weight : fallback;
             assert_check([&] { return std::isfinite(weight); }, "MPSegment: non-finite edge weight");
 
             // Add the best accumulated weight from the continuation.
             auto total = weight;
-            if (edge.next_pos < n) {
-                total += dp[edge.next_pos].weight;
+            if (next_pos < n) {
+                total += dp[next_pos].weight;
             }
             assert_check([&] { return std::isfinite(total); }, "MPSegment: non-finite accumulated weight");
 
             if (total > dp[i].weight || (total == dp[i].weight && is_dictionary_word && !best_is_dictionary_word)) {
                 dp[i].weight = total;
-                dp[i].next_pos = edge.next_pos;
+                dp[i].next_pos = next_pos;
                 best_is_dictionary_word = is_dictionary_word;
             }
-        }
+        });
     }
 
     // ── Trace forward ────────────────────────────────────────────────
@@ -134,6 +132,20 @@ inline auto mp_cut_dag(const DictTrie &dict, const Dag &dag, std::vector<WordRan
         "MPSegment: words must cover the rune span exactly once");
 }
 
+/// Adapt stored DAG edges to the shared MP scoring and traceback path.
+template <MPOutput output>
+inline auto mp_cut_dag(const DictTrie &dict, const Dag &dag, std::vector<WordRange> &words, RuneIndex pos,
+                       SegmentScratch &scratch) -> void {
+    const auto for_each_edge = [&](RuneIndex begin, const auto &emit) {
+        const auto edges = dag.get_edges(static_cast<size_t>(begin));
+        assert(!edges.empty() && edges.front().next_pos == begin + 1);
+        for (const auto &edge : edges) {
+            emit(edge.next_pos, edge.weight);
+        }
+    };
+    mp_cut_matches<output>(dict, dag.size(), for_each_edge, words, pos, scratch);
+}
+
 /// Materialize local MP words together with the DAG needed by MIX and SEARCH.
 inline auto mp_cut_segment(const DictTrie &dict, std::span<const Rune> runes, SegmentScratch &scratch) -> void {
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
@@ -152,9 +164,20 @@ inline auto mp_cut_one_segment(const DictTrie &dict, std::vector<WordRange> &res
     if (runes.empty()) {
         return;
     }
-    dict.find_dag_into(runes, scratch.dag);
-    assert_check([&] { return scratch.dag.size() == runes.size(); }, "MPSegment: DAG size must match the rune span");
-    mp_cut_dag<MPOutput::Append>(dict, scratch.dag, result, pos, scratch);
+    const auto for_each_edge = [&](RuneIndex begin, const auto &emit) {
+        const auto single_end = static_cast<RuneIndex>(begin + 1);
+        auto has_single = false;
+        dict.for_each_match_from(runes, begin, [&](RuneIndex end, const DictUnit &word) {
+            has_single |= end == single_end;
+            emit(end, word.weight);
+        });
+        // A known single rune replaces the fallback. Otherwise score the fallback last;
+        // the shared tie rule still prefers a dictionary word with the same total weight.
+        if (!has_single) {
+            emit(single_end, kMissingWordWeight);
+        }
+    };
+    mp_cut_matches<MPOutput::Append>(dict, runes.size(), for_each_edge, result, pos, scratch);
 }
 
 /// Append MP segmentation results while preserving separator runes as standalone tokens.

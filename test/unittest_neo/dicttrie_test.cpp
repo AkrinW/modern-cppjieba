@@ -271,6 +271,69 @@ TEST_F(DictTrieInputTest, MpSegmentationPreservesOffsetsAtWordRangeLimit) {
     EXPECT_EQ(words, (std::vector<WordRange>{{limit - 3, limit - 2}, {limit - 2, limit - 1}, {limit - 1, limit}}));
 }
 
+TEST_F(DictTrieInputTest, MatchTraversalReturnsPrefixesInIncreasingRuneEndOrder) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "𠮷 1 n\n𠮷甲 2 v\n𠮷甲乙 3 nt\n"));
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("外𠮷甲乙外");
+    auto ends = std::vector<RuneIndex>{};
+    auto values = std::vector<DictUnit>{};
+    trie.for_each_match_from(runes, 1, [&](RuneIndex end, const DictUnit &word) {
+        ends.push_back(end);
+        values.push_back(word);
+    });
+
+    EXPECT_EQ(ends, (std::vector<RuneIndex>{2, 3, 4}));
+    ASSERT_EQ(values.size(), 3u);
+    EXPECT_FLOAT_EQ(values[0].weight, std::log(1.0f / 6.0f));
+    EXPECT_FLOAT_EQ(values[1].weight, std::log(2.0f / 6.0f));
+    EXPECT_FLOAT_EQ(values[2].weight, std::log(3.0f / 6.0f));
+    EXPECT_EQ(values[0].tag, PosTag{"n"});
+    EXPECT_EQ(values[1].tag, PosTag{"v"});
+    EXPECT_EQ(values[2].tag, PosTag{"nt"});
+}
+
+TEST_F(DictTrieInputTest, MatchTraversalSkipsNonWordPrefixesAndKeepsZeroWeights) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲乙 10 n\n"));
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲乙");
+    auto ends = std::vector<RuneIndex>{};
+    trie.for_each_match_from(runes, 0, [&](RuneIndex end, const DictUnit &word) {
+        ends.push_back(end);
+        EXPECT_FLOAT_EQ(word.weight, 0.0f);
+    });
+
+    EXPECT_EQ(ends, (std::vector<RuneIndex>{2}));
+}
+
+TEST_F(DictTrieInputTest, MatchTraversalDoesNotEmitUnknownRuneFallbacks) {
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("𠮷外");
+    auto matches = 0;
+    trie.for_each_match_from(runes, 0, [&](RuneIndex, const DictUnit &) { ++matches; });
+    EXPECT_EQ(matches, 0);
+}
+
+TEST_F(DictTrieInputTest, MatchTraversalStopsAtMissingContinuation) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲 1 n\n甲乙 1 n\n"));
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲外乙");
+    auto ends = std::vector<RuneIndex>{};
+    trie.for_each_match_from(runes, 0, [&](RuneIndex end, const DictUnit &) { ends.push_back(end); });
+    EXPECT_EQ(ends, (std::vector<RuneIndex>{1}));
+}
+
+TEST_F(DictTrieInputTest, MatchTraversalEmitsNothingAtTheInputEnd) {
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto matches = 0;
+    const auto emit = [&](RuneIndex, const DictUnit &) {
+        ++matches;
+    };
+    const auto runes = decode("主词");
+    trie.for_each_match_from(runes, static_cast<RuneIndex>(runes.size()), emit);
+    trie.for_each_match_from(Unicode{}, 0, emit);
+    EXPECT_EQ(matches, 0);
+}
+
 TEST_F(DictTrieInputTest, QueryDagIncludesFinalBigramAndTrigramAfterASeparator) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "abcd 1000 eng\n"));
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "ab 1 eng\nbc 1 eng\ncd 1 eng\nabc 1 eng\nbcd 1 eng\n"));

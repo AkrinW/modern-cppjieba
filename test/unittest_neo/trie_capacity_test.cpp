@@ -55,7 +55,7 @@ TEST(TrieCapacityTest, LastUsableEightBitNodeIdRemainsSearchable) {
     values.reserve(254);
     for (std::size_t i = 1; i <= 254; ++i) {
         keys.push_back(Unicode{static_cast<Rune>(0x100 + i), U'𠮷'});
-        values.push_back(DictUnit{-static_cast<float>(i), {}});
+        values.push_back(DictUnit{.weight = -static_cast<float>(i)});
     }
 
     auto trie = Trie{};
@@ -77,7 +77,7 @@ TEST(TrieCapacityTest, LastUsableEightBitNodeIdRemainsSearchable) {
 
 TEST(TrieCapacityTest, DirectAndHashedRootsPreserveDagMatches) {
     const auto keys = std::array{Unicode{U'甲', U'𠮷'}, Unicode{U'𠮷', U'甲'}};
-    const auto values = std::array{DictUnit{-1.0f, {}}, DictUnit{-2.0f, {}}};
+    const auto values = std::array{DictUnit{.weight = -1.0f}, DictUnit{.weight = -2.0f}};
     auto trie = Trie{};
     trie.build(keys, values);
 

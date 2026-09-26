@@ -47,6 +47,11 @@ public:
         return find(std::span<const Rune>{unicode});
     }
 
+    template <typename Emit>
+    auto for_each_match_from(std::span<const Rune> runes, RuneIndex begin, Emit &&emit) const -> void {
+        trie_.for_each_match_from(runes, begin, std::forward<Emit>(emit));
+    }
+
     [[nodiscard]] auto find_dag(std::span<const Rune> runes) const -> Dag {
         return trie_.find_dag(runes);
     }
