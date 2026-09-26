@@ -10,6 +10,7 @@
 #include "neo/detail/SegmentScratch.hpp"
 #include "neo/detail/StringUtil.hpp"
 
+#include <cassert>
 #include <cstddef>
 #include <limits>
 #include <span>
@@ -87,45 +88,44 @@ private:
             return;
         }
 
-        detail::mp_cut_segment(dict, runes, scratch);
-        append_mix_words(dict, model, result, scratch.mp_words, runes, pos, scratch);
+        detail::mp_build_route_from_matches(dict, runes, scratch);
+        append_mix_route(dict, model, result, runes, pos, scratch);
     }
 
     /// Re-segment MP single-character runs with HMM so OOV multi-character words can be recovered.
-    static auto append_mix_words(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
-                                 const std::vector<WordRange> &mp_words, std::span<const Rune> runes, RuneIndex pos,
-                                 detail::SegmentScratch &scratch) -> void {
+    static auto append_mix_route(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
+                                 std::span<const Rune> runes, RuneIndex pos, detail::SegmentScratch &scratch) -> void {
         assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                      "MixSegment: global word offsets overflow");
-        assert_check([&] { return detail::valid_segment_partition(mp_words, runes.size()); },
-                     "MixSegment: MP words must cover the rune span exactly once");
-        auto i = size_t{0};
-        while (i < mp_words.size()) {
-            const auto &word = mp_words[i];
+        assert(scratch.route.size() >= runes.size());
+        // HMM uses its own path buffer, so the MP route remains valid throughout this traversal.
+        const auto &route = scratch.route;
+        auto begin = RuneIndex{0};
+        while (begin < runes.size()) {
+            const auto end = route[begin].next_pos;
+            assert(begin < end && end <= runes.size());
 
             // Multi-character word or user-dict single Chinese character → emit directly.
-            if (word.size() > 1 || (word.size() == 1 && dict.is_user_dict_single_chinese_word(runes[word.begin]))) {
-                result.push_back(
-                    WordRange{static_cast<RuneIndex>(pos + word.begin), static_cast<RuneIndex>(pos + word.end)});
-                ++i;
+            if (end - begin > 1 || dict.is_user_dict_single_chinese_word(runes[begin])) {
+                result.push_back(WordRange{static_cast<RuneIndex>(pos + begin), static_cast<RuneIndex>(pos + end)});
+                begin = end;
                 continue;
             }
 
             // Collect consecutive single-character words that are not user-dict words.
-            auto j = i;
-            while (j < mp_words.size() && mp_words[j].size() == 1
-                   && !dict.is_user_dict_single_chinese_word(runes[mp_words[j].begin])) {
-                ++j;
+            const auto run_begin = begin;
+            auto run_end = end;
+            while (run_end < runes.size() && route[run_end].next_pos == run_end + 1
+                   && !dict.is_user_dict_single_chinese_word(runes[run_end])) {
+                ++run_end;
             }
 
-            assert_check([&] { return i < j; }, "MixSegment: HMM input must contain at least one MP word");
-            auto run_begin = mp_words[i].begin;
-            auto run_end = mp_words[j - 1].end;
+            assert(run_begin < run_end);
             // The outer cut already removed separators; retain the HMM helper's ASCII handling and rune offsets.
             detail::hmm_cut_one_segment(model, result, runes.subspan(run_begin, run_end - run_begin), pos + run_begin,
                                         scratch);
 
-            i = j;
+            begin = run_end;
         }
     }
 };

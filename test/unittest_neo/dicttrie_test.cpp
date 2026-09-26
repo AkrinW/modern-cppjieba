@@ -334,6 +334,19 @@ TEST_F(DictTrieInputTest, MatchTraversalEmitsNothingAtTheInputEnd) {
     EXPECT_EQ(matches, 0);
 }
 
+TEST_F(DictTrieInputTest, MixUserSingleWordBoundsHmmRunsBetweenDictionaryWords) {
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "北京 100 n\n上海 100 n\n"));
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "研 1 n\n"));
+    const auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{DICT_DIR "/hmm_model.utf8"};
+    const auto runes = decode("北京杭研杭上海");
+    const auto result = MixSegment<true>::cut(trie, model, runes);
+
+    EXPECT_EQ(to_strings(runes, result), (std::vector<std::string>{"北京", "杭", "研", "杭", "上海"}));
+    EXPECT_EQ(result, (std::vector<WordRange>{{0, 2}, {2, 3}, {3, 4}, {4, 5}, {5, 7}}));
+}
+
 TEST_F(DictTrieInputTest, QueryDagIncludesFinalBigramAndTrigramAfterASeparator) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "abcd 1000 eng\n"));
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "ab 1 eng\nbc 1 eng\ncd 1 eng\nabc 1 eng\nbcd 1 eng\n"));

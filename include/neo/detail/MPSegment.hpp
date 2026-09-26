@@ -45,18 +45,14 @@ enum class MPOutput : uint8_t { Local, Append };
 /// The caller owns the DAG and destination; only the DP scratch is local to this call.
 // DP storage now belongs to the caller's reusable algorithm scratch.
 // Scoring and traceback now accept either stored DAG edges or direct dictionary matches.
-template <MPOutput output, typename ForEachEdge>
-inline auto mp_cut_matches(const DictTrie &dict, size_t n, const ForEachEdge &for_each_edge,
-                           std::vector<WordRange> &words, RuneIndex pos, SegmentScratch &scratch) -> void {
-    assert_check([&] { return n <= std::numeric_limits<RuneIndex>::max() - pos; },
-                 "MPSegment: global DAG offsets overflow");
-    if constexpr (output == MPOutput::Local) {
-        assert_check([&] { return pos == 0 && words.empty(); }, "MPSegment: local output must start empty at zero");
-    }
+// Route construction is shared; each consumer chooses how to traverse it.
+template <typename ForEachEdge>
+inline auto mp_build_route(const DictTrie &dict, size_t n, const ForEachEdge &for_each_edge, SegmentScratch &scratch)
+    -> void {
+    assert(n <= std::numeric_limits<RuneIndex>::max());
     if (n == 0) {
         return;
     }
-    const auto appended_begin = words.size();
 
     // DP node: cumulative best weight from position i to end, and the next_pos chosen by that optimal edge.
     auto &dp = scratch.route;
@@ -111,6 +107,19 @@ inline auto mp_cut_matches(const DictTrie &dict, size_t n, const ForEachEdge &fo
             }
         });
     }
+}
+
+/// Trace the active MP route into local ranges or append ranges at a global rune offset.
+template <MPOutput output>
+inline auto mp_trace_route(size_t n, std::vector<WordRange> &words, RuneIndex pos, const SegmentScratch &scratch)
+    -> void {
+    assert(n <= std::numeric_limits<RuneIndex>::max() - pos);
+    assert(scratch.route.size() >= n);
+    if constexpr (output == MPOutput::Local) {
+        assert_check([&] { return pos == 0 && words.empty(); }, "MPSegment: local output must start empty at zero");
+    }
+    const auto appended_begin = words.size();
+    const auto &dp = scratch.route;
 
     // ── Trace forward ────────────────────────────────────────────────
     if constexpr (output == MPOutput::Local) {
@@ -136,17 +145,27 @@ inline auto mp_cut_matches(const DictTrie &dict, size_t n, const ForEachEdge &fo
 template <MPOutput output>
 inline auto mp_cut_dag(const DictTrie &dict, const Dag &dag, std::vector<WordRange> &words, RuneIndex pos,
                        SegmentScratch &scratch) -> void {
+    const auto n = dag.size();
+    const auto offsets = std::span<const DagOffset>{dag.offsets};
+    const auto all_edges = std::span<const DagEdge>{dag.edges};
+    // Reverse DP visits only existing vertices; the DAG stays immutable while the route is built.
     const auto for_each_edge = [&](RuneIndex begin, const auto &emit) {
-        const auto edges = dag.get_edges(static_cast<size_t>(begin));
+        assert(begin < n);
+        const auto i = static_cast<size_t>(begin);
+        assert(offsets[i] <= offsets[i + 1] && offsets[i + 1] <= all_edges.size());
+        const auto edges =
+            all_edges.subspan(static_cast<size_t>(offsets[i]), static_cast<size_t>(offsets[i + 1] - offsets[i]));
         assert(!edges.empty() && edges.front().next_pos == begin + 1);
         for (const auto &edge : edges) {
             emit(edge.next_pos, edge.weight);
         }
     };
-    mp_cut_matches<output>(dict, dag.size(), for_each_edge, words, pos, scratch);
+    mp_build_route(dict, n, for_each_edge, scratch);
+    mp_trace_route<output>(n, words, pos, scratch);
 }
 
 /// Materialize local MP words together with the DAG needed by MIX and SEARCH.
+// MIX now consumes the route directly; SEARCH still needs these materialized results.
 inline auto mp_cut_segment(const DictTrie &dict, std::span<const Rune> runes, SegmentScratch &scratch) -> void {
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
                  "MPSegment: rune count exceeds the word-range limit");
@@ -157,13 +176,9 @@ inline auto mp_cut_segment(const DictTrie &dict, std::span<const Rune> runes, Se
 }
 
 /// Append MP segmentation results for a separator-free segment with a caller-provided global offset.
-inline auto mp_cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
-                               RuneIndex pos, SegmentScratch &scratch) -> void {
-    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
-                 "MPSegment: global word offsets overflow");
-    if (runes.empty()) {
-        return;
-    }
+// Matching now prepares only the route; mp_cut_one_segment below appends the output.
+inline auto mp_build_route_from_matches(const DictTrie &dict, std::span<const Rune> runes, SegmentScratch &scratch)
+    -> void {
     const auto for_each_edge = [&](RuneIndex begin, const auto &emit) {
         const auto single_end = static_cast<RuneIndex>(begin + 1);
         auto has_single = false;
@@ -177,7 +192,19 @@ inline auto mp_cut_one_segment(const DictTrie &dict, std::vector<WordRange> &res
             emit(single_end, kMissingWordWeight);
         }
     };
-    mp_cut_matches<MPOutput::Append>(dict, runes.size(), for_each_edge, result, pos, scratch);
+    mp_build_route(dict, runes.size(), for_each_edge, scratch);
+}
+
+/// Build and append the MP path without materializing dictionary edges or local word ranges.
+inline auto mp_cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
+                               RuneIndex pos, SegmentScratch &scratch) -> void {
+    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
+                 "MPSegment: global word offsets overflow");
+    if (runes.empty()) {
+        return;
+    }
+    mp_build_route_from_matches(dict, runes, scratch);
+    mp_trace_route<MPOutput::Append>(runes.size(), result, pos, scratch);
 }
 
 /// Append MP segmentation results while preserving separator runes as standalone tokens.

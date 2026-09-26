@@ -84,6 +84,16 @@ TEST(MixSegmentNeoTest, HangyanBuildingNoHMM) {
     EXPECT_EQ(join(words), "他/来到/了/网易/杭/研/大厦") << "actual: " << join(words);
 }
 
+TEST(MixSegmentNeoTest, HmmRunsResumeTheMpRouteAcrossDictionaryWords) {
+    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto model = HMModel{HMM_MODEL_FILE};
+    const auto runes = decode("杭研北京杭研上海杭研");
+    const auto result = MixSegment<true>::cut(dict, model, runes);
+
+    EXPECT_EQ(to_strings(runes, result), (std::vector<std::string>{"杭研", "北京", "杭研", "上海", "杭研"}));
+    EXPECT_EQ(result, (std::vector<WordRange>{{0, 2}, {2, 4}, {4, 6}, {6, 8}, {8, 10}}));
+}
+
 TEST(MixSegmentNeoTest, NoHmmPreservesRuneOffsetsAroundConsecutiveSeparators) {
     const auto dict = DictTrie{DICT_FILE};
     const auto model = HMModel{HMM_MODEL_FILE};
