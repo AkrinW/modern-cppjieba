@@ -3,17 +3,108 @@
 #include "neo/Unicode.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/FullSegment.hpp"
+#include "neo/detail/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 using namespace neo_cppjieba;
 
 inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
+
+namespace {
+
+// Small dictionaries isolate FULL's overlap, coverage and separator rules.
+class FullSegmentDictionaryTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        auto pattern = (std::filesystem::temp_directory_path() / "neo-full-XXXXXX").string();
+        ASSERT_NE(::mkdtemp(pattern.data()), nullptr);
+        directory_ = std::move(pattern);
+    }
+
+    void TearDown() override {
+        if (!directory_.empty()) {
+            auto error = std::error_code{};
+            std::filesystem::remove_all(directory_, error);
+            EXPECT_FALSE(error) << error.message();
+        }
+    }
+
+    [[nodiscard]] auto dictionary_path() const -> std::string {
+        return (directory_ / "main.dict").string();
+    }
+
+    void write_dictionary(std::string_view contents) const {
+        auto output = std::ofstream{dictionary_path(), std::ios::binary};
+        ASSERT_TRUE(output.is_open());
+        output << contents;
+        output.close();
+        ASSERT_TRUE(output.good());
+    }
+
+    std::filesystem::path directory_;
+};
+
+} // namespace
+
+TEST_F(FullSegmentDictionaryTest, OverlappingWordsKeepStartThenEndOrder) {
+    ASSERT_NO_FATAL_FAILURE(write_dictionary("甲 1 n\n甲乙 1 n\n甲乙丙 1 n\n乙丙 1 n\n"));
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲乙丙");
+
+    EXPECT_EQ(FullSegment::cut(dict, runes), (std::vector<WordRange>{{0, 2}, {0, 3}, {1, 3}}));
+}
+
+TEST_F(FullSegmentDictionaryTest, ShorterLaterMatchesPreserveEarlierCoverage) {
+    ASSERT_NO_FATAL_FAILURE(write_dictionary("甲乙丙丁戊 1 n\n乙丙 1 n\n"));
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲乙丙丁戊己");
+
+    EXPECT_EQ(FullSegment::cut(dict, runes), (std::vector<WordRange>{{0, 5}, {1, 3}, {5, 6}}));
+}
+
+TEST_F(FullSegmentDictionaryTest, UnmatchedPrefixesAndUnknownRunesRemainSingleTokens) {
+    ASSERT_NO_FATAL_FAILURE(write_dictionary("甲乙 1 n\n"));
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("𠮷甲丙😀");
+
+    EXPECT_EQ(to_strings(runes, FullSegment::cut(dict, runes)), (std::vector<std::string>{"𠮷", "甲", "丙", "😀"}));
+}
+
+TEST_F(FullSegmentDictionaryTest, NonBmpMatchesKeepRuneOffsetsAcrossSeparators) {
+    ASSERT_NO_FATAL_FAILURE(write_dictionary("𠮷😀 1 n\n"));
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode(" \t𠮷😀，𠮷\n😀。");
+
+    EXPECT_EQ(FullSegment::cut(dict, runes),
+              (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {4, 5}, {5, 6}, {6, 7}, {7, 8}, {8, 9}}));
+}
+
+TEST_F(FullSegmentDictionaryTest, ReusedScratchReplacesLongShortAndEmptyResults) {
+    ASSERT_NO_FATAL_FAILURE(write_dictionary("甲乙丙丁戊 1 n\n乙丙 1 n\n"));
+    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto scratch = detail::SegmentScratch{};
+    auto words = std::vector<WordRange>{};
+
+    FullSegment::cut_into(dict, decode("甲乙丙丁戊己"), words, scratch);
+    EXPECT_EQ(words, (std::vector<WordRange>{{0, 5}, {1, 3}, {5, 6}}));
+    FullSegment::cut_into(dict, decode("𠮷"), words, scratch);
+    EXPECT_EQ(words, (std::vector<WordRange>{{0, 1}}));
+    FullSegment::cut_into(dict, Unicode{}, words, scratch);
+    EXPECT_TRUE(words.empty());
+    FullSegment::cut_into(dict, decode("乙丙"), words, scratch);
+    EXPECT_EQ(words, (std::vector<WordRange>{{0, 2}}));
+}
 
 TEST(FullSegmentTest, EmptyInput) {
     auto dict = DictTrie{DICT_FILE};
