@@ -46,3 +46,33 @@ The FileIO benchmark was extracted from `FileIOPerfTest.MmapVsIfstream`.
 It retains input validation and timing output, while correctness tests remain
 in `test/unittest_neo/fileio_test.cpp`. Timing ratios are observations and do not
 decide whether the unit tests pass.
+
+## GitHub Actions
+
+CI runs Debug and Release unit tests on Linux x64, Linux ARM64, macOS and Windows.
+Linux x64 also exercises the optional legacy C++ tests in both configurations.
+JUnit results and CTest logs are uploaded for each matrix job, including failed tests.
+
+The Linux `Release benchmarks / Rust=ON` job builds the C++ benchmarks and the
+pinned Rust adapter, runs the Rust and Python adapter tests, then compares old C++,
+neo C++, Rust and Python through `python_compare_benchmark.py`. The `Rust=OFF` job
+continues to check that the standalone C++ benchmarks build without Cargo.
+
+All four implementations run serially on one allowed CPU of the same runner,
+using the common dictionary and HMM model. CI uses GCC 14, Rust 1.94.0 and Python
+3.12; comparison dependencies are pinned by submodule revisions and `Cargo.lock`.
+
+| Corpus | Rounds per sample | Samples |
+| --- | ---: | ---: |
+| `testlines.utf8` | 10,000 | 5 |
+| `weicheng.utf8` | 3 | 5 |
+
+The job summary shows timings for MIX, MP, FULL and SEARCH and the output
+differences. The `benchmarks-linux-x64-release` artifact retains combined JSON,
+native JSON, raw logs and compiler/CPU information for 14 days. Reports stay
+under the ignored `benchmark/results/ci/` directory.
+
+Build, test and benchmark execution errors fail CI. Timing ratios have no pass/fail
+threshold on shared runners; the existing benchmark suppresses rankings when
+segmentation results differ. macOS and Windows compile the C++ benchmarks as part
+of their platform jobs; the four-language measurements currently run on Linux x64.
