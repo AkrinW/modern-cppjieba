@@ -1,0 +1,274 @@
+#pragma once
+
+#include "neo/Config.hpp"
+#include "neo/detail/Platform.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <ctime>
+#include <exception>
+#include <format>
+#include <functional>
+#include <source_location>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <type_traits>
+#include <utility>
+
+namespace neo_cppjieba {
+
+namespace detail {
+// LogLevel enum to string mapping for log output.
+inline constexpr auto LOG_LEVEL_ARRAY = std::array<std::string_view, 5>{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"};
+constexpr auto log_level_name(LogLevel level) noexcept -> std::string_view {
+    // Logging cannot diagnose its own invalid level through assert_check without recursion.
+    assert(static_cast<size_t>(level) < LOG_LEVEL_ARRAY.size());
+    return LOG_LEVEL_ARRAY[static_cast<size_t>(level)];
+}
+
+// ANSI color escape sequences per log level.
+inline constexpr auto LOG_LEVEL_COLOR_ARRAY = std::array<std::string_view, 5>{
+    "\033[36m",   // DEBUG: cyan
+    "\033[32m",   // INFO: green
+    "\033[33m",   // WARNING: yellow
+    "\033[31m",   // ERROR: red
+    "\033[1;31m", // FATAL: bold red
+};
+inline constexpr auto LOG_COLOR_RESET = std::string_view{"\033[0m"};
+
+constexpr auto log_level_color(LogLevel level) noexcept -> std::string_view {
+    assert(static_cast<size_t>(level) < LOG_LEVEL_COLOR_ARRAY.size());
+    return LOG_LEVEL_COLOR_ARRAY[static_cast<size_t>(level)];
+}
+
+inline auto stderr_is_tty() noexcept -> bool {
+    static const auto result = platform::stderr_is_tty();
+    return result;
+}
+
+// kCompileTimeMinLevel is a compile-time constant that indicates the minimum log level to be compiled into the binary.
+inline constexpr auto kCompileTimeMinLevel = LogConfig::min_level;
+inline constexpr auto kNoDebug = !compile_config::is_debug_build;
+
+template <typename Condition>
+concept CheckPredicate = std::invocable<Condition> && std::convertible_to<std::invoke_result_t<Condition>, bool>;
+
+template <typename Condition>
+concept CheckCondition = std::convertible_to<Condition, bool> || CheckPredicate<Condition>;
+
+// Treat zero-argument callables as lazy values while preserving ordinary string arguments.
+template <typename Value>
+concept LogArgInvocable = std::invocable<Value> && !std::is_convertible_v<Value, std::string_view>
+                          && !std::is_convertible_v<Value, const char *>;
+
+// Invoke diagnostic producers only after a log level or failed check has selected the logging path.
+template <typename Value>
+[[nodiscard]] auto eval_log_arg(Value &&arg) -> decltype(auto) {
+    if constexpr (LogArgInvocable<Value>) {
+        return std::invoke(std::forward<Value>(arg));
+    } else {
+        return std::forward<Value>(arg);
+    }
+}
+
+template <typename Value>
+using LogRawEvalType = decltype(eval_log_arg(std::declval<Value>()));
+
+// Match std::format's deduction: retain lvalue references and normalize rvalue references to values.
+template <typename Value>
+using LogEvalType = std::conditional_t<std::is_lvalue_reference_v<LogRawEvalType<Value>>, LogRawEvalType<Value>,
+                                       std::remove_reference_t<LogRawEvalType<Value>>>;
+
+// Evaluate a bool-like value or predicate exactly once for a check.
+template <CheckCondition Condition>
+[[nodiscard]] constexpr auto eval_check_condition(Condition &&condition) -> bool {
+    if constexpr (CheckPredicate<Condition>) {
+        return static_cast<bool>(std::invoke(std::forward<Condition>(condition)));
+    } else {
+        return static_cast<bool>(std::forward<Condition>(condition));
+    }
+}
+
+// LOG_TIME_FORMAT is the format string used to format the timestamp in log messages.
+inline constexpr auto LOG_TIME_FORMAT = "%Y-%m-%d %H:%M:%S";
+
+// LOG_MAX_TIME_BUFFER_SIZE is the maximum size of the buffer used to store the formatted timestamp in log messages.
+inline constexpr auto LOG_MAX_TIME_BUFFER_SIZE = size_t{32};
+
+// LOG_MAX_BUFFER_SIZE is the maximum size of the buffer used to store the formatted log message before writing to
+// stderr.
+inline constexpr auto LOG_MAX_BUFFER_SIZE = LogConfig::buffer_size;
+
+// cur_time fills the provided buffer with the current time formatted according to LOG_TIME_FORMAT.
+inline auto cur_time() noexcept -> std::array<char, LOG_MAX_TIME_BUFFER_SIZE> {
+    const auto tmNow = platform::local_time(std::time(nullptr));
+    auto buf = std::array<char, LOG_MAX_TIME_BUFFER_SIZE>{};
+    std::strftime(buf.data(), buf.size(), LOG_TIME_FORMAT, &tmNow);
+    return buf;
+}
+
+// Colored prefix format:
+//   dim timestamp, dim [pid/tid], level-colored <LEVEL>, magenta file:line
+inline constexpr auto LOG_COLOR_PREFIX_FMT =
+    "\033[90m{}\033[0m[\033[90mpid:{} tid:{:04x}\033[0m]{}<{}>\033[0m\033[35m{}:{}\033[0m ";
+inline constexpr auto LOG_PLAIN_PREFIX_FMT = "{}[pid:{} tid:{:04x}]<{}>{}:{} ";
+inline constexpr auto LOG_COLOR_PRIVATE_PREFIX_FMT =
+    "\033[90m{}\033[0m[\033[90mpid:{} tid:{:04x}\033[0m]{}<{}>\033[0m ";
+inline constexpr auto LOG_PLAIN_PRIVATE_PREFIX_FMT = "{}[pid:{} tid:{:04x}]<{}> ";
+
+// Fatal logs and failed assertions invoke the terminate handler.
+
+// log_impl is the internal function that performs the actual logging. It formats the log message and writes it to
+// stderr.
+template <LogLevel Level, LogConfiguration Config, typename... Args>
+inline auto log_impl(std::format_string<LogEvalType<Args>...> fmt, const std::source_location &loc,
+                     Args &&...args) noexcept(Level == LogLevel::LL_FATAL) -> void {
+    if constexpr (Level < Config::min_level && Level < LogLevel::LL_ERROR) {
+        return;
+    }
+
+    constexpr auto buffer_size = Config::buffer_size;
+    constexpr auto color_prefix_fmt =
+        Config::show_source_location ? LOG_COLOR_PREFIX_FMT : LOG_COLOR_PRIVATE_PREFIX_FMT;
+    constexpr auto plain_prefix_fmt =
+        Config::show_source_location ? LOG_PLAIN_PREFIX_FMT : LOG_PLAIN_PRIVATE_PREFIX_FMT;
+    auto buffer = std::array<char, buffer_size>{};
+    const auto time_buf = cur_time();
+    const auto tid_hash = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    const auto use_color = stderr_is_tty();
+    const auto pid = platform::process_id();
+    const auto tid_short = static_cast<uint16_t>(tid_hash);
+
+    size_t prefix_len = 0;
+    if (use_color) {
+        const auto it = std::format_to_n(buffer.begin(), buffer_size, color_prefix_fmt, time_buf.data(), pid, tid_short,
+                                         log_level_color(Level), log_level_name(Level), loc.file_name(), loc.line());
+        prefix_len = static_cast<size_t>(it.out - buffer.begin());
+    } else {
+        const auto it = std::format_to_n(buffer.begin(), buffer_size, plain_prefix_fmt, time_buf.data(), pid, tid_short,
+                                         log_level_name(Level), loc.file_name(), loc.line());
+        prefix_len = static_cast<size_t>(it.out - buffer.begin());
+    }
+
+    const auto result = std::format_to_n(buffer.begin() + prefix_len, buffer_size - prefix_len, fmt,
+                                         eval_log_arg(std::forward<Args>(args))...);
+    auto total = static_cast<size_t>(result.out - buffer.begin());
+
+    if (total < buffer_size) {
+        buffer[total] = '\n';
+        total += 1;
+    } else {
+        buffer[buffer_size - 1] = '\n';
+        total = buffer_size;
+    }
+
+    std::fwrite(buffer.data(), sizeof(char), total, stderr);
+    if constexpr (Level == LogLevel::LL_ERROR) {
+        std::fflush(stderr);
+        if (use_color) {
+            // Build a plain version for the exception message (no ANSI codes).
+            auto plain = std::array<char, buffer_size>{};
+            const auto pit = std::format_to_n(plain.begin(), buffer_size, plain_prefix_fmt, time_buf.data(), pid,
+                                              tid_short, log_level_name(Level), loc.file_name(), loc.line());
+            const auto plain_prefix = static_cast<size_t>(pit.out - plain.begin());
+            const auto msg_len = total - prefix_len;
+            const auto copy_len = std::min(msg_len, buffer_size - plain_prefix);
+            std::copy_n(buffer.data() + prefix_len, copy_len, plain.data() + plain_prefix);
+            throw typename Config::Exception{std::string{plain.data(), plain_prefix + copy_len}};
+        }
+        throw typename Config::Exception{std::string{buffer.data(), total}};
+    } else if constexpr (Level == LogLevel::LL_FATAL) {
+        std::fflush(stderr);
+        std::terminate();
+    }
+    // Fatal diagnostics must terminate even if a lazy argument or formatter throws.
+    // The conditional noexcept specification enforces this on diagnostic failure.
+}
+
+// LogFormatString is a helper struct that holds a format string and its source location for logging purposes. It allows
+// for compile-time format string checking and provides context for log messages.
+template <LogConfiguration Config, typename... Args>
+struct LogFormatString {
+    std::format_string<Args...> fmt;
+    std::source_location loc;
+
+    template <typename StringType>
+    consteval LogFormatString(StringType &&s, const std::source_location &l = std::source_location::current()) noexcept
+        : fmt(std::forward<StringType>(s)), loc(Config::show_source_location ? l : std::source_location{}) {
+    }
+};
+} // namespace detail
+
+// log is a helper function that formats a log message with the given format string and arguments, and logs it at the
+// specified log level.
+// Pass expensive arguments as zero-argument callables so filtered log levels skip their computation.
+template <LogLevel Level, LogConfiguration Config = LogConfig, typename... Args>
+inline auto log(std::type_identity_t<detail::LogFormatString<Config, detail::LogEvalType<Args>...>> fmt,
+                Args &&...args) noexcept(Level == LogLevel::LL_FATAL) -> void {
+    detail::log_impl<Level, Config>(fmt.fmt, fmt.loc, std::forward<Args>(args)...);
+}
+
+// Log an empty message with the same severity and configuration rules.
+template <LogLevel Level, LogConfiguration Config = LogConfig>
+inline auto log(const std::source_location &loc = std::source_location::current()) noexcept(Level == LogLevel::LL_FATAL)
+    -> void {
+    detail::log_impl<Level, Config>("", Config::show_source_location ? loc : std::source_location{});
+}
+
+// check is a helper function that evaluates an expression and logs a fatal error if the expression is false. It uses
+// the same formatting mechanism as log_impl to provide detailed error messages.
+// Failed checks now use ERROR to throw Config::Exception; FATAL terminates.
+template <LogConfiguration Config = LogConfig, detail::CheckCondition Condition, typename... Args>
+inline auto check(Condition &&condition,
+                  std::type_identity_t<detail::LogFormatString<Config, detail::LogEvalType<Args>...>> fmt,
+                  Args &&...args) -> void {
+    if (!detail::eval_check_condition(std::forward<Condition>(condition))) [[unlikely]] {
+        detail::log_impl<LogLevel::LL_ERROR, Config>(fmt.fmt, fmt.loc, std::forward<Args>(args)...);
+    }
+}
+
+// Check a condition without an additional diagnostic message.
+template <LogConfiguration Config = LogConfig, detail::CheckCondition Condition>
+inline auto check(Condition &&condition, const std::source_location &loc = std::source_location::current()) -> void {
+    if (!detail::eval_check_condition(std::forward<Condition>(condition))) [[unlikely]] {
+        detail::log_impl<LogLevel::LL_ERROR, Config>("", Config::show_source_location ? loc : std::source_location{});
+    }
+}
+
+// assert_check evaluates a predicate lambda only in debug builds (NDEBUG not defined).
+// In release builds the lambda is never invoked, avoiding side-effect evaluation.
+// Failed assertions terminate; valid predicates can also be checked during constant evaluation.
+template <LogConfiguration Config = LogConfig, detail::CheckPredicate F, typename... Args>
+constexpr auto assert_check(F &&predicate,
+                            std::type_identity_t<detail::LogFormatString<Config, detail::LogEvalType<Args>...>> fmt,
+                            Args &&...args) noexcept -> void {
+    if constexpr (detail::kNoDebug) {
+        return;
+    } else {
+        if (!detail::eval_check_condition(std::forward<F>(predicate))) [[unlikely]] {
+            detail::log_impl<LogLevel::LL_FATAL, Config>(fmt.fmt, fmt.loc, std::forward<Args>(args)...);
+        }
+    }
+}
+
+// Apply the same debug-only terminating assertion when no diagnostic message is supplied.
+template <LogConfiguration Config = LogConfig, detail::CheckPredicate F>
+constexpr auto assert_check(F &&predicate, const std::source_location &loc = std::source_location::current()) noexcept
+    -> void {
+    if constexpr (detail::kNoDebug) {
+        return;
+    } else {
+        if (!detail::eval_check_condition(std::forward<F>(predicate))) [[unlikely]] {
+            detail::log_impl<LogLevel::LL_FATAL, Config>("",
+                                                         Config::show_source_location ? loc : std::source_location{});
+        }
+    }
+}
+
+} // namespace neo_cppjieba

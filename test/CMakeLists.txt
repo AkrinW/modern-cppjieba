@@ -1,12 +1,17 @@
-SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR})
+if(MSVC)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    add_compile_options(/utf-8)
+endif()
 
-# Configure test paths
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/test_paths.h.in" "${CMAKE_BINARY_DIR}/test/test_paths.h")
-
-INCLUDE_DIRECTORIES(
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_BINARY_DIR}/test
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG release-1.12.1
 )
+FetchContent_MakeAvailable(googletest)
 
-ADD_EXECUTABLE(load_test load_test.cpp)
-ADD_SUBDIRECTORY(unittest)
+add_subdirectory(unittest_neo)
+if(CPPJIEBA_BUILD_LEGACY_TESTS)
+    add_subdirectory(unittest)
+endif()

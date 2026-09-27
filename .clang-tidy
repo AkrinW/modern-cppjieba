@@ -1,0 +1,39 @@
+---
+HeaderFilterRegex: '^(include/neo|test|benchmark)/'
+ExcludeHeaderFilterRegex: '(^benchmark/Perf\.hpp$|(^|/)include/neo/third_party/)'
+
+Checks: >
+  -*,
+  unused-includes,
+  readability-braces-around-statements,
+  readability-simplify-boolean-expr,
+  misc-unused-parameters,
+  readability-else-after-return,
+  readability-qualified-auto,
+  readability-redundant-access-specifiers,
+  modernize-use-override,
+  modernize-use-using,
+  modernize-use-auto,
+  # cppcoreguidelines-pro-type-cstyle-cast,
+  modernize-loop-convert,
+  performance-inefficient-vector-operation,
+  modernize-use-nullptr,
+  performance-unnecessary-copy-initialization,
+  cppcoreguidelines-pro-type-member-init,
+  readability-make-member-function-const,
+  modernize-use-equals-default,
+  readability-redundant-inline-specifier,
+  misc-use-internal-linkage,
+  misc-use-anonymous-namespace,
+  modernize-use-nodiscard,
+  modernize-use-emplace,
+  readability-isolate-declaration,
+  readability-redundant-string-init,
+  cppcoreguidelines-prefer-member-initializer,
+  modernize-return-braced-init-lis,
+  modernize-use-trailing-return-type,
+  google-readability-casting
+
+CheckOptions:
+  - key: modernize-use-trailing-return-type.TransformLambdas
+    value: none

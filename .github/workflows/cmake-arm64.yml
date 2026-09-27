@@ -1,40 +1,61 @@
-name: CMake Windows ARM64
+name: CMake Linux ARM64
 
 on:
   push:
+    branches: [master]
   pull_request:
-  workflow_dispatch:  
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   BUILD_TYPE: Release
+  CXX: g++-14
 
 jobs:
-  build-windows-arm64:
-    runs-on: windows-2022
+  build-linux-arm64:
+    name: Linux ARM64 / ${{ matrix.build_type }}
+    env:
+      BUILD_TYPE: ${{ matrix.build_type }}
+    runs-on: ubuntu-24.04-arm
     strategy:
+      fail-fast: false
       matrix:
-        cpp_version: [11, 14, 17, 20]
+        cpp_version: [23]
+        build_type: [Debug, Release]
 
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v2
-        with:
-            submodules: recursive
+        uses: actions/checkout@v4
+
+      - name: Install C++23 compiler
+        run: sudo apt-get update && sudo apt-get install -y g++-14
 
       - name: Configure CMake
         # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
         # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
         # run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
-        run: cmake -B ${{github.workspace}}/build -DBUILD_TESTING=ON -DCMAKE_CXX_STANDARD=${{matrix.cpp_version}} -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        run: cmake -B ${{github.workspace}}/build -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_STANDARD=${{matrix.cpp_version}} -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
       - name: Build
         # Build your program with the given configuration
         # run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
-        run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+        run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel 2
 
       - name: Test
         working-directory: ${{github.workspace}}/build
-        # Execute tests defined by the CMake configuration.  
+        # Execute tests defined by the CMake configuration.
         # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-        run: ctest -C ${{env.BUILD_TYPE}} --verbose
-      
+        run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure --output-junit unit-tests.xml
+
+      - name: Upload unit-test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ut-linux-arm64-${{ matrix.build_type }}
+          path: |
+            build/unit-tests.xml
+            build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+          retention-days: 14

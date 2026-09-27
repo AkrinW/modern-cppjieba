@@ -1,0 +1,15 @@
+[package]
+name = "modern-cppjieba-rust-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+jieba-rs = { version = "=0.11.0", default-features = false }
+
+[profile.release]
+opt-level = 3
+debug = true
