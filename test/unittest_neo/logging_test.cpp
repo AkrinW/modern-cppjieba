@@ -554,7 +554,8 @@ TEST(LoggingTest, AssertCheckTerminatesWhenPredicateThrows) {
     const auto predicate = []() -> bool {
         throw std::runtime_error{"broken invariant predicate"};
     };
-    if constexpr (compile_config::is_debug_build) {
+    // Keep GoogleTest's generated labels in an ordinary branch for MSVC.
+    if (compile_config::is_debug_build) {
         EXPECT_EXIT(
             {
                 prepare_assertion_death_test();
@@ -570,7 +571,7 @@ TEST(LoggingTest, AssertCheckWithoutMessageTerminatesWhenPredicateThrows) {
     const auto predicate = []() -> bool {
         throw std::runtime_error{"broken invariant predicate"};
     };
-    if constexpr (compile_config::is_debug_build) {
+    if (compile_config::is_debug_build) {
         EXPECT_EXIT(
             {
                 prepare_assertion_death_test();
@@ -903,7 +904,7 @@ TEST(LoggingTest, AssertCheckSkipsPredicateAndLazyArgumentsInRelease) {
     const auto argument = [&] {
         return ++argument_calls;
     };
-    if constexpr (compile_config::is_debug_build) {
+    if (compile_config::is_debug_build) {
         EXPECT_EXIT(
             {
                 prepare_assertion_death_test();
@@ -919,7 +920,7 @@ TEST(LoggingTest, AssertCheckSkipsPredicateAndLazyArgumentsInRelease) {
 }
 
 TEST(LoggingTest, AssertCheckTerminatesWhenLazyArgumentThrows) {
-    if constexpr (compile_config::is_debug_build) {
+    if (compile_config::is_debug_build) {
         EXPECT_EXIT(
             {
                 prepare_assertion_death_test();
@@ -931,7 +932,7 @@ TEST(LoggingTest, AssertCheckTerminatesWhenLazyArgumentThrows) {
 }
 
 TEST(LoggingTest, AssertCheckTerminatesWithConfiguredThreshold) {
-    if constexpr (compile_config::is_debug_build) {
+    if (compile_config::is_debug_build) {
         EXPECT_EXIT(
             {
                 prepare_assertion_death_test();
