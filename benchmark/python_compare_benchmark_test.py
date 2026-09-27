@@ -110,5 +110,60 @@ class PythonBenchmarkTest(unittest.TestCase):
                 benchmark.positive_count(value)
 
 
+class BenchmarkSummaryTest(unittest.TestCase):
+    """Verify the displayed output contracts and HMM results using distinct synthetic timings."""
+
+    def setUp(self):
+        timings = [
+            {"label": "Rust FFI views -> C++ strings", "median_ms": 99.0},
+            {"label": "Neo reused token positions", "median_ms": 4.0},
+            {"label": "Rust native borrowed tokens", "median_ms": 6.0},
+            {"label": "Neo C++ strings", "median_ms": 2.0},
+            {"label": "Old C++ strings", "median_ms": 1.0},
+            {"label": "Rust native owned strings", "median_ms": 5.0},
+            {"label": "Neo borrowed tokens", "median_ms": 3.0},
+        ]
+        self.native = {"lines": 8, "rounds": 3, "samples": 5,
+                       "methods": [{"name": "MIX", "timings": timings,
+                                    "old_neo_mismatches": 0, "neo_rust_mismatches": 2}],
+                       "hmm": {"old_neo_mismatches": 1, "timings": [
+                           {"label": "Neo C++ strings", "median_ms": 7.0},
+                           {"label": "Old C++ strings", "median_ms": 12.0}]}}
+        self.python = {"MIX": {"median_ms": 8.0, "neo_python_mismatches": 0}}
+
+    def test_summary_groups_owned_and_borrowed_columns_by_implementation(self):
+        summary = benchmark.format_summary(self.native, self.python)
+        header = next(line for line in summary.splitlines() if line.startswith("| Mode |"))
+        self.assertEqual([cell.strip() for cell in header.split("|")[1:-1]],
+                         ["Mode", "Old C++ owned", "Neo C++ owned", "Neo C++ borrowed", "Neo C++ reused",
+                          "Rust owned", "Rust borrowed", "Python owned"])
+        self.assertIn("| MIX | 1.000 | 2.000 | 3.000 | 4.000 | 5.000 | 6.000 | 8.000 |", summary)
+
+    def test_summary_includes_hmm_owned_timings_and_output_differences(self):
+        summary = benchmark.format_summary(self.native, self.python)
+        self.assertIn("| HMM | 12.000 | 7.000 | 1/8 |", summary)
+        self.assertIn("Rust and Python HMM are not measured", summary)
+
+    def test_summary_reports_sampling_units(self):
+        summary = benchmark.format_summary(self.native, self.python)
+        self.assertIn("8 lines, 3 rounds/sample, 5 samples", summary)
+        self.assertIn("Median milliseconds per sample", summary)
+
+    def test_summary_shows_python_ratio_for_matching_output(self):
+        summary = benchmark.format_summary(self.native, self.python)
+        self.assertIn("| MIX | 0/8 | 2/8 | 0/8 | 4.00x |", summary)
+
+    def test_summary_suppresses_python_ratio_for_different_output(self):
+        self.python["MIX"]["neo_python_mismatches"] = 1
+        summary = benchmark.format_summary(self.native, self.python)
+        self.assertIn("| MIX | 0/8 | 2/8 | 1/8 | — |", summary)
+        self.assertNotIn("4.00x", summary)
+
+    def test_summary_rejects_a_native_report_without_hmm_results(self):
+        del self.native["hmm"]
+        with self.assertRaisesRegex(ValueError, "rebuild cut_compare_benchmark"):
+            benchmark.format_summary(self.native, self.python)
+
+
 if __name__ == "__main__":
     unittest.main()

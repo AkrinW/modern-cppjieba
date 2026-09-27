@@ -168,25 +168,43 @@ def positive_count(value):
     return count
 
 
-def print_summary(native, python):
+def format_summary(native, python):
     """Show raw median times; only give a Python/Neo ratio when their output sequences agree."""
-    labels = ["Old C++ strings", "Neo C++ strings", "Rust native owned strings",
-              "Rust native borrowed tokens", "Neo reused token positions"]
-    print("\nMedian milliseconds per sample; output contracts differ:")
-    print(f"{'Mode':8} {'Old str':>10} {'Neo str':>10} {'RS owned':>10} {'RS borrow':>10} "
-          f"{'Neo reuse':>10} {'Python str':>12} {'NE/PY diff':>12} {'NE/RS diff':>12}")
+    if "hmm" not in native:
+        raise ValueError("Native report lacks HMM results; rebuild cut_compare_benchmark")
+    labels = ["Old C++ strings", "Neo C++ strings", "Neo borrowed tokens", "Neo reused token positions",
+              "Rust native owned strings", "Rust native borrowed tokens"]
+    rows = [f"{native['lines']} lines, {native['rounds']} rounds/sample, {native['samples']} samples.", "",
+            "Median milliseconds per sample:", "",
+            "| Mode | Old C++ owned | Neo C++ owned | Neo C++ borrowed | Neo C++ reused | "
+            "Rust owned | Rust borrowed | Python owned |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    differences = ["| Mode | Old/Neo diff | Neo/Rust diff | Neo/Python diff | Python/Neo time |",
+                   "| --- | ---: | ---: | ---: | ---: |"]
     for method in native["methods"]:
         name = method["name"]
         timings = {entry["label"]: entry["median_ms"] for entry in method["timings"]}
         result = python[name]
-        values = " ".join(f"{timings[label]:10.3f}" for label in labels)
-        print(f"{name:8} {values} {result['median_ms']:12.3f} "
-              f"{result['neo_python_mismatches']:6}/{native['lines']:<5} "
-              f"{method['neo_rust_mismatches']:6}/{native['lines']:<5}")
-        if result["neo_python_mismatches"] == 0:
-            print(f"  Python/Neo string-output time: {result['median_ms'] / timings[labels[1]]:.2f}x")
-        else:
-            print("  Python/Neo ranking suppressed: segmentation outputs differ.")
+        values = " | ".join(f"{timings[label]:.3f}" for label in labels)
+        rows.append(f"| {name} | {values} | {result['median_ms']:.3f} |")
+        ratio = (f"{result['median_ms'] / timings['Neo C++ strings']:.2f}x"
+                 if result["neo_python_mismatches"] == 0 else "—")
+        differences.append(f"| {name} | {method['old_neo_mismatches']}/{native['lines']} | "
+                           f"{method['neo_rust_mismatches']}/{native['lines']} | "
+                           f"{result['neo_python_mismatches']}/{native['lines']} | {ratio} |")
+    hmm = native["hmm"]
+    hmm_timings = {entry["label"]: entry["median_ms"] for entry in hmm["timings"]}
+    rows.extend(["", "Owned outputs materialize strings; borrowed outputs reference the input. "
+                 "Neo reused retains caller-owned workspace and output buffers.", "",
+                 "Differences count lines with different token sequences. "
+                 "Python/Neo ratios use owned strings and are omitted when those sequences differ.", "",
+                 *differences, "", "**HMM only (old/neo C++)**", "",
+                 "| Mode | Old C++ owned | Neo C++ owned | Old/Neo diff |",
+                 "| --- | ---: | ---: | ---: |",
+                 f"| HMM | {hmm_timings['Old C++ strings']:.3f} | {hmm_timings['Neo C++ strings']:.3f} | "
+                 f"{hmm['old_neo_mismatches']}/{native['lines']} |", "",
+                 "HMM uses the same rounds and samples; Rust and Python HMM are not measured.", ""])
+    return "\n".join(rows)
 
 
 def run():
@@ -233,7 +251,8 @@ def run():
         methods = cut_methods(tokenizer)
         python = verify_outputs(methods, raw_lines, lines, native)
         benchmark_python(methods, lines, python, args.rounds, args.samples)
-    print_summary(native, python)
+    summary = format_summary(native, python)
+    print(f"\n{summary}")
     for result in native["methods"]:
         del result["neo_utf8_ranges"]
     report = {"environment": {"python": sys.version, "implementation": platform.python_implementation(),
@@ -245,6 +264,7 @@ def run():
               "native_command": command, "native_log": str(native_log), "native_report": str(native_report),
               "native": native, "python": python}
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    args.output.with_suffix(".md").write_text(summary, encoding="utf-8")
     print(f"Report: {args.output}", flush=True)
 
 

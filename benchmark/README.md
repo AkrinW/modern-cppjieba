@@ -68,8 +68,13 @@ using the common dictionary and HMM model. CI uses GCC 14, Rust 1.94.0 and Pytho
 | `weicheng.utf8` | 3 | 5 |
 
 The job summary shows timings for MIX, MP, FULL and SEARCH and the output
-differences. The `benchmarks-linux-x64-release` artifact retains combined JSON,
-native JSON, raw logs and compiler/CPU information for 14 days. Reports stay
+differences, plus the standalone old/neo C++ HMM comparison. Columns are grouped
+by implementation: old C++, neo owned/borrowed/reused, Rust owned/borrowed, Python.
+The native JSON exports HMM medians, minima, maxima and output differences in `hmm`.
+The Python script writes a clean Markdown table beside each combined JSON report;
+CI uses these tables for summaries and PR comments. Warnings and progress output
+remain in the raw logs. The `benchmarks-linux-x64-release` artifact retains Markdown,
+combined JSON, native JSON, raw logs and compiler/CPU information for 14 days. Reports stay
 under the ignored `benchmark/results/ci/` directory.
 
 Build, test and benchmark execution errors fail CI. Timing ratios have no pass/fail

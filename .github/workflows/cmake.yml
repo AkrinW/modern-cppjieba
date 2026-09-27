@@ -183,12 +183,11 @@ jobs:
             printf 'These results compare implementations, not this PR against its base branch.\n\n'
             for corpus in testlines weicheng; do
               printf '### %s\n\n' "$corpus"
-              if [ -f "benchmark/results/ci/$corpus.log" ]; then
-                printf '```text\n'
-                cat "benchmark/results/ci/$corpus.log"
-                printf '\n```\n\n'
+              if [ -f "benchmark/results/ci/$corpus.md" ]; then
+                cat "benchmark/results/ci/$corpus.md"
+                printf '\n'
               else
-                printf 'No benchmark output was produced; see the workflow log.\n\n'
+                printf 'No completed benchmark report was produced; see the workflow log.\n\n'
               fi
             done
           } > benchmark/results/ci/summary.md

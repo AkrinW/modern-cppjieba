@@ -37,6 +37,8 @@ constexpr auto kLabels = std::array{
     "Neo reused token positions",
 };
 
+constexpr auto kDisplayOrder = std::array<size_t, 8>{0, 1, 6, 7, 4, 5, 2, 3};
+
 // Summarizes independent samples; each sample processes the complete corpus.
 struct Timing {
     double median;
@@ -59,6 +61,13 @@ struct MethodResult {
     neo_cppjieba::CutMode mode;
     Verification verification;
     std::array<Timing, kLabels.size()> timings;
+};
+
+// Keep the standalone HMM measurements available to report consumers.
+struct HmmResult {
+    Timing old_strings;
+    Timing neo_strings;
+    size_t mismatches;
 };
 
 // Show a bounded output sample for a segmentation mismatch.
@@ -222,6 +231,8 @@ auto run_shared_method(const char *name, RustCutMethod method, neo_cppjieba::Cut
     std::printf("  %-36s %12s %12s %12s\n", "Path / output", "Median ms", "Min ms", "Max ms");
     for (auto variant = size_t{0}; variant < kLabels.size(); ++variant) {
         result.timings[variant] = summarize(std::move(timings[variant]));
+    }
+    for (const auto variant : kDisplayOrder) {
         const auto &t = result.timings[variant];
         std::printf("  %-36s %12.3f %12.3f %12.3f\n", kLabels[variant], t.median, t.minimum, t.maximum);
     }
@@ -243,13 +254,15 @@ auto run_shared_method(const char *name, RustCutMethod method, neo_cppjieba::Cut
 // Preserve the standalone HMM comparison, which has no matching Rust public API.
 template <typename OldFn, typename NeoFn>
 auto run_hmm_pair(const OldFn &old_fn, const NeoFn &neo_fn, const std::vector<std::string> &lines, size_t rounds,
-                  size_t samples) -> void {
+                  size_t samples) -> HmmResult {
     auto mismatches = size_t{0};
     for (const auto &line : lines) {
         mismatches += old_fn(line) != neo_fn(line);
     }
     auto old_times = std::vector<double>{};
     auto neo_times = std::vector<double>{};
+    old_times.reserve(samples);
+    neo_times.reserve(samples);
     for (auto sample = size_t{0}; sample < samples; ++sample) {
         if (sample % 2 == 0) {
             old_times.push_back(bench_cut(old_fn, lines, rounds).milliseconds);
@@ -259,9 +272,10 @@ auto run_hmm_pair(const OldFn &old_fn, const NeoFn &neo_fn, const std::vector<st
             old_times.push_back(bench_cut(old_fn, lines, rounds).milliseconds);
         }
     }
+    const auto result = HmmResult{summarize(std::move(old_times)), summarize(std::move(neo_times)), mismatches};
     std::printf("\n[HMM-only appendix] old %.3f ms, neo %.3f ms (medians); mismatches %zu/%zu lines\n",
-                summarize(std::move(old_times)).median, summarize(std::move(neo_times)).median, mismatches,
-                lines.size());
+                result.old_strings.median, result.neo_strings.median, result.mismatches, lines.size());
+    return result;
 }
 
 // Reject malformed or zero iteration counts before loading engines or starting timers.
@@ -293,9 +307,16 @@ auto write_ranges(std::ostream &out, const neo_cppjieba::Jieba &neo, neo_cppjieb
     out << ']';
 }
 
+// Serialize the same timing fields for shared modes and the standalone HMM pair.
+auto write_timing(std::ostream &out, std::string_view label, const Timing &timing) -> void {
+    out << "{\"label\":\"" << label << "\",\"median_ms\":" << timing.median << ",\"min_ms\":" << timing.minimum
+        << ",\"max_ms\":" << timing.maximum << '}';
+}
+
 // All JSON labels are fixed ASCII literals; source text is represented only by numeric byte ranges.
-auto write_report(const std::string &path, const std::array<MethodResult, 4> &results, const neo_cppjieba::Jieba &neo,
-                  const std::vector<std::string> &lines, size_t bytes, size_t rounds, size_t samples) -> void {
+auto write_report(const std::string &path, const std::array<MethodResult, 4> &results, const HmmResult &hmm,
+                  const neo_cppjieba::Jieba &neo, const std::vector<std::string> &lines, size_t bytes, size_t rounds,
+                  size_t samples) -> void {
     auto out = std::ofstream{};
     out.exceptions(std::ios::failbit | std::ios::badbit);
     out.open(path);
@@ -311,16 +332,20 @@ auto write_report(const std::string &path, const std::array<MethodResult, 4> &re
             << ",\"old_tokens\":" << verification.old_tokens << ",\"neo_tokens\":" << verification.neo_tokens
             << ",\"rust_tokens\":" << verification.rust_tokens << ",\"timings\":[";
         for (auto variant = size_t{0}; variant < kLabels.size(); ++variant) {
-            const auto &timing = result.timings[variant];
-            out << (variant == 0 ? "{" : ",{") << "\"label\":\"" << kLabels[variant]
-                << "\",\"median_ms\":" << timing.median << ",\"min_ms\":" << timing.minimum
-                << ",\"max_ms\":" << timing.maximum << '}';
+            if (variant != 0) {
+                out << ',';
+            }
+            write_timing(out, kLabels[variant], result.timings[variant]);
         }
         out << "],\"neo_utf8_ranges\":";
         write_ranges(out, neo, result.mode, lines);
         out << '}';
     }
-    out << "]}\n";
+    out << "],\"hmm\":{\"old_neo_mismatches\":" << hmm.mismatches << ",\"timings\":[";
+    write_timing(out, kLabels[0], hmm.old_strings);
+    out << ',';
+    write_timing(out, kLabels[1], hmm.neo_strings);
+    out << "]}}\n";
     out.close();
 }
 
@@ -393,16 +418,16 @@ auto run(int argc, char *argv[]) -> int {
                           rounds, samples),
     };
     std::printf("\nMedian summary (ms; borrowed tokens have a different output contract)\n");
-    std::printf("%-8s %10s %10s %10s %10s %10s %10s %10s %10s %12s\n", "Method", "Old", "Neo str", "FFI copy",
-                "FFI view", "RS owned", "RS borrow", "Neo borrow", "Neo reuse", "NE/RS diffs");
+    std::printf("%-8s %10s %10s %10s %10s %10s %10s %10s %10s %12s\n", "Method", "Old", "Neo str", "Neo borrow",
+                "Neo reuse", "RS owned", "RS borrow", "FFI copy", "FFI view", "NE/RS diffs");
     for (const auto &result : results) {
         std::printf("%-8s", result.name);
-        for (const auto &timing : result.timings) {
-            std::printf(" %10.3f", timing.median);
+        for (const auto variant : kDisplayOrder) {
+            std::printf(" %10.3f", result.timings[variant].median);
         }
         std::printf(" %8zu/%zu\n", result.verification.neo_rust_mismatches, lines.size());
     }
-    run_hmm_pair(
+    const auto hmm = run_hmm_pair(
         [&](const std::string &s) {
             auto words = std::vector<std::string>{};
             old.CutHMM(s, words);
@@ -410,7 +435,7 @@ auto run(int argc, char *argv[]) -> int {
         },
         [&](const std::string &s) { return neo.cut_strings(s, neo_cppjieba::CutMode::HMM); }, lines, rounds, samples);
     if (!report_path.empty()) {
-        write_report(report_path, results, neo, lines, bytes, rounds, samples);
+        write_report(report_path, results, hmm, neo, lines, bytes, rounds, samples);
     }
     return 0;
 }
