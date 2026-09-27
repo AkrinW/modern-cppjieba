@@ -342,7 +342,8 @@ auto main(int argc, char *argv[]) -> int {
             {"FULL", neo_full.total_ms},
             {"SEARCH", neo_search.total_ms},
         }};
-        auto *fastest = std::min_element(entries.begin(), entries.end(), [](auto &a, auto &b) { return a.ms < b.ms; });
+        const auto fastest =
+            std::min_element(entries.begin(), entries.end(), [](auto &a, auto &b) { return a.ms < b.ms; });
 
         std::printf("──────────────────────────────────────────────────────────────\n");
         std::printf("  Neo methods (ratio = time / fastest)\n");
