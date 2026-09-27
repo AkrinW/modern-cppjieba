@@ -4,7 +4,8 @@
 支持 MIX、MP、HMM、FULL、SEARCH 分词模式。库本身不依赖 old cppjieba、limonp、Rust 或 GoogleTest。
 
 需要 CMake 3.20 以上，以及支持所用 C++23 标准库功能（包括 `<print>`）的编译器。
-当前实现使用 POSIX 文件映射接口；CI 使用 Linux 和 [GCC 14](https://gcc.gnu.org/gcc-14/changes.html)。
+文件读取适配 Linux、macOS 和 Windows，按二进制读取到自有缓冲区；Windows 的路径参数使用 UTF-8。
+Linux CI 使用 [GCC 14](https://gcc.gnu.org/gcc-14/changes.html)，macOS、Windows 的构建方式见下文。
 
 ## 目录与依赖
 
@@ -269,6 +270,47 @@ benchmark 可以独立构建，不下载或链接 GoogleTest。需要 Rust 比�
 `-DCPPJIEBA_BUILD_RUST_BENCHMARKS=ON`；该开关要求同时开启 benchmark。
 目标列表见 [benchmark/README.md](benchmark/README.md)，Rust 构建与结果解释见
 [benchmark/RUST.md](benchmark/RUST.md)。
+
+## macOS 与 Windows
+
+macOS 使用 Homebrew 的 LLVM 20 与配套 libc++，避免编译器和系统标准库的 C++23 功能不匹配。
+先安装 Xcode Command Line Tools，再按 [Homebrew LLVM 说明](https://formulae.brew.sh/formula/llvm@20)
+安装并链接同一套标准库：
+
+```sh
+brew install cmake ninja llvm@20
+llvm_prefix="$(brew --prefix llvm@20)"
+cmake -S . -B build-macos -G Ninja \
+  -DCMAKE_CXX_COMPILER="$llvm_prefix/bin/clang++" \
+  -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+  -DCMAKE_EXE_LINKER_FLAGS="-L$llvm_prefix/lib/c++ -L$llvm_prefix/lib/unwind -lunwind -Wl,-rpath,$llvm_prefix/lib/c++ -Wl,-rpath,$llvm_prefix/lib/unwind" \
+  -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_EXAMPLES=ON
+cmake --build build-macos --parallel
+ctest --test-dir build-macos --output-on-failure
+```
+
+Windows 使用更新后的 Visual Studio 2022（17.14 或更新版本），安装“使用 C++ 的桌面开发”和 Windows SDK。
+在 PowerShell 中运行：
+
+```powershell
+cmake -S . -B build-windows -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_EXAMPLES=ON
+cmake --build build-windows --config Debug --parallel
+ctest --test-dir build-windows -C Debug --output-on-failure
+.\build-windows\examples\Debug\jieba_basic_cut.exe .\dict "我爱北京天安门"
+```
+
+CMake 会为 MSVC 的库使用者传递 `/utf-8`；手工编译也需要启用它，并选择 C++23 标准模式。
+示例与 benchmark 还嵌入 UTF-8 manifest，使 Windows 10 1903 及更新系统上的 `main(argv)` 参数
+使用 UTF-8，参见 [Windows 进程代码页说明](https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page)。
+集成到自己的程序时，命令行编码由应用层配置。
+词典、模型路径均传 UTF-8 字符串，包含中文或补充平面字符的 Windows 路径会转换为 UTF-16 后打开。
+读取保留 CRLF、NUL 和 `0x1a` 字节，换行处理仍由原有解析器完成。MSVC 不提供原生 `__int128`，
+容量配置使用 8/16/32/64 位；对应的 128 位测试只在编译器支持时启用。
+
+两平台均可额外启用 `CPPJIEBA_BUILD_BENCHMARKS`，先按上文初始化比较库 submodule。
+[平台工作流](.github/workflows/platforms.yml) 配置 macOS 15 和 Windows 2022 的 Debug/Release 构建、
+neo 单测、示例及 C++ benchmark 编译；这一步不设置性能阈值，Rust 比较仍单独启用。
+POSIX FIFO 测试只在 Linux/macOS 运行，其余文件内容与日志回归测试覆盖 Windows。
 
 ## 构建选项
 

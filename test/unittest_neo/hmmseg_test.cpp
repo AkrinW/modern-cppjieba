@@ -34,9 +34,7 @@ namespace {
 class HMModelTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        auto pattern = (std::filesystem::temp_directory_path() / "neo-hmm-model-XXXXXX").string();
-        ASSERT_NE(::mkdtemp(pattern.data()), nullptr);
-        directory_ = std::move(pattern);
+        directory_ = create_temp_directory("neo-hmm-model-");
         write_model(model_lines_);
     }
 
@@ -49,11 +47,11 @@ protected:
     }
 
     [[nodiscard]] auto model_path() const -> std::string {
-        return (directory_ / "model.utf8").string();
+        return path_to_utf8(directory_ / "model.utf8");
     }
 
     void write_model(std::span<const std::string> lines) const {
-        auto output = std::ofstream{model_path(), std::ios::binary};
+        auto output = std::ofstream{directory_ / "model.utf8", std::ios::binary};
         ASSERT_TRUE(output.is_open());
         for (const auto &line : lines) {
             output << line << '\n';

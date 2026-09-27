@@ -31,9 +31,7 @@ namespace {
 class QuerySegmentHmmWordsTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        auto pattern = (std::filesystem::temp_directory_path() / "neo-query-hmm-XXXXXX").string();
-        ASSERT_NE(::mkdtemp(pattern.data()), nullptr);
-        directory_ = std::move(pattern);
+        directory_ = create_temp_directory("neo-query-hmm-");
         write_dictionary("ab 1 n\nbc 1 n\ncd 1 n\nabc 1 n\nbcd 1 n\nabcd 1 n\n");
     }
 
@@ -46,11 +44,11 @@ protected:
     }
 
     [[nodiscard]] auto dictionary_path() const -> std::string {
-        return (directory_ / "main.dict").string();
+        return path_to_utf8(directory_ / "main.dict");
     }
 
     void write_dictionary(std::string_view sub_words) const {
-        auto output = std::ofstream{dictionary_path(), std::ios::binary};
+        auto output = std::ofstream{directory_ / "main.dict", std::ios::binary};
         ASSERT_TRUE(output.is_open());
         output << "a 100000 n\nb 100000 n\nc 100000 n\nd 100000 n\n" << sub_words;
         output.close();

@@ -25,16 +25,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <fcntl.h>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_set>
 #include <vector>
-
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 namespace {
 
@@ -83,46 +78,16 @@ struct LineData {
     neo_cppjieba::Unicode runes;
 };
 
+// The shared binary loader now also supports Windows; decoding remains outside the timed region.
 static auto load_unicode_lines(const std::string &path) -> std::vector<LineData> {
     auto result = std::vector<LineData>{};
 
-    auto fd = ::open(path.c_str(), O_RDONLY);
-    if (fd == -1) {
-        std::perror("open");
-        return result;
-    }
-    struct stat st{};
-    ::fstat(fd, &st);
-    auto file_size = static_cast<size_t>(st.st_size);
-    const auto *data = static_cast<const char *>(::mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0));
-    if (data == MAP_FAILED) {
-        ::close(fd);
-        std::perror("mmap");
-        return result;
-    }
-
-    const auto *p = data;
-    const auto *end = data + file_size;
-    while (p < end) {
-        const auto *line_end = static_cast<const char *>(std::memchr(p, '\n', end - p));
-        if (!line_end) {
-            line_end = end;
-        }
-        auto line = std::string_view(p, line_end - p);
-        p = line_end + 1;
-        if (line.empty()) {
-            continue;
-        }
-        if (line.back() == '\r') {
-            line.remove_suffix(1);
-        }
+    for (const std::string_view line : load_lines(path)) {
         if (!line.empty()) {
             result.push_back(LineData{neo_cppjieba::decode(line)});
         }
     }
 
-    ::munmap(const_cast<void *>(static_cast<const void *>(data)), file_size);
-    ::close(fd);
     return result;
 }
 

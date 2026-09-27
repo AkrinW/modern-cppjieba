@@ -23,15 +23,11 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
-#include <fcntl.h>
 #include <numeric>
 #include <random>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include <sys/mman.h>
-#include <sys/stat.h>
 
 namespace {
 
@@ -78,37 +74,7 @@ static auto load_words(const std::string &dict_path) -> std::vector<std::string>
     auto words = std::vector<std::string>{};
     words.reserve(350000);
 
-    auto fd = ::open(dict_path.c_str(), O_RDONLY);
-    if (fd == -1) {
-        std::perror("open");
-        return words;
-    }
-    struct stat st{};
-    ::fstat(fd, &st);
-    auto file_size = static_cast<size_t>(st.st_size);
-    const auto *data = static_cast<const char *>(::mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0));
-    if (data == MAP_FAILED) {
-        ::close(fd);
-        std::perror("mmap");
-        return words;
-    }
-
-    const auto *p = data;
-    const auto *end = data + file_size;
-    while (p < end) {
-        const auto *line_end = static_cast<const char *>(std::memchr(p, '\n', end - p));
-        if (!line_end) {
-            line_end = end;
-        }
-        auto line = std::string_view(p, line_end - p);
-        p = line_end + 1;
-        if (line.empty()) {
-            continue;
-        }
-        if (line.back() == '\r') {
-            line.remove_suffix(1);
-        }
-
+    for (const std::string_view line : load_lines(dict_path)) {
         auto sp = line.find(' ');
         if (sp == std::string_view::npos) {
             continue;
@@ -116,8 +82,6 @@ static auto load_words(const std::string &dict_path) -> std::vector<std::string>
         words.emplace_back(line.substr(0, sp));
     }
 
-    ::munmap(const_cast<void *>(static_cast<const void *>(data)), file_size);
-    ::close(fd);
     return words;
 }
 

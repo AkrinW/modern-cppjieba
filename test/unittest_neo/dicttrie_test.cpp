@@ -26,7 +26,8 @@
 
 using namespace neo_cppjieba;
 
-inline constexpr auto DICT_FILE = std::string_view{TEST_DATA_DIR "/extra_dict/jieba.dict.small.utf8"};
+// This fixture uses a different dictionary from the segmentation tests; keep its path local to this file.
+constexpr auto DICT_FILE = std::string_view{TEST_DATA_DIR "/extra_dict/jieba.dict.small.utf8"};
 inline constexpr auto USER_DICT_FILE = std::string_view{TEST_DATA_DIR "/userdict.utf8"};
 
 namespace {
@@ -35,9 +36,7 @@ namespace {
 class DictTrieInputTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        auto pattern = (std::filesystem::temp_directory_path() / "neo-dict-trie-XXXXXX").string();
-        ASSERT_NE(::mkdtemp(pattern.data()), nullptr);
-        directory_ = std::move(pattern);
+        directory_ = create_temp_directory("neo-dict-trie-");
         write_file("main.dict", "主词 10 n\n基础 20 n\n");
     }
 
@@ -50,11 +49,11 @@ protected:
     }
 
     [[nodiscard]] auto file_path(std::string_view name) const -> std::string {
-        return (directory_ / name).string();
+        return path_to_utf8(directory_ / name);
     }
 
     void write_file(std::string_view name, std::string_view content) const {
-        auto output = std::ofstream{file_path(name), std::ios::binary};
+        auto output = std::ofstream{directory_ / name, std::ios::binary};
         ASSERT_TRUE(output.is_open());
         output << content;
         output.close();

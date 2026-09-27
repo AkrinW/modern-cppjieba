@@ -1,3 +1,5 @@
+#include "../PlatformTestUtils.hpp"
+#include "../TestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
 #include "neo/detail/FileIO.hpp"
@@ -11,7 +13,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -20,12 +21,8 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <unistd.h>
 #include <utility>
 #include <vector>
-
-#include <sys/resource.h>
-#include <sys/stat.h>
 
 using namespace neo_cppjieba;
 
@@ -266,9 +263,7 @@ namespace {
 class FileBufferTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        auto pattern = (std::filesystem::temp_directory_path() / "neo-file-buffer-XXXXXX").string();
-        ASSERT_NE(::mkdtemp(pattern.data()), nullptr);
-        directory_ = std::move(pattern);
+        directory_ = create_temp_directory("neo-file-buffer-");
     }
 
     void TearDown() override {
@@ -280,11 +275,11 @@ protected:
     }
 
     [[nodiscard]] auto file_path(std::string_view name) const -> std::string {
-        return (directory_ / name).string();
+        return path_to_utf8(directory_ / name);
     }
 
     void write_file(std::string_view name, std::string_view content) const {
-        auto output = std::ofstream{file_path(name), std::ios::binary};
+        auto output = std::ofstream{directory_ / name, std::ios::binary};
         ASSERT_TRUE(output.is_open());
         output << content;
         output.close();
@@ -349,37 +344,41 @@ TEST_F(FileBufferTest, RejectsEmbeddedNullInsteadOfOpeningPathPrefix) {
     EXPECT_THROW(read_file(path), LogConfig::Exception);
 }
 
+TEST_F(FileBufferTest, PreservesBinaryBytes) {
+    const auto contents = std::string{"first\r\nsecond\x1a\0last", 19};
+    ASSERT_NO_FATAL_FAILURE(write_file("binary", contents));
+    const auto file = read_file(file_path("binary"));
+    EXPECT_EQ(file.content(), contents);
+    EXPECT_EQ(file.size(), contents.size());
+}
+
+TEST_F(FileBufferTest, ReadsUtf8FilePath) {
+    const auto path = directory_ / std::filesystem::path{u8"词典𠮷.utf8"};
+    {
+        auto output = std::ofstream{path, std::ios::binary};
+        ASSERT_TRUE(output.is_open());
+        output << "中文词典\r\n";
+        output.close();
+        ASSERT_TRUE(output.good());
+    }
+    const auto file = read_file(path_to_utf8(path));
+    EXPECT_EQ(file.content(), "中文词典\r\n");
+}
+
+TEST_F(FileBufferTest, RejectsDirectory) {
+    EXPECT_THROW(read_file(path_to_utf8(directory_)), LogConfig::Exception);
+}
+
+TEST_F(FileBufferTest, RejectsInvalidUtf8Path) {
+    test_platform::expect_invalid_utf8_path_rejected();
+}
+
 TEST_F(FileBufferTest, RejectingDirectoryClosesDescriptor) {
-    const auto path = directory_.string();
-    const auto descriptor_before = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
-    ASSERT_NE(descriptor_before, -1);
-    ASSERT_EQ(::close(descriptor_before), 0);
-
-    EXPECT_THROW(read_file(path), LogConfig::Exception);
-
-    // open reuses the lowest available descriptor; a failed constructor must leave it available.
-    const auto descriptor_after = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
-    ASSERT_NE(descriptor_after, -1);
-    EXPECT_EQ(descriptor_after, descriptor_before);
-    EXPECT_EQ(::close(descriptor_after), 0);
+    test_platform::expect_rejected_directory_closes_descriptor(directory_);
 }
 
 TEST_F(FileBufferTest, RejectsFifoWithoutWaitingForWriter) {
-    const auto path = file_path("fifo");
-    ASSERT_EQ(::mkfifo(path.c_str(), S_IRUSR | S_IWUSR), 0);
-
-    // Bound a regression to the subprocess so a blocking open cannot hang the test runner.
-    EXPECT_EXIT(
-        {
-            ::alarm(5);
-            try {
-                const auto file = read_file(path);
-            } catch (const LogConfig::Exception &) {
-                std::_Exit(0);
-            }
-            std::_Exit(1);
-        },
-        ::testing::ExitedWithCode(0), "not a regular file");
+    test_platform::expect_fifo_rejected_without_waiting(directory_ / "fifo");
 }
 
 TEST_F(FileBufferTest, AtomicReplacementPreservesLoadedContent) {
@@ -388,7 +387,7 @@ TEST_F(FileBufferTest, AtomicReplacementPreservesLoadedContent) {
     const auto original = read_file(path);
 
     ASSERT_NO_FATAL_FAILURE(write_file("replacement", "replacement with a different size"));
-    std::filesystem::rename(file_path("replacement"), path);
+    std::filesystem::rename(directory_ / "replacement", directory_ / "published");
 
     EXPECT_EQ(original.content(), "original content");
     const auto replacement = read_file(path);
@@ -420,13 +419,10 @@ TEST_F(FileBufferTest, LoadedContentSurvivesExternalTruncation) {
     // Isolate the old mmap SIGBUS regression so it cannot crash the whole test runner.
     EXPECT_EXIT(
         {
-            const auto core_limit = ::rlimit{};
-            if (::setrlimit(RLIMIT_CORE, &core_limit) != 0) {
-                std::_Exit(2);
-            }
+            test_platform::prepare_fileio_death_test();
             const auto file = read_file(path);
             const auto content = file.content();
-            std::filesystem::resize_file(path, 0);
+            std::filesystem::resize_file(directory_ / "truncate", 0);
             std::_Exit(content == expected ? 0 : 1);
         },
         ::testing::ExitedWithCode(0), "");
@@ -446,14 +442,16 @@ TEST_F(FileBufferTest, LoadedContentSurvivesInPlaceOverwrite) {
 TEST_F(FileBufferTest, TruncationDuringReadThrowsInsteadOfReturningPartialContent) {
     ASSERT_NO_FATAL_FAILURE(write_file("short-read", "12345678"));
     const auto path = file_path("short-read");
-    const auto input = std::unique_ptr<std::FILE, decltype(&std::fclose)>{std::fopen(path.c_str(), "rb"), &std::fclose};
+    const auto input = std::unique_ptr<std::FILE, decltype(&std::fclose)>{
+        test_platform::open_binary_file(directory_ / "short-read", test_platform::FileMode::Read), &std::fclose};
     ASSERT_NE(input, nullptr);
 
     // Simulate truncation after the original size was obtained, including a successful partial read before EOF.
-    std::filesystem::resize_file(path, 3);
+    std::filesystem::resize_file(directory_ / "short-read", 3);
     auto destination = std::array<char, 8>{};
     try {
-        detail::read_file_contents(::fileno(input.get()), std::span<char>{destination}, path);
+        detail::platform::read_file_contents(test_platform::file_descriptor(input.get()), std::span<char>{destination},
+                                             path);
         FAIL() << "Expected a truncated file to fail the read";
     } catch (const LogConfig::Exception &error) {
         const auto message = std::string_view{error.what()};
@@ -465,33 +463,34 @@ TEST_F(FileBufferTest, TruncationDuringReadThrowsInsteadOfReturningPartialConten
 
 TEST_F(FileBufferTest, ReadFailureReportsPathAndSystemError) {
     const auto path = file_path("write-only");
-    const auto output =
-        std::unique_ptr<std::FILE, decltype(&std::fclose)>{std::fopen(path.c_str(), "wb"), &std::fclose};
+    const auto output = std::unique_ptr<std::FILE, decltype(&std::fclose)>{
+        test_platform::open_binary_file(directory_ / "write-only", test_platform::FileMode::Write), &std::fclose};
     ASSERT_NE(output, nullptr);
     auto destination = std::array<char, 8>{};
     try {
-        detail::read_file_contents(::fileno(output.get()), std::span<char>{destination}, path);
+        detail::platform::read_file_contents(test_platform::file_descriptor(output.get()), std::span<char>{destination},
+                                             path);
         FAIL() << "Expected reading a write-only descriptor to fail";
     } catch (const LogConfig::Exception &error) {
         const auto message = std::string_view{error.what()};
         EXPECT_NE(message.find(path), std::string_view::npos);
-        EXPECT_NE(message.find(std::error_code{EBADF, std::generic_category()}.message()), std::string_view::npos);
+        EXPECT_NE(message.find(test_platform::write_only_read_error().message()), std::string_view::npos);
     }
 }
 
 TEST_F(FileBufferTest, SuccessfulLoadClosesDescriptorBeforeReturning) {
     ASSERT_NO_FATAL_FAILURE(write_file("loaded", "content"));
     const auto path = file_path("loaded");
-    const auto descriptor_before = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    const auto descriptor_before = detail::platform::open_file(path);
     ASSERT_NE(descriptor_before, -1);
-    ASSERT_EQ(::close(descriptor_before), 0);
+    ASSERT_EQ(detail::platform::close_file_descriptor(descriptor_before), 0);
 
     const auto file = read_file(path);
 
-    const auto descriptor_after = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    const auto descriptor_after = detail::platform::open_file(path);
     ASSERT_NE(descriptor_after, -1);
     EXPECT_EQ(descriptor_after, descriptor_before);
-    EXPECT_EQ(::close(descriptor_after), 0);
+    EXPECT_EQ(detail::platform::close_file_descriptor(descriptor_after), 0);
     EXPECT_TRUE(file.is_open());
     EXPECT_EQ(file.content(), "content");
 }

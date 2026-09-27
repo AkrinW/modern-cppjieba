@@ -26,15 +26,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
 #include <numeric>
 #include <random>
 #include <string>
-#include <unistd.h>
 #include <vector>
-
-#include <sys/mman.h>
-#include <sys/stat.h>
 
 namespace {
 
@@ -93,38 +88,7 @@ static auto load_raw_entries(const std::string &dict_path) -> std::vector<RawEnt
     auto entries = std::vector<RawEntry>{};
     entries.reserve(350000);
 
-    auto fd = ::open(dict_path.c_str(), O_RDONLY);
-    if (fd == -1) {
-        std::perror("open");
-        return entries;
-    }
-    struct stat st{};
-    ::fstat(fd, &st);
-    auto file_size = static_cast<size_t>(st.st_size);
-    const auto *data = static_cast<const char *>(::mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0));
-    if (data == MAP_FAILED) {
-        ::close(fd);
-        std::perror("mmap");
-        return entries;
-    }
-    ::madvise(const_cast<void *>(static_cast<const void *>(data)), file_size, MADV_SEQUENTIAL);
-
-    const auto *p = data;
-    const auto *end = data + file_size;
-    while (p < end) {
-        const auto *line_end = static_cast<const char *>(std::memchr(p, '\n', end - p));
-        if (!line_end) {
-            line_end = end;
-        }
-        auto line = std::string_view(p, line_end - p);
-        p = line_end + 1;
-        if (line.empty()) {
-            continue;
-        }
-        if (line.back() == '\r') {
-            line.remove_suffix(1);
-        }
-
+    for (const std::string_view line : load_lines(dict_path)) {
         auto sp1 = line.find(' ');
         if (sp1 == std::string_view::npos) {
             continue;
@@ -147,8 +111,6 @@ static auto load_raw_entries(const std::string &dict_path) -> std::vector<RawEnt
         });
     }
 
-    ::munmap(const_cast<void *>(static_cast<const void *>(data)), file_size);
-    ::close(fd);
     return entries;
 }
 

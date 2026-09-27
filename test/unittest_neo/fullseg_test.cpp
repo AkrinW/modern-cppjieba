@@ -27,9 +27,7 @@ namespace {
 class FullSegmentDictionaryTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        auto pattern = (std::filesystem::temp_directory_path() / "neo-full-XXXXXX").string();
-        ASSERT_NE(::mkdtemp(pattern.data()), nullptr);
-        directory_ = std::move(pattern);
+        directory_ = create_temp_directory("neo-full-");
     }
 
     void TearDown() override {
@@ -41,11 +39,11 @@ protected:
     }
 
     [[nodiscard]] auto dictionary_path() const -> std::string {
-        return (directory_ / "main.dict").string();
+        return path_to_utf8(directory_ / "main.dict");
     }
 
     void write_dictionary(std::string_view contents) const {
-        auto output = std::ofstream{dictionary_path(), std::ios::binary};
+        auto output = std::ofstream{directory_ / "main.dict", std::ios::binary};
         ASSERT_TRUE(output.is_open());
         output << contents;
         output.close();

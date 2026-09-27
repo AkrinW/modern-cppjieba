@@ -22,6 +22,7 @@ include(GNUInstallDirs)
 add_library(neo_cppjieba INTERFACE)
 add_library(neo_cppjieba::neo_cppjieba ALIAS neo_cppjieba)
 target_compile_features(neo_cppjieba INTERFACE cxx_std_23)
+target_compile_options(neo_cppjieba INTERFACE "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 target_include_directories(neo_cppjieba INTERFACE
     "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"

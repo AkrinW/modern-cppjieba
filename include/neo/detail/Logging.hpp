@@ -1,6 +1,7 @@
 #pragma once
 
 #include "neo/Config.hpp"
+#include "neo/detail/Platform.hpp"
 
 #include <algorithm>
 #include <array>
@@ -18,7 +19,6 @@
 #include <string_view>
 #include <thread>
 #include <type_traits>
-#include <unistd.h>
 #include <utility>
 
 namespace neo_cppjieba {
@@ -48,7 +48,7 @@ constexpr auto log_level_color(LogLevel level) noexcept -> std::string_view {
 }
 
 inline auto stderr_is_tty() noexcept -> bool {
-    static const auto result = (isatty(STDERR_FILENO) != 0);
+    static const auto result = platform::stderr_is_tty();
     return result;
 }
 
@@ -107,16 +107,7 @@ inline constexpr auto LOG_MAX_BUFFER_SIZE = LogConfig::buffer_size;
 
 // cur_time fills the provided buffer with the current time formatted according to LOG_TIME_FORMAT.
 inline auto cur_time() noexcept -> std::array<char, LOG_MAX_TIME_BUFFER_SIZE> {
-    auto timeNow = std::time(nullptr);
-    auto tmNow = std::tm{};
-#if defined(_WIN32) || defined(_WIN64)
-    auto e = localtime_s(&tmNow, &timeNow);
-    assert(e == 0);
-#else
-    auto *tm_tmp = localtime_r(&timeNow, &tmNow);
-    assert(tm_tmp != nullptr);
-    (void)tm_tmp;
-#endif
+    const auto tmNow = platform::local_time(std::time(nullptr));
     auto buf = std::array<char, LOG_MAX_TIME_BUFFER_SIZE>{};
     std::strftime(buf.data(), buf.size(), LOG_TIME_FORMAT, &tmNow);
     return buf;
@@ -151,7 +142,7 @@ inline auto log_impl(std::format_string<LogEvalType<Args>...> fmt, const std::so
     const auto time_buf = cur_time();
     const auto tid_hash = std::hash<std::thread::id>{}(std::this_thread::get_id());
     const auto use_color = stderr_is_tty();
-    const auto pid = getpid();
+    const auto pid = platform::process_id();
     const auto tid_short = static_cast<uint16_t>(tid_hash);
 
     size_t prefix_len = 0;

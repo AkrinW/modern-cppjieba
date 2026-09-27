@@ -1,6 +1,8 @@
+#include "../PlatformTestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
 #include "neo/detail/Logging.hpp"
+#include "neo/detail/Platform.hpp"
 
 #include <array>
 #include <cstddef>
@@ -9,13 +11,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <source_location>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <unistd.h>
 #include <utility>
 
 using namespace neo_cppjieba;
@@ -282,16 +284,20 @@ auto capture_stderr(auto &&fn) -> std::string {
     std::fflush(stderr);
 
     // Create a temporary file to redirect stderr
-    auto *tmpf = std::tmpfile();
+    auto directory = std::filesystem::path{};
+    auto *tmpf = test_platform::open_temporary_file(directory);
     EXPECT_NE(tmpf, nullptr);
-    auto tmp_fd = fileno(tmpf);
-    auto orig_fd = dup(STDERR_FILENO);
-
-    dup2(tmp_fd, STDERR_FILENO);
+    if (tmpf == nullptr) {
+        test_platform::close_temporary_file(tmpf, directory);
+        return {};
+    }
+    const auto stderr_fd = test_platform::file_descriptor(stderr);
+    const auto orig_fd = test_platform::duplicate_descriptor(stderr_fd);
+    test_platform::replace_descriptor(test_platform::file_descriptor(tmpf), stderr_fd);
     fn();
     std::fflush(stderr);
-    dup2(orig_fd, STDERR_FILENO);
-    close(orig_fd);
+    test_platform::replace_descriptor(orig_fd, stderr_fd);
+    detail::platform::close_file_descriptor(orig_fd);
 
     // Read from the temp file
     std::fseek(tmpf, 0, SEEK_END);
@@ -299,7 +305,7 @@ auto capture_stderr(auto &&fn) -> std::string {
     std::fseek(tmpf, 0, SEEK_SET);
     auto result = std::string(static_cast<size_t>(sz), '\0');
     std::fread(result.data(), 1, static_cast<size_t>(sz), tmpf);
-    std::fclose(tmpf);
+    test_platform::close_temporary_file(tmpf, directory);
     return result;
 }
 
@@ -369,7 +375,7 @@ TEST(LoggingTest, LogOutputContainsSourceFile) {
 
 TEST(LoggingTest, LogOutputContainsPid) {
     auto output = capture_stderr([] { log<LogLevel::LL_INFO>("pid check"); });
-    auto pid_str = std::string{"pid:"} + std::to_string(getpid());
+    const auto pid_str = std::string{"pid:"} + std::to_string(detail::platform::process_id());
     EXPECT_NE(output.find(pid_str), std::string::npos);
 }
 
@@ -480,7 +486,7 @@ TEST(LoggingTest, LogNoArgsWritesToStderr) {
 
 TEST(LoggingTest, LogNoArgsContainsPidAndTid) {
     auto output = capture_stderr([] { log<LogLevel::LL_WARNING>(); });
-    auto pid_str = std::string{"pid:"} + std::to_string(getpid());
+    const auto pid_str = std::string{"pid:"} + std::to_string(detail::platform::process_id());
     EXPECT_NE(output.find(pid_str), std::string::npos);
     EXPECT_NE(output.find("tid:"), std::string::npos);
 }

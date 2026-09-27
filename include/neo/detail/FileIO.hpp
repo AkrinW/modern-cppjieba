@@ -1,51 +1,19 @@
 #pragma once
 
+#include "neo/detail/FilePlatform.hpp"
 #include "neo/detail/Logging.hpp"
 
 #include <algorithm>
 #include <cerrno>
 #include <cstddef>
-#include <fcntl.h>
-#include <limits>
 #include <memory>
 #include <new>
 #include <span>
-#include <string>
 #include <string_view>
 #include <system_error>
-#include <unistd.h>
 #include <utility>
 
-#include <sys/stat.h>
-
 namespace neo_cppjieba {
-
-namespace detail {
-
-// Fill owned storage, retrying interrupted reads and reporting I/O errors or premature EOF through check.
-inline auto read_file_contents(int fd, std::span<char> destination, std::string_view path) -> void {
-    assert_check([fd] { return fd >= 0; }, "FileBuffer: invalid internal file descriptor");
-
-    auto offset = size_t{0};
-    while (offset < destination.size()) {
-        const auto count =
-            std::min(destination.size() - offset, static_cast<size_t>(std::numeric_limits<ssize_t>::max()));
-        const auto bytes_read = ::read(fd, destination.data() + offset, count);
-        const auto error = errno;
-        if (bytes_read == -1 && error == EINTR) {
-            continue;
-        }
-        check(bytes_read >= 0, "FileBuffer: failed to read file: {}: {}", path,
-              [error] { return std::error_code{error, std::generic_category()}.message(); });
-        check(bytes_read != 0, "FileBuffer: unexpected EOF (file may have been truncated): {}: read {} of {} bytes",
-              path, offset, destination.size());
-        assert_check([=] { return static_cast<size_t>(bytes_read) <= count; },
-                     "FileBuffer: read exceeded the requested byte count");
-        offset += static_cast<size_t>(bytes_read);
-    }
-}
-
-} // namespace detail
 
 // FileBuffer exposes file contents from owned storage for read-only access.
 // It provides an RAII wrapper around a complete read(2) of a regular file.
@@ -73,44 +41,25 @@ class FileBuffer {
 public:
     // Delegation completes the empty object first, so construction failures run its destructor.
     explicit FileBuffer(std::string_view path) : FileBuffer() {
-        check(path.find('\0') == std::string_view::npos, "FileBuffer: file path contains an embedded null byte");
-
-        // open(2) requires a null-terminated path
-        const auto null_terminated_path = std::string{path};
-        // Avoid blocking on a FIFO before fstat can reject non-regular files.
-        fd_ = ::open(null_terminated_path.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
-
-        check(fd_ != -1, "FileBuffer: failed to open file: {}: {}", path,
-              [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
-
-        struct ::stat st{};
-        const auto stat_result = ::fstat(fd_, &st);
-        check(stat_result == 0, "FileBuffer: failed to stat file: {}: {}", path,
-              [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
-        check(S_ISREG(st.st_mode), "FileBuffer: not a regular file: {}", path);
-        check(std::in_range<size_t>(st.st_size) && std::in_range<std::ptrdiff_t>(st.st_size),
+        fd_ = detail::platform::open_file(path);
+        const auto before = detail::platform::file_metadata(fd_, path, detail::platform::FileReadPhase::BeforeRead);
+        check(before.regular, "FileBuffer: not a regular file: {}", path);
+        check(std::in_range<size_t>(before.size) && std::in_range<std::ptrdiff_t>(before.size),
               "FileBuffer: file size is out of range: {}", path);
-        size_ = static_cast<size_t>(st.st_size);
+        size_ = static_cast<size_t>(before.size);
 
         // Even an empty, successfully loaded file owns storage, distinguishing it from a moved-from object.
         data_.reset(new (std::nothrow) char[std::max(size_, size_t{1})]);
         check(data_ != nullptr, "FileBuffer: failed to allocate {} bytes for file: {}", size_, path);
-        detail::read_file_contents(fd_, std::span<char>{data_.get(), size_}, path);
+        detail::platform::read_file_contents(fd_, std::span<char>{data_.get(), size_}, path);
 
         // Check file size and modification timestamps against the metadata taken before reading.
         // These checks detect changes without retaining any reference to the file-backed pages.
-        struct ::stat after{};
-        const auto final_stat_result = ::fstat(fd_, &after);
-        check(final_stat_result == 0, "FileBuffer: failed to stat file after reading: {}: {}", path,
-              [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
-        const auto unchanged = st.st_size == after.st_size && st.st_mtim.tv_sec == after.st_mtim.tv_sec
-                               && st.st_mtim.tv_nsec == after.st_mtim.tv_nsec
-                               && st.st_ctim.tv_sec == after.st_ctim.tv_sec
-                               && st.st_ctim.tv_nsec == after.st_ctim.tv_nsec;
-        check(unchanged, "FileBuffer: file changed while reading: {}", path);
+        const auto after = detail::platform::file_metadata(fd_, path, detail::platform::FileReadPhase::AfterRead);
+        check(before == after, "FileBuffer: file changed while reading: {}", path);
 
         // On Linux close releases the descriptor even on EINTR; never retry a possibly reused descriptor.
-        const auto close_result = ::close(std::exchange(fd_, -1));
+        const auto close_result = detail::platform::close_file_descriptor(std::exchange(fd_, -1));
         check(close_result == 0, "FileBuffer: failed to close file: {}: {}", path,
               [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
     }
@@ -118,7 +67,7 @@ public:
     ~FileBuffer() noexcept {
         // Successful loads close explicitly; exception cleanup must not throw a second exception.
         if (fd_ != -1) {
-            ::close(fd_);
+            detail::platform::close_file_descriptor(fd_);
         }
     }
 
@@ -131,7 +80,7 @@ public:
     auto operator=(FileBuffer &&other) noexcept -> FileBuffer & {
         if (this != &other) {
             if (fd_ != -1) {
-                ::close(fd_);
+                detail::platform::close_file_descriptor(fd_);
             }
             data_ = std::move(other.data_);
             size_ = std::exchange(other.size_, 0);

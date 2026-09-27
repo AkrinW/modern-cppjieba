@@ -31,12 +31,8 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
-#include <fcntl.h>
 #include <string>
 #include <vector>
-
-#include <sys/mman.h>
-#include <sys/stat.h>
 
 namespace {
 

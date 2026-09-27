@@ -1,0 +1,55 @@
+name: macOS and Windows
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2022]
+        build_type: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install LLVM and libc++ on macOS
+        if: runner.os == 'macOS'
+        run: brew install llvm@20
+
+      - name: Configure macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          llvm_prefix="$(brew --prefix llvm@20)"
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_CXX_COMPILER="$llvm_prefix/bin/clang++" \
+            -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+            -DCMAKE_EXE_LINKER_FLAGS="-L$llvm_prefix/lib/c++ -L$llvm_prefix/lib/unwind -lunwind -Wl,-rpath,$llvm_prefix/lib/c++ -Wl,-rpath,$llvm_prefix/lib/unwind" \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
+
+      - name: Configure Windows
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
+
+      - name: Build library users, tests and benchmarks
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel 3
+
+      - name: Run unit tests
+        run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
+
+      - name: Install public headers and dictionaries
+        run: cmake --install build --config ${{ matrix.build_type }} --prefix install

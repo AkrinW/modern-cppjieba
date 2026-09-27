@@ -6,6 +6,7 @@ ADD_EXECUTABLE(test_neo.run
     traits_test.cpp
     logging_test.cpp
     fileio_test.cpp
+    benchmark_utils_test.cpp
     postag_test.cpp
     trie_stats_test.cpp
     dicttrie_test.cpp
