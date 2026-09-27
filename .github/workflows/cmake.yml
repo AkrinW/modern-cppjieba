@@ -168,18 +168,31 @@ jobs:
 
       - name: Publish comparison summary
         if: always() && matrix.rust == 'ON'
+        env:
+          BENCHMARK_STATUS: ${{ job.status }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          TESTED_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          mkdir -p benchmark/results/ci
           {
             printf '## Old C++ / Neo C++ / Rust / Python\n\n'
+            printf 'Benchmark job: **%s**. [Workflow and reports](%s).\n\n' "$BENCHMARK_STATUS" "$RUN_URL"
+            printf 'Head: `%s`; tested commit: `%s`.\n\n' "$PR_HEAD_SHA" "$TESTED_SHA"
             printf 'Release, one CPU, five samples; timings are observations without a performance gate.\n\n'
+            printf 'These results compare implementations, not this PR against its base branch.\n\n'
             for corpus in testlines weicheng; do
+              printf '### %s\n\n' "$corpus"
               if [ -f "benchmark/results/ci/$corpus.log" ]; then
-                printf '### %s\n\n```text\n' "$corpus"
+                printf '```text\n'
                 cat "benchmark/results/ci/$corpus.log"
                 printf '\n```\n\n'
+              else
+                printf 'No benchmark output was produced; see the workflow log.\n\n'
               fi
             done
-          } >> "$GITHUB_STEP_SUMMARY"
+          } > benchmark/results/ci/summary.md
+          cat benchmark/results/ci/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload comparison reports
         if: always() && matrix.rust == 'ON'
@@ -189,6 +202,42 @@ jobs:
           path: benchmark/results/ci/
           if-no-files-found: ignore
           retention-days: 14
+
+  benchmark-comment:
+    name: Benchmark PR comment
+    needs: benchmarks
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Check that this is still the current PR head
+        id: current
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: pull } = await github.rest.pulls.get({
+              ...context.repo,
+              pull_number: context.issue.number,
+            });
+            return pull.state === 'open' && pull.head.sha === context.payload.pull_request.head.sha;
+
+      - name: Download comparison reports
+        if: steps.current.outputs.result == 'true'
+        uses: actions/download-artifact@v5
+        with:
+          name: benchmarks-linux-x64-release
+          path: benchmark-report
+
+      - name: Update benchmark comment
+        if: steps.current.outputs.result == 'true'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: jieba-benchmark
+          path: benchmark-report/summary.md
 
   library:
     runs-on: ubuntu-24.04

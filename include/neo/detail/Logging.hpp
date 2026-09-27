@@ -149,16 +149,16 @@ inline auto log_impl(std::format_string<LogEvalType<Args>...> fmt, const std::so
     if (use_color) {
         const auto it = std::format_to_n(buffer.begin(), buffer_size, color_prefix_fmt, time_buf.data(), pid, tid_short,
                                          log_level_color(Level), log_level_name(Level), loc.file_name(), loc.line());
-        prefix_len = static_cast<size_t>(it.out - buffer.data());
+        prefix_len = static_cast<size_t>(it.out - buffer.begin());
     } else {
         const auto it = std::format_to_n(buffer.begin(), buffer_size, plain_prefix_fmt, time_buf.data(), pid, tid_short,
                                          log_level_name(Level), loc.file_name(), loc.line());
-        prefix_len = static_cast<size_t>(it.out - buffer.data());
+        prefix_len = static_cast<size_t>(it.out - buffer.begin());
     }
 
     const auto result = std::format_to_n(buffer.begin() + prefix_len, buffer_size - prefix_len, fmt,
                                          eval_log_arg(std::forward<Args>(args))...);
-    auto total = static_cast<size_t>(result.out - buffer.data());
+    auto total = static_cast<size_t>(result.out - buffer.begin());
 
     if (total < buffer_size) {
         buffer[total] = '\n';
@@ -176,7 +176,7 @@ inline auto log_impl(std::format_string<LogEvalType<Args>...> fmt, const std::so
             auto plain = std::array<char, buffer_size>{};
             const auto pit = std::format_to_n(plain.begin(), buffer_size, plain_prefix_fmt, time_buf.data(), pid,
                                               tid_short, log_level_name(Level), loc.file_name(), loc.line());
-            const auto plain_prefix = static_cast<size_t>(pit.out - plain.data());
+            const auto plain_prefix = static_cast<size_t>(pit.out - plain.begin());
             const auto msg_len = total - prefix_len;
             const auto copy_len = std::min(msg_len, buffer_size - plain_prefix);
             std::copy_n(buffer.data() + prefix_len, copy_len, plain.data() + plain_prefix);

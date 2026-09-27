@@ -233,6 +233,11 @@ struct SmallBufferLogConfig {
     using Exception = ProjectError;
 };
 
+// A one-byte record exercises truncation inside the formatted prefix.
+struct OneByteBufferLogConfig : SmallBufferLogConfig {
+    static constexpr auto buffer_size = std::size_t{1};
+};
+
 // A larger record preserves messages that exceed the default buffer capacity.
 struct LargeBufferLogConfig {
     static constexpr auto show_source_location = false;
@@ -1005,6 +1010,11 @@ TEST(LoggingTest, LogTruncatesAtConfiguredBufferCapacity) {
     const auto output = capture_stderr([&] { log<LogLevel::LL_INFO, SmallBufferLogConfig>("{}", message); });
     ASSERT_EQ(output.size(), SmallBufferLogConfig::buffer_size);
     EXPECT_EQ(output.back(), '\n');
+}
+
+TEST(LoggingTest, LogTruncatesPrefixToOneTerminatingNewline) {
+    const auto output = capture_stderr([] { log<LogLevel::LL_INFO, OneByteBufferLogConfig>("message"); });
+    EXPECT_EQ(output, "\n");
 }
 
 TEST(LoggingTest, LargerConfiguredBufferPreservesLongMessages) {

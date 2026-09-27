@@ -76,3 +76,15 @@ Build, test and benchmark execution errors fail CI. Timing ratios have no pass/f
 threshold on shared runners; the existing benchmark suppresses rankings when
 segmentation results differ. macOS and Windows compile the C++ benchmarks as part
 of their platform jobs; the four-language measurements currently run on Linux x64.
+
+Pull requests from branches in this repository also receive one benchmark comment,
+updated in place by `marocchino/sticky-pull-request-comment`. It reuses the Actions
+summary saved as `summary.md` in the report artifact, with the job status, head and
+tested revisions, and a link to the workflow and full reports. A separate job has
+`pull-requests: write` permission and only reads the artifact; it does not check out
+or run PR code. Runs for an outdated head or a closed PR do not update the comment.
+
+Fork PRs retain the summary and artifacts without attempting to write a comment.
+The current tables compare implementations on the same inputs; they do not measure
+the PR's change against the base branch. A future regression comparison needs an
+explicit base-revision measurement or a stored baseline.
