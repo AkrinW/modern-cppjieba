@@ -12,7 +12,7 @@ namespace neo_cppjieba::detail {
 
 // Best continuation from a rune position; reused by MP, MIX, and SEARCH.
 struct MPNode {
-    float weight;
+    WordWeight weight;
     RuneIndex next_pos;
 };
 

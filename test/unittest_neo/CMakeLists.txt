@@ -31,6 +31,9 @@ file(READ "${capacity_config_path}" capacity_config_source)
 
 function(add_capacity_test name rune_type source_type dag_type node_type test_source)
     set(config "${capacity_config_source}")
+    # Capacity and existing regression fixtures retain the CPP output contract.
+    string(REGEX REPLACE "segmentation_style = SegmentationStyle::(CPP|RUST|PYTHON);"
+        "segmentation_style = SegmentationStyle::CPP;" config "${config}")
     string(REGEX REPLACE "using RuneIndex = [^;]+;" "using RuneIndex = ${rune_type};" config "${config}")
     string(REGEX REPLACE "using SourceOffset = [^;]+;" "using SourceOffset = ${source_type};" config "${config}")
     string(REGEX REPLACE "using DagOffset = [^;]+;" "using DagOffset = ${dag_type};" config "${config}")
@@ -44,6 +47,21 @@ function(add_capacity_test name rune_type source_type dag_type node_type test_so
     target_link_libraries(${target} PRIVATE neo_cppjieba::neo_cppjieba cppjieba_test_data GTest::gtest)
     add_test(NAME neo_capacity_${name} COMMAND ${target})
 endfunction()
+
+# Each style has its own executable and generated header, avoiding mixed inline definitions.
+foreach(style IN ITEMS CPP RUST PYTHON)
+    string(TOLOWER "${style}" style_name)
+    set(config "${capacity_config_source}")
+    string(REGEX REPLACE "segmentation_style = SegmentationStyle::(CPP|RUST|PYTHON);"
+        "segmentation_style = SegmentationStyle::${style};" config "${config}")
+    set(config_dir "${PROJECT_BINARY_DIR}/generated/style/${style_name}")
+    file(WRITE "${config_dir}/neo/Config.hpp" "${config}")
+    set(target "test_style_${style_name}.run")
+    add_executable(${target} ../gtest_main.cpp segmentation_style_test.cpp)
+    target_include_directories(${target} BEFORE PRIVATE "${config_dir}")
+    target_link_libraries(${target} PRIVATE neo_cppjieba::neo_cppjieba cppjieba_test_data GTest::gtest)
+    add_test(NAME neo_style_${style_name} COMMAND ${target})
+endforeach()
 
 foreach(bits IN ITEMS 8 16 32 64)
     add_capacity_test(${bits} "std::uint${bits}_t" "std::uint${bits}_t" "std::uint${bits}_t"

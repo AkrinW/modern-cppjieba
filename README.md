@@ -34,7 +34,7 @@ Linux CI 使用 [GCC 14](https://gcc.gnu.org/gcc-14/changes.html)，macOS、Wind
 | `neo/UnicodeTypes.hpp` | `Rune`、`Unicode`、`UnicodeWithOffset`、`WordRange` 类型 |
 | `neo/Workspace.hpp` | 调用方独占的解码与分词工作区 |
 | `neo/Traits.hpp` | 输入类型约束、编码识别及无拷贝输入适配 |
-| `neo/Config.hpp` | 编译期容量类型、日志配置与异常类型 |
+| `neo/Config.hpp` | 编译期分词 style、容量类型、日志配置与异常类型 |
 
 编解码操作统一包含 `neo/Unicode.hpp`，其中也提供 `WordRange::to_string<CharT>()` 的定义。
 只使用 Unicode 数据类型和范围操作时，可包含 `neo/UnicodeTypes.hpp`。
@@ -42,6 +42,24 @@ Linux CI 使用 [GCC 14](https://gcc.gnu.org/gcc-14/changes.html)，macOS、Wind
 `detail/` 是内部实现边界，供库代码、内部测试与基准直接引用。词典和 HMM 模型由 `Jieba` 私有持有，
 公开入口不再提供 `dict()`、`model()`。实现头的旧路径已移除。
 头文件库仍需安装 `detail/` 和 `third_party/`，以满足公开头的编译依赖。
+
+`Config.hpp` 中的 `compile_config::segmentation_style` 决定 `Jieba` 的分词规则，默认值为
+`SegmentationStyle::CPP`，也可改为 `SegmentationStyle::RUST` 或 `SegmentationStyle::PYTHON`。
+选择在编译期生效；修改后需要以同一个配置重新编译所有使用本库的翻译单元。
+`CutMode` 继续选择 MIX、MP、FULL、SEARCH、HMM 及关闭 HMM 的模式，调用接口保持一致。
+
+| Style | 分词规则 |
+| --- | --- |
+| `CPP` | 保留原有 CppJieba 字符边界、HMM、单字覆盖和 ASCII 输出规则 |
+| `RUST` | 参照 jieba-rs 0.11.0；MP 合并英文数字，HMM 支持英文连接符，SEARCH 补充复合词片段；FULL 输出 CJK 词典匹配，省略没有匹配的汉字 |
+| `PYTHON` | 参照 jieba 0.42.1；保留整段已知词的 MP 拆分，按 Python 字符类别分块；FULL 合并英文数字及标点，保留空白分割产生的空 token |
+
+Rust/Python style 的字典路径使用双精度权重，同分时选择较长词，因此词典节点和路径缓冲比 CPP style 更大。
+两者共用本库的词典、用户词典和 HMM 文件加载接口；style 不模拟上游的词典文件格式、动态增删词或
+用户词典默认词频策略。对照时应使用同一主词典、同一 HMM 文件并关闭用户词典。
+Python 字符分类参照现有 benchmark 的 Unicode 16.0；其 FULL 在重叠英文词下重复拼接字符、
+跨过原文间隙合并英文的缺陷不予复现，所有输出仍是原文的连续区间。
+Python FULL 的空 token 使用 `begin == end` 的 rune/source 区间表示，字符串、借用和复用输出保持一致。
 
 容量类型统一定义在 `include/neo/Config.hpp`。修改其中的 `using` 后，需要使用相同配置重新编译所有
 包含本库的代码；同一程序的不同翻译单元不能混用配置。这是编译期配置。
@@ -67,12 +85,12 @@ Linux CI 使用 [GCC 14](https://gcc.gnu.org/gcc-14/changes.html)，macOS、Wind
 | `std::uint64_t`（8 字节） | 常见 64 位平台先受容器和内存限制 | 需按原文、解码缓冲、各模式临时数据和输出的总内存估算 |
 | `neo_cppjieba::uint128_t`（16 字节） | 同一 64 位平台的可装载字符串不会因此变长 | 更宽的偏移和范围会增加缓冲开销 |
 
-FULL 直接输出多字词匹配，并为未被覆盖的码点输出单字；匹配越密集，结果数组所需内存越大。
+CPP style 的 FULL 直接输出多字词匹配，并为未被覆盖的码点输出单字；匹配越密集，结果数组所需内存越大。
 所有分词模式均不受 DAG 边数上限限制。`DagOffset` 仅保留给内部 DAG 对照工具：长度为 `n` 的输入
 需要 `n` 条单字边和所有多字词匹配边，最密集时共 `n × (n + 1) / 2` 条；8/16/32 位分别容纳
 22/361/92,681 个码点的这种密集输入。该限制不再约束 FULL 的结果数量。
 
-空格、Tab、换行、`，`、`。` 会把分词输入拆成独立片段；这些分隔符仍计入整个输入的字节数和码点数。
+CPP style 中，空格、Tab、换行、`，`、`。` 会把分词输入拆成独立片段；这些分隔符仍计入整个输入的字节数和码点数。
 `cut_runes` 接收已解码码点，不受 `SourceOffset` 限制；其他分词入口仍需同时满足原文长度和码点数限制。
 UTF-16 输入中的常见汉字每字占一个 code unit，补充平面码点占两个；UTF-32 每个码点占一个。
 配置位宽不同或编码不同时，应分别核算，不能直接套用 UTF-8 表格。

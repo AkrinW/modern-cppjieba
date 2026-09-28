@@ -56,8 +56,9 @@ struct TrieTransitionHash {
 /// Replacing the original DictUnit { Unicode word; double weight; string tag; } (~80 bytes)
 /// with a minimal { float weight; PosTag tag; } that fits in 8 bytes — same size as a pointer
 /// on 64-bit platforms — eliminates one level of indirection entirely.
+// The compact layout applies to CPP; other styles retain double-precision weights.
 struct DictUnit {
-    float weight{kMissingWordWeight};
+    detail::WordWeight weight{kMissingWordWeight};
     PosTag tag{};
 
     /// A valid dictionary entry always has a non-zero weight.
@@ -68,8 +69,8 @@ struct DictUnit {
     }
 };
 
-static_assert(sizeof(DictUnit) == 8, "DictUnit must be exactly 8 bytes");
-static_assert(alignof(DictUnit) == 4);
+static_assert(sizeof(DictUnit) == 2 * sizeof(detail::WordWeight));
+static_assert(alignof(DictUnit) == alignof(detail::WordWeight));
 
 /// A read-only character trie with direct BMP root transitions and one flat hash table.
 /// Each transition carries its dictionary value and a filter for the child's outgoing runes.
@@ -82,7 +83,7 @@ class Trie {
         uint32_t filter{0};
         DictUnit value{};
     };
-    static_assert(sizeof(TrieNodeId) > sizeof(std::uint32_t) || sizeof(Entry) == 16);
+    static_assert(sizeof(TrieNodeId) > sizeof(std::uint32_t) || sizeof(Entry) == 8 + sizeof(DictUnit));
 
     /// Small child sets keep complete entries together without per-edge hash keys.
     struct CompactTransition {

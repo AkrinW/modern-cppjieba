@@ -4,10 +4,12 @@
 #include "neo/Unicode.hpp"
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/Logging.hpp"
+#include "neo/detail/SegmentPolicy.hpp"
 #include "neo/detail/SegmentScratch.hpp"
 #include "neo/detail/StringUtil.hpp"
 
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -17,6 +19,25 @@
 namespace neo_cppjieba {
 
 namespace detail {
+
+// A reference HMM transition retains the selected predecessor along with its score.
+struct HMMTransition {
+    double weight;
+    HMMState previous;
+};
+
+// Python and Rust consider only legal predecessors and select the higher state on a tie.
+[[nodiscard]] inline auto style_hmm_transition(const HMModel &model, const EmitProbabilities &weights, double emit,
+                                               HMMState state) noexcept -> HMMTransition {
+    assert(static_cast<size_t>(state) < kHMMStatesNum);
+    constexpr auto predecessors =
+        std::array{std::array{HMMState::E, HMMState::S}, std::array{HMMState::B, HMMState::M},
+                   std::array{HMMState::B, HMMState::M}, std::array{HMMState::E, HMMState::S}};
+    const auto states = predecessors[static_cast<size_t>(state)];
+    const auto first = weights[static_cast<size_t>(states[0])] + model.get_trans_prob(states[0], state) + emit;
+    const auto second = weights[static_cast<size_t>(states[1])] + model.get_trans_prob(states[1], state) + emit;
+    return first > second ? HMMTransition{first, states[0]} : HMMTransition{second, states[1]};
+}
 
 /// Run the Viterbi algorithm on runes[begin..end) and append segmented WordRanges to result.
 template <typename Emit>
@@ -66,14 +87,20 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
             // That policy is retired: preserve the legacy score floor and E predecessor for compatibility.
             auto best_prev = HMMState::E;
 
-            for (auto prev_y = size_t{0}; prev_y < Y; ++prev_y) {
-                auto w = previous_weight[prev_y]
-                         + model.get_trans_prob(static_cast<HMMState>(prev_y), static_cast<HMMState>(y)) + emit;
-                assert_check([&] { return std::isfinite(w); }, "HMMSegment: non-finite accumulated weight");
-                if (w > best_weight) {
-                    best_weight = w;
-                    best_prev = static_cast<HMMState>(prev_y);
+            if constexpr (compile_config::segmentation_style == SegmentationStyle::CPP) {
+                for (auto prev_y = size_t{0}; prev_y < Y; ++prev_y) {
+                    auto w = previous_weight[prev_y]
+                             + model.get_trans_prob(static_cast<HMMState>(prev_y), static_cast<HMMState>(y)) + emit;
+                    assert_check([&] { return std::isfinite(w); }, "HMMSegment: non-finite accumulated weight");
+                    if (w > best_weight) {
+                        best_weight = w;
+                        best_prev = static_cast<HMMState>(prev_y);
+                    }
                 }
+            } else {
+                const auto transition = style_hmm_transition(model, previous_weight, emit, static_cast<HMMState>(y));
+                best_weight = transition.weight;
+                best_prev = transition.previous;
             }
 
             assert_check([&] { return static_cast<size_t>(best_prev) < Y && std::isfinite(best_weight); },
@@ -89,7 +116,8 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     auto end_weight = previous_weight[static_cast<size_t>(HMMState::E)];
     auto end_state = HMMState::E;
     auto s_weight = previous_weight[static_cast<size_t>(HMMState::S)];
-    if (s_weight > end_weight) {
+    if (s_weight > end_weight
+        || (compile_config::segmentation_style != SegmentationStyle::CPP && s_weight == end_weight)) {
         end_state = HMMState::S;
     }
 
@@ -111,6 +139,11 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     for (auto i = size_t{0}; i < X; ++i) {
         assert_check([&] { return static_cast<size_t>(path[i][0]) < Y; }, "HMMSegment: emitted state is out of range");
         const auto state = path[i][0];
+        if constexpr (compile_config::segmentation_style != SegmentationStyle::CPP) {
+            if (state == HMMState::B || state == HMMState::S) {
+                word_begin = begin + static_cast<RuneIndex>(i);
+            }
+        }
         if (state == HMMState::E || state == HMMState::S) {
             emit_word(WordRange{static_cast<RuneIndex>(pos + word_begin), static_cast<RuneIndex>(pos + begin + i + 1)});
             word_begin = begin + static_cast<RuneIndex>(i) + 1;
@@ -164,6 +197,46 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
 /// Distinguish absent runes from explicitly stored probabilities, including MIN_DOUBLE.
 // The separate missing-rune classifier is retired; legacy Viterbi handles those runes directly.
 
+// Emit the reference HMM's alternating alphanumeric matches and non-Chinese gaps.
+template <typename Emit>
+inline auto style_hmm_emit_non_han(std::span<const Rune> runes, const Emit &emit_word, RuneIndex pos) -> void {
+    auto begin = RuneIndex{0};
+    while (begin < runes.size()) {
+        auto end = begin;
+        if (is_ascii_alphanumeric(runes[begin])) {
+            end = style_hmm_ascii_end(runes, begin);
+        } else {
+            do {
+                ++end;
+            } while (end < runes.size() && !is_ascii_alphanumeric(runes[end]));
+        }
+        emit_word(WordRange{static_cast<RuneIndex>(pos + begin), static_cast<RuneIndex>(pos + end)});
+        begin = end;
+    }
+}
+
+// Isolate the reference HMM's Han blocks before running Viterbi, preserving source order.
+template <typename Emit>
+inline auto style_hmm_emit(const HMModel &model, const Emit &emit_word, std::span<const Rune> runes, RuneIndex pos,
+                           SegmentScratch &scratch) -> void {
+    auto begin = RuneIndex{0};
+    while (begin < runes.size()) {
+        const auto han = is_hmm_han(runes[begin]);
+        auto end = static_cast<RuneIndex>(begin + 1);
+        while (end < runes.size() && is_hmm_han(runes[end]) == han) {
+            ++end;
+        }
+        if (!han) {
+            style_hmm_emit_non_han(runes.subspan(begin, end - begin), emit_word, pos + begin);
+        } else if (end - begin == 1) {
+            emit_word(WordRange{static_cast<RuneIndex>(pos + begin), static_cast<RuneIndex>(pos + end)});
+        } else {
+            hmm_internal_cut(model, runes, begin, end, emit_word, pos, scratch);
+        }
+        begin = end;
+    }
+}
+
 /// Append HMM segmentation results for a separator-free segment, preserving ASCII runs as whole tokens.
 template <typename Emit>
 inline auto hmm_emit_one_segment(const HMModel &model, const Emit &emit_word, std::span<const Rune> runes,
@@ -171,6 +244,11 @@ inline auto hmm_emit_one_segment(const HMModel &model, const Emit &emit_word, st
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "HMMSegment: global word offsets overflow");
     if (runes.empty()) {
+        return;
+    }
+
+    if constexpr (compile_config::segmentation_style != SegmentationStyle::CPP) {
+        style_hmm_emit(model, emit_word, runes, pos, scratch);
         return;
     }
 
@@ -227,6 +305,10 @@ inline auto hmm_cut_append(const HMModel &model, std::span<const Rune> runes, st
                            RuneIndex pos, SegmentScratch &scratch) -> void {
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "HMMSegment: global word offsets overflow");
+    if constexpr (compile_config::segmentation_style != SegmentationStyle::CPP) {
+        hmm_cut_one_segment(model, range, runes, pos, scratch);
+        return;
+    }
     get_pre_filter_separators(runes, scratch.separators);
     const auto &segments = scratch.separators;
     auto segment_pos = pos;
