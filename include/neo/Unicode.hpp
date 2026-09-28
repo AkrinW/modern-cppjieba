@@ -5,6 +5,7 @@
 #include "neo/UnicodeTypes.hpp"
 #include "neo/detail/Unicode.hpp"
 
+#include <cstddef>
 #include <span>
 #include <string>
 #include <string_view>
@@ -13,6 +14,21 @@ namespace neo_cppjieba {
 
 // Unicode decoding always checks input bounds and rejects malformed sequences.
 // These checks remain enabled in release builds because input may come from users or files.
+
+// Validate the UTF encoding associated with the input's code-unit type without allocating decoding buffers.
+// This checks well-formedness, not the original encoding of bytes that are valid in several encodings.
+template <StringLike T>
+[[nodiscard]] constexpr auto is_valid_utf(const T &input) -> bool {
+    const auto units = as_code_units(input);
+    for (auto offset = std::size_t{0}; offset < units.size();) {
+        const auto decoded = detail::decode_step(units.subspan(offset));
+        if (decoded.error != detail::UnicodeDecodeError::None) {
+            return false;
+        }
+        offset += decoded.code_units;
+    }
+    return true;
+}
 
 // decode_one decodes a single Unicode code point from the input string and returns it as a Rune.
 template <StringLike T>
