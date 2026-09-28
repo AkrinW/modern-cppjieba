@@ -77,19 +77,19 @@ public:
         return user_dict_single_chinese_word_.contains(word);
     }
 
-    [[nodiscard]] auto min_weight() const noexcept -> float {
+    [[nodiscard]] auto min_weight() const noexcept -> detail::WordWeight {
         return min_weight_;
     }
-    [[nodiscard]] auto max_weight() const noexcept -> float {
+    [[nodiscard]] auto max_weight() const noexcept -> detail::WordWeight {
         return max_weight_;
     }
-    [[nodiscard]] auto median_weight() const noexcept -> float {
+    [[nodiscard]] auto median_weight() const noexcept -> detail::WordWeight {
         return median_weight_;
     }
-    [[nodiscard]] auto user_word_default_weight() const noexcept -> float {
+    [[nodiscard]] auto user_word_default_weight() const noexcept -> detail::WordWeight {
         return user_word_default_weight_;
     }
-    [[nodiscard]] auto freq_sum() const noexcept -> float {
+    [[nodiscard]] auto freq_sum() const noexcept -> detail::WordWeight {
         return freq_sum_;
     }
     [[nodiscard]] auto trie() const noexcept -> const Trie & {
@@ -148,7 +148,7 @@ private:
             freq_sum += f;
         }
         assert_check([&] { return freq_sum > 0; }, "DictTrie: frequency sum must be positive");
-        freq_sum_ = static_cast<float>(freq_sum);
+        freq_sum_ = static_cast<detail::WordWeight>(freq_sum);
 
         // min / max — O(n), single pass
         auto &&[min_it, max_it] = std::ranges::minmax_element(freqs);
@@ -162,10 +162,14 @@ private:
         auto median_freq = freqs[mid];
 
         // Convert selected int frequencies to log-weights
-        auto to_weight = [&](int f) -> float {
+        auto to_weight = [&](int f) -> detail::WordWeight {
             assert_check([&] { return f > 0 && std::isfinite(freq_sum_) && freq_sum_ > 0.0f; },
                          "DictTrie: invalid frequency normalization");
-            return std::log(f / freq_sum_);
+            if constexpr (compile_config::segmentation_style == SegmentationStyle::CPP) {
+                return std::log(f / freq_sum_);
+            } else {
+                return std::log(static_cast<double>(f)) - std::log(freq_sum_);
+            }
         };
 
         min_weight_ = to_weight(min_freq);
@@ -332,11 +336,11 @@ private:
     // and the handful of scalar statistics below.
 
     Trie trie_;
-    float freq_sum_{0.0f};
-    float min_weight_{0.0f};
-    float max_weight_{0.0f};
-    float median_weight_{0.0f};
-    float user_word_default_weight_{0.0f};
+    detail::WordWeight freq_sum_{0.0f};
+    detail::WordWeight min_weight_{0.0f};
+    detail::WordWeight max_weight_{0.0f};
+    detail::WordWeight median_weight_{0.0f};
+    detail::WordWeight user_word_default_weight_{0.0f};
     std::unordered_set<Rune> user_dict_single_chinese_word_;
 };
 

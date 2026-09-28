@@ -81,7 +81,9 @@ def reference_words(line, ranges):
     """Reconstruct Neo words from UTF-8 byte coordinates, including overlapping search hits."""
     words = []
     for begin, end in ranges:
-        if not 0 <= begin < end <= len(line):
+        if not 0 <= begin <= end <= len(line):
+            raise ValueError("Native report contains an invalid UTF-8 byte range")
+        if begin == end and begin < len(line) and line[begin] & 0xC0 == 0x80:
             raise ValueError("Native report contains an invalid UTF-8 byte range")
         words.append(line[begin:end].decode("utf-8"))
     return words

@@ -11,7 +11,16 @@
 
 namespace neo_cppjieba {
 
+// Selects segmentation rules independently of the runtime CutMode.
+enum class SegmentationStyle : std::uint8_t { CPP, RUST, PYTHON };
+
 namespace compile_config {
+// Build-wide algorithm policy; rebuild every translation unit with the same value.
+inline constexpr auto segmentation_style = SegmentationStyle::CPP;
+
+static_assert(segmentation_style == SegmentationStyle::CPP || segmentation_style == SegmentationStyle::RUST
+              || segmentation_style == SegmentationStyle::PYTHON);
+
 #ifdef NDEBUG
 inline constexpr auto is_debug_build = false;
 #else
@@ -29,6 +38,9 @@ using uint128_t = unsigned __int128;
 #endif
 
 namespace detail {
+
+// CPP retains compact weights; Rust and Python score dictionary paths in double precision.
+using WordWeight = std::conditional_t<compile_config::segmentation_style == SegmentationStyle::CPP, float, double>;
 
 // Explicit type selection also accepts native 128-bit integers in strict C++23 mode.
 template <typename T>

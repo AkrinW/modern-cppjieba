@@ -78,16 +78,16 @@ inline auto mp_build_route(const DictTrie &dict, size_t n, const ForEachEdge &fo
         const auto freq_sum = dict.freq_sum();
         assert_check([&] { return std::isfinite(freq_sum) && freq_sum > 0.0f; },
                      "MPSegment: invalid dictionary frequency sum");
-        fallback = static_cast<float>(-std::log1p(static_cast<double>(freq_sum)));
+        fallback = static_cast<WordWeight>(-std::log1p(static_cast<double>(freq_sum)));
     }
 
     // ── Reverse DP ───────────────────────────────────────────────────
     for (auto i = n; i > 0;) {
         --i;
-        dp[i] = MPNode{-std::numeric_limits<float>::infinity(), 0};
+        dp[i] = MPNode{-std::numeric_limits<WordWeight>::infinity(), 0};
         auto best_is_dictionary_word = false;
 
-        for_each_edge(static_cast<RuneIndex>(i), [&](RuneIndex next_pos, float word_weight) {
+        for_each_edge(static_cast<RuneIndex>(i), [&](RuneIndex next_pos, WordWeight word_weight) {
             assert_check([&] { return i < next_pos && next_pos <= n; },
                          "MPSegment: DAG edge must advance within the rune span");
             // weight == 0.0f ⇒ not a real dictionary word (sentinel).

@@ -83,6 +83,14 @@ class PythonBenchmarkTest(unittest.TestCase):
         with self.assertRaises(UnicodeDecodeError):
             benchmark.reference_words("南京".encode(), [[0, 2]])
 
+    def test_reference_preserves_python_full_empty_tokens(self):
+        self.assertEqual(benchmark.reference_words("　".encode(), [[0, 0], [0, 3], [3, 3]]),
+                         ["", "　", ""])
+
+    def test_reference_rejects_empty_tokens_inside_a_utf8_codepoint(self):
+        with self.assertRaisesRegex(ValueError, "invalid UTF-8 byte range"):
+            benchmark.reference_words("　".encode(), [[1, 1]])
+
     def test_reference_rejects_out_of_bounds_ranges(self):
         with self.assertRaisesRegex(ValueError, "invalid UTF-8 byte range"):
             benchmark.reference_words(b"a", [[0, 2]])
