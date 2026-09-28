@@ -41,6 +41,7 @@ TYPED_TEST(UnicodeByteTest, DecodesKnownUtf8OctetsWithByteOffsets) {
     const auto input = sample_utf8_bytes<TypeParam>();
     const auto expected = Unicode{U'A', U'\0', U'¢', U'中', U'😀', U'\0'};
     const auto decoded = decode_with_offset(input);
+    EXPECT_TRUE(is_valid_utf(input));
     EXPECT_EQ(decode_one(input), U'A');
     EXPECT_EQ(decode(input), expected);
     EXPECT_EQ(decoded.runes, expected);
@@ -57,6 +58,8 @@ TYPED_TEST(UnicodeByteTest, SpanDecodingRespectsItsExplicitBounds) {
     const auto input = sample_utf8_bytes<TypeParam>();
     const auto complete = std::span{input.data() + 4, std::size_t{3}};
     const auto truncated = complete.first(2);
+    EXPECT_TRUE(is_valid_utf(complete));
+    EXPECT_FALSE(is_valid_utf(truncated));
     EXPECT_EQ(decode(complete), (Unicode{U'中'}));
     EXPECT_THROW(decode_one(truncated), LogConfig::Exception);
     EXPECT_THROW(decode(truncated), LogConfig::Exception);
@@ -87,6 +90,7 @@ TYPED_TEST(UnicodeByteTest, InvalidUtf8ThrowsTheConfiguredException) {
         for (auto i = std::size_t{0}; i < octets.size(); ++i) {
             input[i] = static_cast<TypeParam>(octets[i]);
         }
+        EXPECT_FALSE(is_valid_utf(input));
         EXPECT_THROW(decode_one(input), LogConfig::Exception);
         EXPECT_THROW(decode(input), LogConfig::Exception);
         EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
@@ -269,6 +273,7 @@ TEST(UnicodeTest, MalformedUtf8ThrowsInsteadOfReturningEmptyOutput) {
                                                          "\xF0\x9F\x98",
                                                          "\xE4\x41\xA0"};
     for (const auto input : inputs) {
+        EXPECT_FALSE(is_valid_utf(input));
         EXPECT_THROW(decode_one(input), LogConfig::Exception);
         EXPECT_THROW(decode(input), LogConfig::Exception);
         EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
@@ -280,6 +285,7 @@ TEST(UnicodeTest, MalformedUtf16ThrowsInsteadOfReturningEmptyOutput) {
         std::array{std::u16string{char16_t{0xD800}}, std::u16string{char16_t{0xDC00}},
                    std::u16string{char16_t{0xD800}, u'A'}, std::u16string{char16_t{0xDC00}, char16_t{0xD800}}};
     for (const auto &input : inputs) {
+        EXPECT_FALSE(is_valid_utf(input));
         EXPECT_THROW(decode_one(input), LogConfig::Exception);
         EXPECT_THROW(decode(input), LogConfig::Exception);
         EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
@@ -289,10 +295,47 @@ TEST(UnicodeTest, MalformedUtf16ThrowsInsteadOfReturningEmptyOutput) {
 TEST(UnicodeTest, InvalidUtf32ScalarsThrowInAllDecoders) {
     for (const auto rune : std::array<Rune, 3>{0xD800, 0xDFFF, 0x110000}) {
         const auto input = std::u32string{rune};
+        EXPECT_FALSE(is_valid_utf(input));
         EXPECT_THROW(decode_one(input), LogConfig::Exception);
         EXPECT_THROW(decode(input), LogConfig::Exception);
         EXPECT_THROW(decode_with_offset(input), LogConfig::Exception);
     }
+}
+
+TEST(UnicodeTest, UtfValidationAcceptsEmptyTextInEveryEncoding) {
+    EXPECT_TRUE(is_valid_utf(std::string_view{}));
+    EXPECT_TRUE(is_valid_utf(std::u8string_view{}));
+    EXPECT_TRUE(is_valid_utf(std::u16string_view{}));
+    EXPECT_TRUE(is_valid_utf(std::u32string_view{}));
+    EXPECT_TRUE(is_valid_utf(std::wstring_view{}));
+}
+
+TEST(UnicodeTest, UtfValidationAcceptsEmbeddedNullAndSupplementaryCharacters) {
+    EXPECT_TRUE(is_valid_utf(std::string_view{"A\0中😀", 9}));
+    EXPECT_TRUE(is_valid_utf(std::u8string_view{u8"A\0中😀", 9}));
+    EXPECT_TRUE(is_valid_utf(std::u16string_view{u"A\0中😀", 5}));
+    EXPECT_TRUE(is_valid_utf(std::u32string_view{U"A\0中😀", 4}));
+    EXPECT_TRUE(is_valid_utf(std::wstring_view{L"中😀"}));
+}
+
+TEST(UnicodeTest, UtfValidationChecksMalformedSuffixAfterEmbeddedNull) {
+    EXPECT_FALSE(is_valid_utf(std::string_view{"A\0\x80", 3}));
+    EXPECT_FALSE(is_valid_utf(std::u16string{u'A', u'\0', char16_t{0xD800}}));
+    EXPECT_FALSE(is_valid_utf(std::u32string{U'A', U'\0', char32_t{0x110000}}));
+}
+
+TEST(UnicodeTest, Utf8CharacterTypeStillRequiresByteValidation) {
+    const auto input = std::u8string{char8_t{0xFF}};
+    EXPECT_FALSE(is_valid_utf(input));
+    EXPECT_THROW(decode(input), LogConfig::Exception);
+}
+
+TEST(UnicodeTest, UtfValidationSupportsConstantEvaluation) {
+    static_assert(is_valid_utf(std::string_view{"中😀"}));
+    static_assert(is_valid_utf(std::u16string_view{u"中😀"}));
+    static_assert(is_valid_utf(std::u32string_view{U"中😀"}));
+    static_assert(!is_valid_utf(std::string_view{"\xC0\x80"}));
+    static_assert(!is_valid_utf(std::string_view{"\xE4\xB8"}));
 }
 
 TEST(UnicodeTest, DecodeErrorReportsEncodingOffsetAndReason) {
