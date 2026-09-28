@@ -95,6 +95,28 @@ TEST(SegmentationStyleTest, SearchExpandsWordsAfterApplyingTheSelectedHmmBoundar
     EXPECT_EQ(style_jieba().cut_strings("《写得成》", CutMode::SEARCH), expected);
 }
 
+TEST(SegmentationStyleTest, SearchPreservesMembershipAcrossUnicodeBlocks) {
+    const auto dict = StyleTestFile{"甲乙丙丁 100 n\n甲乙 1 n\n乙丙 1 n\n乙丙丁 1 n\n天地玄黄 100 n\n"};
+    const auto jieba = Jieba{dict.path(), DICT_DIR "/hmm_model.utf8", ""};
+    const auto expected = std::vector<std::string>{"🙂", " ", "甲乙", "乙丙", "乙丙丁", "甲乙丙丁", " ", "天地玄黄"};
+    for (const auto mode : {CutMode::SEARCH, CutMode::SEARCH_NO_HMM}) {
+        EXPECT_EQ(jieba.cut_strings("🙂 甲乙丙丁 天地玄黄", mode), expected);
+    }
+}
+
+TEST(SegmentationStyleTest, SearchClearsMembershipWhenReusingWorkspace) {
+    const auto dict = StyleTestFile{"甲乙丙丁 100 n\n甲乙 1 n\n乙丙 1 n\n乙丙丁 1 n\n天地玄黄 100 n\n"};
+    const auto jieba = Jieba{dict.path(), DICT_DIR "/hmm_model.utf8", ""};
+    auto workspace = Workspace{};
+    auto words = std::vector<std::string>{};
+    for (const auto mode : {CutMode::SEARCH, CutMode::SEARCH_NO_HMM}) {
+        jieba.cut_into("甲乙丙丁", mode, words, workspace);
+        EXPECT_EQ(words, (std::vector<std::string>{"甲乙", "乙丙", "乙丙丁", "甲乙丙丁"}));
+        jieba.cut_into("天地玄黄", mode, words, workspace);
+        EXPECT_EQ(words, (std::vector<std::string>{"天地玄黄"}));
+    }
+}
+
 TEST(SegmentationStyleTest, MixUsesTheSelectedAlphanumericConnectorRule) {
     auto expected = std::vector<std::string>{"abcxyz", "-", "qwerty", "_", "123.45", "%"};
     if constexpr (style == SegmentationStyle::RUST) {

@@ -17,18 +17,35 @@
 
 namespace neo_cppjieba::detail {
 
+// Search retains short-word membership during the existing dictionary traversal.
+enum class StyleMatchMode { PathOnly, Search };
+
 // Reference MP scoring uses a frequency of one only when no dictionary edge exists.
-inline auto style_build_route(const DictTrie &dict, std::span<const Rune> runes, SegmentScratch &scratch) -> void {
+template <StyleMatchMode mode>
+inline auto style_build_route(const DictTrie &dict, std::span<const Rune> runes, WordWeight missing_weight,
+                              SegmentScratch &scratch) -> void {
     assert(dict.freq_sum() > 0);
     auto &route = scratch.route;
     if (route.size() < runes.size()) {
         route.resize(runes.size());
     }
-    const auto missing_weight = static_cast<WordWeight>(-std::log(static_cast<double>(dict.freq_sum())));
+    if constexpr (mode == StyleMatchMode::Search) {
+        if (scratch.search_subwords.size() < runes.size()) {
+            scratch.search_subwords.resize(runes.size());
+        }
+    }
     for (auto i = runes.size(); i > 0;) {
         --i;
+        if constexpr (mode == StyleMatchMode::Search) {
+            scratch.search_subwords[i] = {};
+        }
         auto best = MPNode{-std::numeric_limits<WordWeight>::infinity(), 0};
         dict.for_each_match_from(runes, static_cast<RuneIndex>(i), [&](RuneIndex end, const DictUnit &word) {
+            if constexpr (mode == StyleMatchMode::Search) {
+                auto &subwords = scratch.search_subwords[i];
+                subwords.bigram |= end - i == 2;
+                subwords.trigram |= end - i == 3;
+            }
             const auto weight = word.weight + (end < runes.size() ? route[end].weight : WordWeight{0});
             if (weight > best.weight || (weight == best.weight && end > best.next_pos)) {
                 best = {weight, end};
@@ -67,10 +84,10 @@ inline auto style_emit_singletons(const DictTrie &dict, const HMModel &model, st
 }
 
 // Consume the reusable MP route, joining ASCII without HMM and recognizing unknown runs with HMM.
-template <bool hmm, typename Emit>
+template <bool hmm, StyleMatchMode mode, typename Emit>
 inline auto style_emit_route(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes, const Emit &emit,
-                             SegmentScratch &scratch) -> void {
-    style_build_route(dict, runes, scratch);
+                             WordWeight missing_weight, SegmentScratch &scratch) -> void {
+    style_build_route<mode>(dict, runes, missing_weight, scratch);
     const auto &route = scratch.route;
     auto begin = RuneIndex{0};
     while (begin < runes.size()) {
@@ -89,9 +106,11 @@ inline auto style_emit_route(const DictTrie &dict, const HMModel &model, std::sp
 }
 
 // Dictionary blocks use the selected character class; unmatched text preserves CRLF as one token.
-template <bool hmm, typename Emit>
+template <bool hmm, StyleMatchMode mode, typename Emit>
 inline auto style_emit_blocks(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes, const Emit &emit,
                               SegmentScratch &scratch) -> void {
+    // All dictionary blocks in this call share the same fallback weight.
+    const auto missing_weight = static_cast<WordWeight>(-std::log(static_cast<double>(dict.freq_sum())));
     auto begin = RuneIndex{0};
     while (begin < runes.size()) {
         const auto matched = is_style_dictionary_rune(runes[begin]);
@@ -101,16 +120,27 @@ inline auto style_emit_blocks(const DictTrie &dict, const HMModel &model, std::s
         }
         if (matched) {
             const auto emit_local = [&](WordRange word) {
-                emit(WordRange{static_cast<RuneIndex>(begin + word.begin), static_cast<RuneIndex>(begin + word.end)});
+                const auto global =
+                    WordRange{static_cast<RuneIndex>(begin + word.begin), static_cast<RuneIndex>(begin + word.end)};
+                if constexpr (mode == StyleMatchMode::Search) {
+                    emit(global, begin);
+                } else {
+                    emit(global);
+                }
             };
-            style_emit_route<hmm>(dict, model, runes.subspan(begin, end - begin), emit_local, scratch);
+            style_emit_route<hmm, mode>(dict, model, runes.subspan(begin, end - begin), emit_local, missing_weight,
+                                        scratch);
         } else {
             while (begin < end) {
                 auto next = static_cast<RuneIndex>(begin + 1);
                 if (runes[begin] == U'\r' && next < end && runes[next] == U'\n') {
                     ++next;
                 }
-                emit(WordRange{begin, next});
+                if constexpr (mode == StyleMatchMode::Search) {
+                    emit(WordRange{begin, next}, begin);
+                } else {
+                    emit(WordRange{begin, next});
+                }
                 begin = next;
             }
         }
@@ -127,7 +157,7 @@ inline auto style_cut_mix(const DictTrie &dict, const HMModel &model, std::span<
     const auto emit = [&](WordRange word) {
         out.push_back(word);
     };
-    style_emit_blocks<hmm>(dict, model, runes, emit, scratch);
+    style_emit_blocks<hmm, StyleMatchMode::PathOnly>(dict, model, runes, emit, scratch);
 }
 
 // Rust search adds alphabetic parts of connector-separated compounds before dictionary grams.
@@ -151,8 +181,11 @@ inline auto style_emit_compound_parts(std::span<const Rune> runes, WordRange wor
 }
 
 // Reference search emits two-rune matches, then three-rune matches, then the precise-mode word.
-inline auto style_emit_search_word(const DictTrie &dict, std::span<const Rune> runes, WordRange word,
-                                   std::vector<WordRange> &out) -> void {
+inline auto style_emit_search_word(std::span<const Rune> runes, WordRange word, RuneIndex block_begin,
+                                   std::span<const SearchSubwords> subwords, std::vector<WordRange> &out) -> void {
+    assert(word.begin < word.end && word.end <= runes.size());
+    // Emitted ranges are global; membership rows belong to the current dictionary block.
+    assert(word.size() <= 2 || (word.begin >= block_begin && word.end - block_begin <= subwords.size()));
     if constexpr (compile_config::segmentation_style == SegmentationStyle::RUST) {
         style_emit_compound_parts(runes, word, out);
     }
@@ -161,7 +194,8 @@ inline auto style_emit_search_word(const DictTrie &dict, std::span<const Rune> r
             continue;
         }
         for (auto i = word.begin; i <= word.end - width; ++i) {
-            if (dict.find(runes.subspan(i, width)).has_value()) {
+            const auto matches = subwords[i - block_begin];
+            if (width == 2 ? matches.bigram : matches.trigram) {
                 out.push_back({i, static_cast<RuneIndex>(i + width)});
             }
         }
@@ -175,10 +209,10 @@ inline auto style_cut_search(const DictTrie &dict, const HMModel &model, std::sp
                              std::vector<WordRange> &out, SegmentScratch &scratch) -> void {
     out.clear();
     out.reserve(runes.size());
-    const auto emit = [&](WordRange word) {
-        style_emit_search_word(dict, runes, word, out);
+    const auto emit = [&](WordRange word, RuneIndex block_begin) {
+        style_emit_search_word(runes, word, block_begin, scratch.search_subwords, out);
     };
-    style_emit_blocks<hmm>(dict, model, runes, emit, scratch);
+    style_emit_blocks<hmm, StyleMatchMode::Search>(dict, model, runes, emit, scratch);
 }
 
 // Python FULL keeps whitespace matches and the intervening gaps, including empty gaps.
