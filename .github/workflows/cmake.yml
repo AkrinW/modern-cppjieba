@@ -94,9 +94,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Initialize comparison dependency
         run: git submodule update --init deps/cppjieba deps/limonp
-      - name: Initialize pinned Python jieba
+      - name: Initialize pinned Rust and Python jieba
         if: matrix.rust == 'ON'
-        run: git submodule update --init deps/python-jieba
+        run: git submodule update --init deps/jieba-rs deps/python-jieba
       - name: Install C++23 compiler
         run: sudo apt-get update && sudo apt-get install -y g++-14
       - name: Set up Python

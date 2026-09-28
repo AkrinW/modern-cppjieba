@@ -1,3 +1,5 @@
+# 应用示例
+
 这些示例分别演示一种应用场景，每个 `.cpp` 都可以独立阅读和修改。全部通过 `Jieba` 分词，
 词典与 HMM 模型在程序启动时加载一次；示例使用 UTF-8 输入，第三个构造参数 `""` 表示不加载用户词典。
 需要业务词典时，将它换成自己的词典文件路径。
@@ -9,7 +11,7 @@ cmake -S . -B build-examples \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF \
   -DCPPJIEBA_BUILD_EXAMPLES=ON
-cmake --build build-examples -j
+cmake --build build-examples --config Release --parallel
 ```
 
 示例通过 `neo_cppjieba::neo_cppjieba` 获取头文件路径和 C++23 编译要求；不下载测试或比较库依赖。
@@ -27,6 +29,13 @@ cmake --build build-examples -j
 
 ```sh
 ./build-examples/examples/jieba_basic_cut dict '我来到北京清华大学'
+```
+
+以下运行命令使用 Linux / macOS 的路径和 Shell 语法。使用 Visual Studio 生成器时，
+可执行文件位于 `build-examples/examples/Release/`，例如在 PowerShell 中运行：
+
+```powershell
+.\build-examples\examples\Release\jieba_basic_cut.exe dict '我来到北京清华大学'
 ```
 
 日常文本可从 `MIX` 开始；`MIX_NO_HMM` 显式关闭其中的 HMM 未登录词识别。

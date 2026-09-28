@@ -7,3 +7,6 @@
 [submodule "deps/python-jieba"]
 	path = deps/python-jieba
 	url = https://github.com/fxsjy/jieba.git
+[submodule "deps/jieba-rs"]
+	path = deps/jieba-rs
+	url = https://github.com/messense/jieba-rs.git

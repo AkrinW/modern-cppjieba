@@ -9,7 +9,7 @@ jieba-rs 0.11.0 对比。Python 源码通过子模块固定，无需 pip 安装�
 需要 Python 3.11+、C++23 编译器和 Rust/Cargo。在仓库根目录执行：
 
 ```sh
-git submodule update --init deps/cppjieba deps/limonp deps/python-jieba
+git submodule update --init deps/cppjieba deps/limonp deps/jieba-rs deps/python-jieba
 cmake -S . -B build-compare -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=ON \
   -DCPPJIEBA_BUILD_RUST_BENCHMARKS=ON
