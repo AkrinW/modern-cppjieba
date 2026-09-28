@@ -7,7 +7,7 @@ These dependencies are loaded only for legacy tests or benchmarks. The public
 | --- | --- | --- |
 | cppjieba | Official upstream submodule, pinned commit | `cppjieba::cppjieba` |
 | limonp | Official upstream submodule, pinned commit | `limonp::limonp` |
-| jieba-rs | Cargo registry, exactly 0.11.0 with `Cargo.lock` | `jieba_rs::jieba_rs` |
+| jieba-rs | Official upstream submodule, 0.11.0 source commit | `jieba_rs::jieba_rs` |
 | Python jieba | Official upstream submodule, v0.42.1 | Standalone Python benchmark |
 
 ```sh
@@ -18,7 +18,7 @@ git submodule update --init deps/cppjieba deps/limonp
 
 - cppjieba: `8f171de5018e8478ff22ca58caacf579cba809c8`, upstream `master` HEAD.
 - limonp: `4065c5f6d5a7a7248aacdd34d738fe0351b97c3f`, upstream `master` HEAD.
-- jieba-rs: `0.11.0`, the latest non-yanked stable version in the crates.io index.
+- jieba-rs: `0.11.0`, commit `3a0d75cf7455e2006330a5b4e94156da272cd7b9`, matching the published crate's source.
 
 The submodule gitlinks and Cargo lockfile determine the versions used by a
 checkout. An installed limonp package does not override the pinned source.
@@ -43,10 +43,18 @@ The former upstream guide is retained in [cppjieba-upstream-history.md](cppjieba
 
 ## Rust dependency and adapter
 
-`rust-jieba/` contains our C ABI adapter and C++ wrapper, not a copy of jieba-rs.
-Cargo downloads the pinned library and locked dependencies when the Rust
-benchmark is built. The adapter sources remain in this repository, and all build
-outputs stay in the CMake build tree. See [the Rust benchmark guide](../benchmark/RUST.md).
+`jieba-rs/` pins the [official upstream repository](https://github.com/messense/jieba-rs)
+at the source commit used by the `0.11.0` release. Initialize it with:
+
+```sh
+git submodule update --init deps/jieba-rs
+```
+
+`rust-jieba/` contains our C ABI adapter and C++ wrapper. Cargo uses a local path
+dependency for the pinned jieba-rs library and its workspace's jieba-macros crate;
+other dependencies remain locked by `rust-jieba/Cargo.lock` and are downloaded
+when the Rust benchmark is built. All build outputs stay in the CMake build tree.
+See [the Rust benchmark guide](../benchmark/RUST.md).
 
 ## Python dependency
 

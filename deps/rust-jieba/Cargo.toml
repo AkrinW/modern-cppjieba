@@ -8,7 +8,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-jieba-rs = { version = "=0.11.0", default-features = false }
+jieba-rs = { path = "../jieba-rs/jieba", version = "=0.11.0", default-features = false }
 
 [profile.release]
 opt-level = 3

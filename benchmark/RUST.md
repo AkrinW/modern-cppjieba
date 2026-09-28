@@ -1,6 +1,6 @@
 # RustJieba 对比基准
 
-本基准固定使用 `jieba-rs 0.11.0`，由 `Cargo.lock` 锁定传递依赖。Rust 使用 release / opt-level=3，C++ 使用 C++23 / Release。生产分词代码保持不变。
+本基准通过 `deps/jieba-rs` 子模块固定使用 `jieba-rs 0.11.0` 的源码提交 `3a0d75cf7455e2006330a5b4e94156da272cd7b9`，由 `Cargo.lock` 锁定其余传递依赖。Rust 使用 release / opt-level=3，C++ 使用 C++23 / Release。生产分词代码保持不变。
 
 测量结果、环境信息及原始输出保存在本地 `benchmark/results/`，该目录由 Git 忽略。本页末尾保留的是目录迁移前的历史记录。
 
@@ -41,7 +41,7 @@
 Rust 对比默认关闭，普通构建不依赖 Cargo。启用后需要可用的 Rust/Cargo，首次构建会下载锁定的依赖。以下命令在仓库根目录执行：
 
 ```sh
-git submodule update --init deps/cppjieba deps/limonp
+git submodule update --init deps/cppjieba deps/limonp deps/jieba-rs
 cmake -S . -B build-rust-compare -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=ON \
   -DCPPJIEBA_BUILD_RUST_BENCHMARKS=ON
