@@ -6,6 +6,25 @@ All benchmark executables live here and are enabled with
 Keep benchmark measurements, environment records and raw logs locally under
 `benchmark/results/`. This directory is ignored by Git.
 
+The curated README chart and its compact numeric snapshot are committed under
+[`docs/benchmarks/`](../docs/benchmarks/). The current chart uses the 2026-09-27
+measurements: four owned-string output paths, two corpora, five samples per case.
+It plots UTF-8 MiB/s on a linear axis starting at zero, calculated as
+`utf8_bytes * rounds / (median_ms / 1000) / 1048576`;
+the whiskers convert maximum/minimum elapsed time to minimum/maximum throughput.
+Each snapshot records the measurement date, environment and revision. Raw reports remain local; the snapshot
+retains their hashes, input hashes, dependency versions, timings and comparison counts.
+
+To regenerate the SVG with Python and Matplotlib 3.3 or newer, run from the repository root:
+
+```sh
+python3 docs/benchmarks/plot.py docs/benchmarks/snapshot-2026-09-27.json docs/benchmarks/comparison.svg
+```
+
+To collect fresh measurements, use the commands in [PYTHON.md](PYTHON.md), then update
+the snapshot and regenerate the chart together. Keep the implementation, output contract,
+input sizes and timing units consistent across the plotted series.
+
 ```sh
 git submodule update --init deps/cppjieba deps/limonp
 cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release \

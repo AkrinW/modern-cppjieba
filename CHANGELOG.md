@@ -1,12 +1,10 @@
 # Changelog
 
-记录 modern-cppjieba 中面向使用者的重要改动，按
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 的方式分类。
-
-本项目尚未发布独立版本，已有的现代实现改动统一收录在 `Unreleased`。
-首次发布时，将对应条目归入实际版本号并补充发布日期；后续改动继续记录在 `Unreleased`。
-
 ## Unreleased
+
+## 1.0.0 - 2026-09-28
+
+modern-cppjieba 的首个独立版本。
 
 ### Added
 
@@ -18,6 +16,7 @@
 - 增加编译期 `CPP`、`RUST`、`PYTHON` 分词规则配置，以及文本索引、偏移和 Trie 节点的容量类型配置。
 - 增加现代实现单元测试、应用示例及 CppJieba / jieba-rs / Python jieba 比较工具。
 - 增加 macOS、Windows 平台适配和 CI 构建配置。
+- README 增加 CppJieba、modern-cppjieba、jieba-rs 和 Python jieba 的性能折线图，并保存测量快照与绘图脚本。
 
 ### Changed
 
