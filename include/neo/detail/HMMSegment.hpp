@@ -116,8 +116,11 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     auto end_weight = previous_weight[static_cast<size_t>(HMMState::E)];
     auto end_state = HMMState::E;
     auto s_weight = previous_weight[static_cast<size_t>(HMMState::S)];
-    if (s_weight > end_weight
-        || (compile_config::segmentation_style != SegmentationStyle::CPP && s_weight == end_weight)) {
+    if constexpr (compile_config::segmentation_style == SegmentationStyle::CPP) {
+        if (s_weight > end_weight) {
+            end_state = HMMState::S;
+        }
+    } else if (s_weight >= end_weight) {
         end_state = HMMState::S;
     }
 
@@ -249,45 +252,44 @@ inline auto hmm_emit_one_segment(const HMModel &model, const Emit &emit_word, st
 
     if constexpr (compile_config::segmentation_style != SegmentationStyle::CPP) {
         style_hmm_emit(model, emit_word, runes, pos, scratch);
-        return;
-    }
+    } else {
+        auto n = static_cast<RuneIndex>(runes.size());
 
-    auto n = static_cast<RuneIndex>(runes.size());
+        auto left = RuneIndex{0};
+        auto right = RuneIndex{0};
 
-    auto left = RuneIndex{0};
-    auto right = RuneIndex{0};
+        while (right < n) {
+            assert_check([&] { return left <= right; }, "HMMSegment: pending rune range is reversed");
+            if (runes[right] < 0x80) {
+                // Flush pending Chinese characters to HMM before handling ASCII.
+                if (left < right) {
+                    hmm_internal_cut(model, runes, left, right, emit_word, pos, scratch);
+                }
+                left = right;
 
-    while (right < n) {
-        assert_check([&] { return left <= right; }, "HMMSegment: pending rune range is reversed");
-        if (runes[right] < 0x80) {
-            // Flush pending Chinese characters to HMM before handling ASCII.
-            if (left < right) {
-                hmm_internal_cut(model, runes, left, right, emit_word, pos, scratch);
+                // Group ASCII words and numeric runs so they are not split by the HMM state machine.
+                auto end = sequential_letter_end(runes, left, n);
+                if (end == left) {
+                    end = number_end(runes, left, n);
+                }
+                if (end == left) {
+                    end = left + 1;
+                }
+                assert_check([&] { return left < end && end <= n; }, "HMMSegment: ASCII scan must advance in bounds");
+                emit_word(WordRange{static_cast<RuneIndex>(pos + left), static_cast<RuneIndex>(pos + end)});
+                right = end;
+                left = right;
+            } else {
+                // An absent rune is a single-token boundary, independent of accumulated model scores.
+                // That policy is retired: unknown runes remain inside the current Viterbi span.
+                ++right;
             }
-            left = right;
-
-            // Group ASCII words and numeric runs so they are not split by the HMM state machine.
-            auto end = sequential_letter_end(runes, left, n);
-            if (end == left) {
-                end = number_end(runes, left, n);
-            }
-            if (end == left) {
-                end = left + 1;
-            }
-            assert_check([&] { return left < end && end <= n; }, "HMMSegment: ASCII scan must advance in bounds");
-            emit_word(WordRange{static_cast<RuneIndex>(pos + left), static_cast<RuneIndex>(pos + end)});
-            right = end;
-            left = right;
-        } else {
-            // An absent rune is a single-token boundary, independent of accumulated model scores.
-            // That policy is retired: unknown runes remain inside the current Viterbi span.
-            ++right;
         }
-    }
 
-    // Flush the trailing Chinese run after the last ASCII span, if any.
-    if (left < right) {
-        hmm_internal_cut(model, runes, left, right, emit_word, pos, scratch);
+        // Flush the trailing Chinese run after the last ASCII span, if any.
+        if (left < right) {
+            hmm_internal_cut(model, runes, left, right, emit_word, pos, scratch);
+        }
     }
 }
 
@@ -307,22 +309,22 @@ inline auto hmm_cut_append(const HMModel &model, std::span<const Rune> runes, st
                  "HMMSegment: global word offsets overflow");
     if constexpr (compile_config::segmentation_style != SegmentationStyle::CPP) {
         hmm_cut_one_segment(model, range, runes, pos, scratch);
-        return;
-    }
-    get_pre_filter_separators(runes, scratch.separators);
-    const auto &segments = scratch.separators;
-    auto segment_pos = pos;
-    // First text segment before the first separator.
-    hmm_cut_one_segment(model, range, runes.subspan(0, segments[0]), segment_pos, scratch);
-    for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
-        // Emit the separator rune itself.
-        range.push_back(
-            WordRange{static_cast<RuneIndex>(pos + segments[i]), static_cast<RuneIndex>(pos + segments[i] + 1)});
-        auto next_begin = segments[i] + 1;
-        segment_pos = pos + next_begin;
-        // Continue with the following text segment.
-        hmm_cut_one_segment(model, range, runes.subspan(next_begin, segments[i + 1] - next_begin), segment_pos,
-                            scratch);
+    } else {
+        get_pre_filter_separators(runes, scratch.separators);
+        const auto &segments = scratch.separators;
+        auto segment_pos = pos;
+        // First text segment before the first separator.
+        hmm_cut_one_segment(model, range, runes.subspan(0, segments[0]), segment_pos, scratch);
+        for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
+            // Emit the separator rune itself.
+            range.push_back(
+                WordRange{static_cast<RuneIndex>(pos + segments[i]), static_cast<RuneIndex>(pos + segments[i] + 1)});
+            auto next_begin = segments[i] + 1;
+            segment_pos = pos + next_begin;
+            // Continue with the following text segment.
+            hmm_cut_one_segment(model, range, runes.subspan(next_begin, segments[i + 1] - next_begin), segment_pos,
+                                scratch);
+        }
     }
 }
 

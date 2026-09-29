@@ -41,8 +41,13 @@ namespace neo_cppjieba::detail {
 
 // The precise/search dictionary block also accepts the reference ASCII punctuation set.
 [[nodiscard]] constexpr auto is_style_dictionary_rune(Rune rune) noexcept -> bool {
-    const auto han =
-        compile_config::segmentation_style == SegmentationStyle::RUST ? is_rust_cjk(rune) : is_hmm_han(rune);
+    const auto han = [rune] {
+        if constexpr (compile_config::segmentation_style == SegmentationStyle::RUST) {
+            return is_rust_cjk(rune);
+        } else {
+            return is_hmm_han(rune);
+        }
+    }();
     return han || is_ascii_alphanumeric(rune) || rune == U'+' || rune == U'#' || rune == U'&' || rune == U'.'
            || rune == U'_' || rune == U'%' || rune == U'-';
 }
