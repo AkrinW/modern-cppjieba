@@ -72,14 +72,21 @@ inline auto assert_rune_count(size_t rune_count) noexcept -> void {
     if (rune_count == 0) {
         return words.empty();
     }
-    const auto allow_empty_output =
-        mode == CutMode::FULL && compile_config::segmentation_style == SegmentationStyle::RUST;
-    const auto allow_empty_words =
-        mode == CutMode::FULL && compile_config::segmentation_style == SegmentationStyle::PYTHON;
-    return (allow_empty_output || !words.empty()) && std::ranges::all_of(words, [=](const WordRange &word) {
-               return (word.begin < word.end || (allow_empty_words && word.begin == word.end))
-                      && word.end <= rune_count;
-           });
+    if (words.empty()) {
+        if constexpr (compile_config::segmentation_style == SegmentationStyle::RUST) {
+            return mode == CutMode::FULL;
+        } else {
+            return false;
+        }
+    }
+    return std::ranges::all_of(words, [=](const WordRange &word) {
+        if constexpr (compile_config::segmentation_style == SegmentationStyle::PYTHON) {
+            return (word.begin < word.end || (mode == CutMode::FULL && word.begin == word.end))
+                   && word.end <= rune_count;
+        } else {
+            return word.begin < word.end && word.end <= rune_count;
+        }
+    });
 }
 
 } // namespace detail
@@ -224,36 +231,36 @@ private:
             }
             assert_check([&] { return detail::valid_jieba_result(mode, result, runes.size()); },
                          "Jieba: invalid segmentation result for {} runes", runes.size());
-            return;
+        } else {
+            switch (mode) {
+                case CutMode::MIX:
+                    MixSegment<true>::cut_into(dict_, model_, runes, result, scratch);
+                    break;
+                case CutMode::MIX_NO_HMM:
+                    MixSegment<false>::cut_into(dict_, model_, runes, result, scratch);
+                    break;
+                case CutMode::FULL:
+                    FullSegment::cut_into(dict_, runes, result, scratch);
+                    break;
+                case CutMode::SEARCH:
+                    QuerySegment<true>::cut_into(dict_, model_, runes, result, scratch);
+                    break;
+                case CutMode::SEARCH_NO_HMM:
+                    QuerySegment<false>::cut_into(dict_, model_, runes, result, scratch);
+                    break;
+                case CutMode::HMM:
+                    HMMSegment::cut_into(model_, runes, result, scratch);
+                    break;
+                case CutMode::MP:
+                    MPSegment::cut_into(dict_, runes, result, scratch);
+                    break;
+                default:
+                    assert_check([] { return false; }, "Unchecked Jieba cut mode reached internal dispatch");
+                    std::unreachable();
+            }
+            assert_check([&] { return detail::valid_jieba_result(mode, result, runes.size()); },
+                         "Jieba: invalid segmentation result for {} runes", runes.size());
         }
-        switch (mode) {
-            case CutMode::MIX:
-                MixSegment<true>::cut_into(dict_, model_, runes, result, scratch);
-                break;
-            case CutMode::MIX_NO_HMM:
-                MixSegment<false>::cut_into(dict_, model_, runes, result, scratch);
-                break;
-            case CutMode::FULL:
-                FullSegment::cut_into(dict_, runes, result, scratch);
-                break;
-            case CutMode::SEARCH:
-                QuerySegment<true>::cut_into(dict_, model_, runes, result, scratch);
-                break;
-            case CutMode::SEARCH_NO_HMM:
-                QuerySegment<false>::cut_into(dict_, model_, runes, result, scratch);
-                break;
-            case CutMode::HMM:
-                HMMSegment::cut_into(model_, runes, result, scratch);
-                break;
-            case CutMode::MP:
-                MPSegment::cut_into(dict_, runes, result, scratch);
-                break;
-            default:
-                assert_check([] { return false; }, "Unchecked Jieba cut mode reached internal dispatch");
-                std::unreachable();
-        }
-        assert_check([&] { return detail::valid_jieba_result(mode, result, runes.size()); },
-                     "Jieba: invalid segmentation result for {} runes", runes.size());
     }
 
     DictTrie dict_;
