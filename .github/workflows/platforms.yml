@@ -16,23 +16,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2022]
+        os: [macos-26, windows-2025-vs2026]
         build_type: [Debug, Release]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
       - name: Install LLVM and libc++ on macOS
         if: runner.os == 'macOS'
-        run: brew install llvm@20
+        run: brew install llvm@23
 
       - name: Configure macOS
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          llvm_prefix="$(brew --prefix llvm@20)"
+          llvm_prefix="$(brew --prefix llvm@23)"
           cmake -S . -B build -G Ninja \
             -DCMAKE_CXX_COMPILER="$llvm_prefix/bin/clang++" \
             -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
@@ -43,7 +43,7 @@ jobs:
       - name: Configure Windows
         if: runner.os == 'Windows'
         run: >-
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          cmake -S . -B build -G "Visual Studio 18 2026" -A x64
           -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
 
       - name: Build library users, tests and benchmarks
@@ -56,7 +56,7 @@ jobs:
 
       - name: Upload unit-test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ut-${{ matrix.os }}-${{ matrix.build_type }}
           path: |

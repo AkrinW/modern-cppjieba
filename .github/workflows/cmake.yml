@@ -17,7 +17,7 @@ permissions:
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
-  CXX: g++-14
+  CXX: g++-15
 
 jobs:
   build:
@@ -31,21 +31,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
+        os: [ubuntu-26.04]
         cpp_version: [23]
         legacy_tests: ["OFF", "ON"]
         build_type: [Debug, Release]
 
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Initialize legacy comparison dependency
         if: matrix.legacy_tests == 'ON'
         run: git submodule update --init deps/cppjieba
 
       - name: Install C++23 compiler
-        run: sudo apt-get update && sudo apt-get install -y g++-14
+        run: sudo apt-get update && sudo apt-get install -y g++-15
 
       - name: Configure CMake
         # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload unit-test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ut-linux-x64-${{ matrix.build_type }}-legacy-${{ matrix.legacy_tests }}
           path: |
@@ -84,32 +84,32 @@ jobs:
 
   benchmarks:
     name: Release benchmarks / Rust=${{ matrix.rust }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     defaults:
       run:
         shell: bash
     env:
-      RUSTUP_TOOLCHAIN: "1.94.0"
+      RUSTUP_TOOLCHAIN: "1.99.0"
       UPDATE_BENCHMARK_DOCS: ${{ github.event_name == 'workflow_dispatch' && inputs.update_benchmark_docs && github.ref_name == github.event.repository.default_branch }}
     strategy:
       fail-fast: false
       matrix:
         rust: ["OFF", "ON"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Initialize comparison dependency
         run: git submodule update --init deps/cppjieba deps/limonp
       - name: Initialize pinned Rust and Python jieba
         if: matrix.rust == 'ON'
         run: git submodule update --init deps/jieba-rs deps/python-jieba
       - name: Install C++23 compiler
-        run: sudo apt-get update && sudo apt-get install -y g++-14
+        run: sudo apt-get update && sudo apt-get install -y g++-15
       - name: Set up Python
         if: matrix.rust == 'ON'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14.8"
       - name: Install pinned Rust compiler
         if: matrix.rust == 'ON'
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
@@ -143,7 +143,7 @@ jobs:
         if: matrix.rust == 'ON' && env.UPDATE_BENCHMARK_DOCS == 'true'
         env:
           BENCHMARK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          BENCHMARK_RUNNER_IMAGE: ubuntu-24.04
+          BENCHMARK_RUNNER_IMAGE: ubuntu-26.04
         run: >-
           python docs/benchmarks/snapshot.py record-environment
           --build-directory build --output benchmark/results/ci/environment.json
@@ -187,7 +187,7 @@ jobs:
       - name: Generate benchmark documentation
         if: matrix.rust == 'ON' && env.UPDATE_BENCHMARK_DOCS == 'true'
         run: |
-          python -m pip install matplotlib==3.10.8
+          python -m pip install matplotlib==3.11.2
           python docs/benchmarks/snapshot.py generate \
             --reports benchmark/results/ci --snapshot docs/benchmarks/snapshot.json --readme README.md
           python docs/benchmarks/plot.py docs/benchmarks/snapshot.json docs/benchmarks/comparison.svg
@@ -195,7 +195,7 @@ jobs:
 
       - name: Upload generated benchmark documentation
         if: matrix.rust == 'ON' && env.UPDATE_BENCHMARK_DOCS == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-documentation
           path: |
@@ -234,7 +234,7 @@ jobs:
 
       - name: Upload comparison reports
         if: always() && matrix.rust == 'ON'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmarks-linux-x64-release
           path: benchmark/results/ci/
@@ -247,14 +247,14 @@ jobs:
     if: >-
       always() && !cancelled() && github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       actions: read
       pull-requests: write
     steps:
       - name: Check that this is still the current PR head
         id: current
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const { data: pull } = await github.rest.pulls.get({
@@ -265,7 +265,7 @@ jobs:
 
       - name: Download comparison reports
         if: steps.current.outputs.result == 'true'
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: benchmarks-linux-x64-release
           path: benchmark-report
@@ -283,12 +283,12 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.update_benchmark_docs &&
       github.ref_name == github.event.repository.default_branch
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
       - name: Check that the measured revision is still current
@@ -300,7 +300,7 @@ jobs:
             exit 1
           fi
       - name: Download generated documentation
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: benchmark-documentation
           path: .
@@ -326,9 +326,9 @@ jobs:
             docs/benchmarks/comparison.svg
 
   library:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure only the public library
         run: cmake -S . -B build -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_BENCHMARKS=OFF
       - name: Install public headers and data

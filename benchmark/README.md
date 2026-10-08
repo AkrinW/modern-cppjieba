@@ -83,8 +83,8 @@ neo C++, Rust and Python through `python_compare_benchmark.py`. The `Rust=OFF` j
 continues to check that the standalone C++ benchmarks build without Cargo.
 
 All four implementations run serially on one allowed CPU of the same runner,
-using the common dictionary and HMM model. CI uses GCC 14, Rust 1.94.0 and Python
-3.12; comparison dependencies are pinned by submodule revisions and `Cargo.lock`.
+using the common dictionary and HMM model. CI uses GCC 15, Rust 1.99.0 and Python
+3.14.8; comparison dependencies are pinned by submodule revisions and `Cargo.lock`.
 
 | Corpus | Rounds per sample | Samples |
 | --- | ---: | ---: |
@@ -133,7 +133,7 @@ default. To publish a new measurement:
    generated PR from `docs/benchmark-results`. Later manual runs update that PR
    while it remains open.
 
-The measurement uses the existing GitHub-hosted `ubuntu-24.04` job: all four
+The measurement uses the existing GitHub-hosted `ubuntu-26.04` job: all four
 implementations run serially on one CPU with five samples per case. The generator
 checks matching revisions, environments, dictionary/model hashes and native binary
 hashes, then retains timing ranges and token-sequence differences in the snapshot.
