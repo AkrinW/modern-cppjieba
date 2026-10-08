@@ -274,6 +274,15 @@ TEST_F(DictTrieInputTest, MpSegmentationPreservesEqualScoreOrderBetweenKnownWord
     EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲", "乙"}));
 }
 
+TEST_F(DictTrieInputTest, MpSegmentationSelectsHigherProbabilityWhenFloatScoresWouldTie) {
+    // The competing frequency products differ by one; float weights collapse their scores into a tie.
+    ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲 9999 n\n乙丙 10001 n\n甲乙 10000 n\n丙 10000 n\n"));
+    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto runes = decode("甲乙丙");
+
+    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲乙", "丙"}));
+}
+
 TEST_F(DictTrieInputTest, MpSegmentationAcceptsPositiveUserWordWeights) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 60 n\n"));
     const auto trie =
