@@ -123,6 +123,8 @@ UTF-8 对应字节偏移；`position.runes` 按 Unicode 码点计数。
 
 ## 性能对比
 
+<!-- benchmark:start -->
+
 测试日期：2026-09-27，测量时提交：
 [`7ffd964`](https://github.com/AkrinW/modern-cppjieba/commit/7ffd964465895e142b5a600fbcc8ab97dda65741)。
 各实现使用同一主词典和 HMM 模型，关闭用户词典；modern-cppjieba 使用 `CPP` 规则。
@@ -138,6 +140,8 @@ UTF-8 对应字节偏移；`position.runes` 按 Unicode 码点计数。
 - 语料：短句集 8 行、255 字节，每样本 10,000 轮；《围城》245 行、733,678 字节，每样本 3 轮。
 
 [测试数据](docs/benchmarks/snapshot-2026-09-27.json) · [复现方法](benchmark/README.md)
+
+<!-- benchmark:end -->
 
 ## 开发
 
