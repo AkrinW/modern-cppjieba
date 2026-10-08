@@ -1,0 +1,329 @@
+{
+  "measured_on": "2026-10-08",
+  "repository_revision_at_measurement": "23416552774103625fa229fb981cb7cb467eca16",
+  "environment": {
+    "cpu": "AMD EPYC 7763 64-Core Processor",
+    "cpp_compiler": "GCC 14.2.0",
+    "cpp_flags": [
+      "-O3",
+      "-DNDEBUG"
+    ],
+    "build_type": "Release",
+    "rust_compiler": "rustc 1.94.0",
+    "rust_profile": {
+      "name": "release",
+      "opt_level": 3
+    },
+    "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+    "cpu_affinity": [
+      0
+    ],
+    "python": "3.12.15 (main, Oct  1 2026, 02:35:59) [GCC 13.3.0]",
+    "python_version": "CPython 3.12.15"
+  },
+  "dependencies": {
+    "cppjieba_revision": "8f171de5018e8478ff22ca58caacf579cba809c8",
+    "jieba_rs_revision": "3a0d75cf7455e2006330a5b4e94156da272cd7b9",
+    "jieba_rs_version": "0.11.0",
+    "python_jieba_version": "0.42.1",
+    "python_jieba_revision": "1e20c89b66f56c9301b0feed211733ffaa1bd72a"
+  },
+  "ci": {
+    "repository_url": "https://github.com/AkrinW/modern-cppjieba",
+    "run_url": "https://github.com/AkrinW/modern-cppjieba/actions/runs/37739643166",
+    "run_attempt": "1",
+    "runner_environment": "github-hosted",
+    "runner_image": "ubuntu-24.04",
+    "artifact": "benchmarks-linux-x64-release"
+  },
+  "measurement": {
+    "output_contract": "independent owned strings, including materialization and per-call destruction",
+    "excluded": [
+      "input reading",
+      "engine initialization",
+      "correctness checks",
+      "warm-up"
+    ],
+    "elapsed_time_unit": "milliseconds per sample",
+    "plotted_unit": "UTF-8 MiB/s",
+    "segmentation_style": "CPP",
+    "user_dictionary": false
+  },
+  "input_sha256": {
+    "dictionary": "c9cbbb30e17a0d7feaa1b81debd47262875cd090cffa2604fc2adbe29a96b320",
+    "model": "f17790586ac86dd048c8adffed052c4bd2b28ed0682972c1275e59040c0589a7"
+  },
+  "native_executable_sha256": "3c553e04cc5e626b11cd58e1e10f2c8cef6ed5dd635ed0a2db305b6cadfb7223",
+  "modes": [
+    "MIX",
+    "MP",
+    "FULL",
+    "SEARCH"
+  ],
+  "series": [
+    {
+      "id": "cppjieba",
+      "label": "CppJieba",
+      "color": "#64748b",
+      "marker": "s",
+      "native_label": "Old C++ strings"
+    },
+    {
+      "id": "modern",
+      "label": "modern-cppjieba",
+      "color": "#2563eb",
+      "marker": "o",
+      "native_label": "Neo C++ strings"
+    },
+    {
+      "id": "rust",
+      "label": "jieba-rs",
+      "color": "#c77714",
+      "marker": "D",
+      "native_label": "Rust native owned strings"
+    },
+    {
+      "id": "python",
+      "label": "jieba (Python)",
+      "color": "#13866f",
+      "marker": "^"
+    }
+  ],
+  "corpora": [
+    {
+      "id": "testlines",
+      "title": "Short sentences (8 lines)",
+      "source_path": "test/testdata/testlines.utf8",
+      "source_sha256": "ba4ea994c7b1c1d3fa1ec80760177fa64f99beac3e49db692b6f02e3ac2de699",
+      "lines": 8,
+      "utf8_bytes": 255,
+      "rounds_per_sample": 10000,
+      "samples": 5,
+      "timings": {
+        "cppjieba": {
+          "median_ms": [
+            101.833564,
+            81.289776,
+            84.135106,
+            118.086659
+          ],
+          "min_ms": [
+            101.533739,
+            80.894402,
+            83.571021,
+            116.999865
+          ],
+          "max_ms": [
+            104.829481,
+            82.038545,
+            84.474584,
+            119.489348
+          ]
+        },
+        "modern": {
+          "median_ms": [
+            34.74257,
+            30.883339,
+            29.613483,
+            38.866641
+          ],
+          "min_ms": [
+            34.690691,
+            30.779093,
+            29.532951,
+            38.741595
+          ],
+          "max_ms": [
+            35.107496,
+            31.169677,
+            42.556002,
+            38.894253
+          ]
+        },
+        "rust": {
+          "median_ms": [
+            33.147027,
+            32.575442,
+            52.899822,
+            45.407166
+          ],
+          "min_ms": [
+            33.071115,
+            32.486425,
+            52.610206,
+            44.766962
+          ],
+          "max_ms": [
+            33.152248,
+            33.149893,
+            53.124133,
+            46.607454
+          ]
+        },
+        "python": {
+          "median_ms": [
+            2692.563378,
+            2121.174083,
+            1115.956413,
+            2906.10463
+          ],
+          "min_ms": [
+            2669.274713,
+            2107.947028,
+            1107.596841,
+            2899.798995
+          ],
+          "max_ms": [
+            2712.128332,
+            2130.231773,
+            1119.342941,
+            2911.743306
+          ]
+        }
+      },
+      "different_lines_vs_modern": {
+        "cppjieba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "rust": [
+          0,
+          2,
+          8,
+          0
+        ],
+        "python": [
+          0,
+          2,
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "id": "weicheng",
+      "title": "Weicheng (245 lines)",
+      "source_path": "test/testdata/weicheng.utf8",
+      "source_sha256": "a63b13291451bad1b3b1f4f12087bfac3eb92e03b31f3069a3be4777aa05e1a4",
+      "lines": 245,
+      "utf8_bytes": 733678,
+      "rounds_per_sample": 3,
+      "samples": 5,
+      "timings": {
+        "cppjieba": {
+          "median_ms": [
+            206.875558,
+            145.42345,
+            147.259826,
+            213.628154
+          ],
+          "min_ms": [
+            195.640572,
+            143.828881,
+            145.358298,
+            211.931392
+          ],
+          "max_ms": [
+            211.927943,
+            150.330031,
+            151.447494,
+            225.131314
+          ]
+        },
+        "modern": {
+          "median_ms": [
+            38.855177,
+            30.94742,
+            30.342352,
+            41.181754
+          ],
+          "min_ms": [
+            36.434543,
+            28.848913,
+            27.41231,
+            38.87229
+          ],
+          "max_ms": [
+            41.219725,
+            31.47876,
+            32.29231,
+            43.351756
+          ]
+        },
+        "rust": {
+          "median_ms": [
+            67.626454,
+            59.235828999999995,
+            71.36149,
+            71.516953
+          ],
+          "min_ms": [
+            61.979029,
+            58.97661,
+            70.25021100000001,
+            70.177253
+          ],
+          "max_ms": [
+            69.07579,
+            59.799719,
+            74.882725,
+            77.857731
+          ]
+        },
+        "python": {
+          "median_ms": [
+            2742.890197,
+            1654.513951,
+            919.044045,
+            2836.817319
+          ],
+          "min_ms": [
+            2661.75229,
+            1642.489674,
+            872.113092,
+            2779.9213
+          ],
+          "max_ms": [
+            2792.142527,
+            1680.216285,
+            936.401009,
+            2896.288204
+          ]
+        }
+      },
+      "different_lines_vs_modern": {
+        "cppjieba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "rust": [
+          205,
+          51,
+          242,
+          205
+        ],
+        "python": [
+          204,
+          51,
+          243,
+          204
+        ]
+      }
+    }
+  ],
+  "raw_reports": {
+    "testlines": {
+      "path": "testlines.json",
+      "sha256": "d26aa8455cdc6df17ee0b90db81308b0f256f3fca9298d885540aae3ec89ac99"
+    },
+    "weicheng": {
+      "path": "weicheng.json",
+      "sha256": "1d17c665c6fda15cd06cbce6532ba960ef45bc855b210fa5c16159d81fa65bf2"
+    }
+  },
+  "raw_environment_sha256": "c8725cc565b309ef3b7f71f4e54d153c4da793737681983e6cfbfb29d844aa70"
+}
