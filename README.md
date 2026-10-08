@@ -125,21 +125,25 @@ UTF-8 对应字节偏移；`position.runes` 按 Unicode 码点计数。
 
 <!-- benchmark:start -->
 
-测试日期：2026-09-27，测量时提交：
-[`7ffd964`](https://github.com/AkrinW/modern-cppjieba/commit/7ffd964465895e142b5a600fbcc8ab97dda65741)。
+数据来自 [GitHub Actions](https://github.com/AkrinW/modern-cppjieba/actions/runs/37739643166)，测试日期：2026-10-08。
+测量提交：[`2341655`](https://github.com/AkrinW/modern-cppjieba/commit/23416552774103625fa229fb981cb7cb467eca16)。
 各实现使用同一主词典和 HMM 模型，关闭用户词典；modern-cppjieba 使用 `CPP` 规则。
 
 ![CppJieba、modern-cppjieba、jieba-rs 和 Python jieba 的分词吞吐量，线性坐标](docs/benchmarks/comparison.svg)
 
-吞吐量单位为 MiB/s，越高越好。曲线取 5 个样本的中位数，误差线表示最小、最大吞吐量。
+吞吐量单位为 MiB/s，越高越好。曲线取各样本的中位数，误差线表示最小、最大吞吐量。
 各路径均返回独立字符串，计时覆盖分词、字符串构造和释放；语料读取、词典加载和预热在计时前完成。
 
-- 环境：Linux x86-64，Intel Xeon Gold 5320，绑定 CPU 0。
-- 工具链：GCC 16.1.0（`-O3 -DNDEBUG`）、Rust 1.94.0（`opt-level=3`）、CPython 3.14.3。
-- 比较版本：jieba-rs 0.11.0、Python jieba 0.42.1，完整版本信息见数据文件。
-- 语料：短句集 8 行、255 字节，每样本 10,000 轮；《围城》245 行、733,678 字节，每样本 3 轮。
+- 环境：GitHub 托管 `ubuntu-24.04`，AMD EPYC 7763 64-Core Processor，绑定 CPU 0。
+- 工具链：GCC 14.2.0（`-O3 -DNDEBUG`）、rustc 1.94.0（`opt-level=3`）、CPython 3.12.15。
+- 比较版本：jieba-rs 0.11.0、Python jieba 0.42.1。
+- 语料 `testlines`：8 行、255 字节，每样本 10,000 轮，共 5 个样本。
+- 语料 `weicheng`：245 行、733,678 字节，每样本 3 轮，共 5 个样本。
 
-[测试数据](docs/benchmarks/snapshot-2026-09-27.json) · [复现方法](benchmark/README.md)
+不同实现的分词规则存在差异，词序列差异计数保存在数据快照中。
+共享 runner 的耗时会有波动，图表仅代表这次测量。
+
+[测试数据](docs/benchmarks/snapshot.json) · [复现与 CI 更新方法](benchmark/README.md)
 
 <!-- benchmark:end -->
 
