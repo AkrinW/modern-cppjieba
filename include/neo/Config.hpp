@@ -40,7 +40,8 @@ using uint128_t = unsigned __int128;
 namespace detail {
 
 // CPP retains compact weights; Rust and Python score dictionary paths in double precision.
-using WordWeight = std::conditional_t<compile_config::segmentation_style == SegmentationStyle::CPP, float, double>;
+// All styles now use double precision to preserve legacy CPP path scoring.
+using WordWeight = double;
 
 // Explicit type selection also accepts native 128-bit integers in strict C++23 mode.
 template <typename T>
