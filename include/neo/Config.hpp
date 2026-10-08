@@ -39,7 +39,7 @@ using uint128_t = unsigned __int128;
 
 namespace detail {
 
-// CPP retains compact weights; Rust and Python score dictionary paths in double precision.
+// Before 1.1.0, CPP used float weights; Rust and Python used double precision.
 // All styles now use double precision to preserve legacy CPP path scoring.
 using WordWeight = double;
 

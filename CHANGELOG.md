@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-08
+
+本版增加可选编码转换，并修复 CPP 规则下词典权重精度导致的分词兼容性问题。
+
+### Added
+
+- 新增可选 `neo/encoding/IcuCodec.hpp`，支持显式指定 UTF-8、GBK、GB18030 的双向转换，
+  并提供 Unicode 码点边界与编码字节位置的映射。
+  通过 `CPPJIEBA_ENABLE_ICU=ON` 启用，链接 `neo_cppjieba::icu`；默认核心库仍无 ICU 依赖。
+- 新增 `neo/Unicode.hpp` 中的 `is_valid_utf(input)`，按输入字符类型检查 UTF 编码合法性，
+  无需分配解码缓冲。该接口不检测输入的原始编码。
+- 增加 [编码转换说明](docs/encoding.md)，覆盖借用结果生命周期、原始字节位置映射及 ICU 依赖配置。
+- 增加手动触发的 CI benchmark 文档更新：在 GitHub 托管 runner 上测量，生成图表和数据快照，
+  通过文档 PR 更新 README 的性能数据。
+
+### Changed
+
+- 将分词规则相关分支改为 `if constexpr`，在编译期选择 CPP、RUST、PYTHON 对应实现。
+- CMake 项目声明版本 `1.1.0`，可通过 `modern_cppjieba_VERSION` 获取。
+
+### Fixed
+
+- 所有分词规则统一使用 `double` 词典权重和 MP 路径评分，恢复旧 CppJieba 的评分精度。
+  CPP 规则此前使用 `float`，可能将不同概率路径舍入为相同分数，进而选择错误路径。
+- 增加近似平局回归测试：词频为 `甲=9999`、`乙丙=10001`、`甲乙=10000`、`丙=10000` 时，
+  `甲乙丙` 正确切分为 `甲乙 / 丙`；此前的 `float` 评分会选择 `甲 / 乙丙`。
+
+### Upgrade notes
+
+- 升级后重新编译所有使用本库头文件的编译单元；词典权重及相关内部结构的布局已经变化。
+- CPP 规则下受浮点舍入影响的文本可能得到不同分词结果。词典及模型文件格式沿用 `1.0.0`。
+- 恢复 `double` 精度会增加相关数据结构大小，部分查询的耗时可能增加。
+
 ## 1.0.0 - 2026-09-28
 
 modern-cppjieba 的首个独立版本。

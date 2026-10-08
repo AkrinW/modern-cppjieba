@@ -1,3 +1,9 @@
+# Text encoding
+
+The optional ICU adapter and `is_valid_utf(input)` are available since `1.1.0`.
+See the [README](../README.md) for core library integration and the
+[changelog](../CHANGELOG.md) for upgrade notes.
+
 Jieba's text entry points accept UTF-8, UTF-16 and UTF-32 through their existing
 character types. Convert other encodings outside Jieba before segmentation.
 The optional `IcuCodec` converts explicitly labeled UTF-8, GBK and GB18030 input
@@ -7,18 +13,35 @@ or decoder parameter. `GBK` and `GB18030` are explicit choices; there is no ambi
 `IcuCodec` provides static operations and cannot be instantiated. Pass the byte
 view and its encoding directly; no input wrapper or decoder object is required.
 
-Enable the CMake adapter and link its interface target:
+For source-tree integration, add this repository to your application and link the
+optional interface target. Configure the consuming project with ICU enabled:
 
 ```sh
-cmake -S . -B build -DCPPJIEBA_ENABLE_ICU=ON
+cmake -S . -B build -DBUILD_TESTING=OFF -DCPPJIEBA_ENABLE_ICU=ON
 ```
 
 ```cmake
+add_subdirectory(external/modern-cppjieba)
 target_link_libraries(my_app PRIVATE neo_cppjieba::icu)
 ```
 
 ICU development headers and the `uc` and `data` libraries must be installed. The option is off
 by default; the core target and `neo/Jieba.hpp` do not require ICU.
+
+For installed headers or a manual header copy, configure the header search path
+and C++23 as described in the [README](../README.md#cmake-集成), then discover and
+link ICU in the consuming project:
+
+```cmake
+find_package(ICU REQUIRED COMPONENTS uc data)
+target_link_libraries(my_app PRIVATE ICU::uc ICU::data)
+```
+
+Installation copies headers and dictionaries; it does not export a CMake package
+or the `neo_cppjieba::neo_cppjieba` and `neo_cppjieba::icu` targets. All public
+headers, including `IcuCodec.hpp`, are installed even with `CPPJIEBA_ENABLE_ICU=OFF`.
+The option enables the source-tree adapter target and conversion tests; manual
+integration configures ICU directly in the application.
 
 ```cpp
 #include "neo/Jieba.hpp"
@@ -50,7 +73,7 @@ rune offsets still count Unicode scalars. For example, 中国 occupies four GBK
 bytes and six UTF-8 bytes. Original-byte location mapping belongs to the outer
 conversion layer and is not carried by Jieba's results.
 
-The conversion API has two forms:
+The conversion API provides the following entry points:
 
 | Purpose | Interface | Result |
 | --- | --- | --- |
@@ -185,3 +208,12 @@ stateful encodings or one byte sequence producing several Unicode scalars.
 This version keeps dictionaries and models in UTF-8 and supports owned conversion
 between UTF-8 and GBK/GB18030, with optional rune-to-byte location mapping.
 The `encoded_text_test.cpp` unit tests are registered when ICU is enabled.
+
+To run the modern unit suite with conversion tests included:
+
+```sh
+cmake -S . -B build-icu -DCMAKE_BUILD_TYPE=Debug \
+  -DBUILD_TESTING=ON -DCPPJIEBA_ENABLE_ICU=ON
+cmake --build build-icu --config Debug --target test_neo.run --parallel
+ctest --test-dir build-icu -C Debug -R '^neo_unit_tests$' --output-on-failure
+```
