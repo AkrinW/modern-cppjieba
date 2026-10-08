@@ -5,6 +5,11 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      update_benchmark_docs:
+        description: Measure on the default branch and create a benchmark documentation PR
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -86,6 +91,7 @@ jobs:
         shell: bash
     env:
       RUSTUP_TOOLCHAIN: "1.94.0"
+      UPDATE_BENCHMARK_DOCS: ${{ github.event_name == 'workflow_dispatch' && inputs.update_benchmark_docs && github.ref_name == github.event.repository.default_branch }}
     strategy:
       fail-fast: false
       matrix:
@@ -133,6 +139,14 @@ jobs:
             uname -a
             lscpu
           } > benchmark/results/ci/environment.txt
+      - name: Record snapshot provenance
+        if: matrix.rust == 'ON' && env.UPDATE_BENCHMARK_DOCS == 'true'
+        env:
+          BENCHMARK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          BENCHMARK_RUNNER_IMAGE: ubuntu-24.04
+        run: >-
+          python docs/benchmarks/snapshot.py record-environment
+          --build-directory build --output benchmark/results/ci/environment.json
       - name: Rust adapter unit tests
         if: matrix.rust == 'ON'
         run: >-
@@ -141,6 +155,9 @@ jobs:
       - name: Python adapter unit tests
         if: matrix.rust == 'ON'
         run: python -B -m unittest discover -s benchmark -p 'python_compare_benchmark_test.py' -v
+      - name: Benchmark snapshot unit tests
+        if: matrix.rust == 'ON'
+        run: python -B -m unittest discover -s docs/benchmarks -p '*_test.py' -v
       - name: Rust comparison smoke check
         if: matrix.rust == 'ON'
         working-directory: ${{runner.temp}}
@@ -166,6 +183,27 @@ jobs:
               --output "benchmark/results/ci/$corpus.json" \
               2>&1 | tee "benchmark/results/ci/$corpus.log"
           done
+
+      - name: Generate benchmark documentation
+        if: matrix.rust == 'ON' && env.UPDATE_BENCHMARK_DOCS == 'true'
+        run: |
+          python -m pip install matplotlib==3.10.8
+          python docs/benchmarks/snapshot.py generate \
+            --reports benchmark/results/ci --snapshot docs/benchmarks/snapshot.json --readme README.md
+          python docs/benchmarks/plot.py docs/benchmarks/snapshot.json docs/benchmarks/comparison.svg
+          git diff --check
+
+      - name: Upload generated benchmark documentation
+        if: matrix.rust == 'ON' && env.UPDATE_BENCHMARK_DOCS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-documentation
+          path: |
+            README.md
+            docs/benchmarks/snapshot.json
+            docs/benchmarks/comparison.svg
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Publish comparison summary
         if: always() && matrix.rust == 'ON'
@@ -238,6 +276,54 @@ jobs:
         with:
           header: jieba-benchmark
           path: benchmark-report/summary.md
+
+  benchmark-docs:
+    name: Benchmark documentation PR
+    needs: [build, benchmarks, library]
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.update_benchmark_docs &&
+      github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Check that the measured revision is still current
+        env:
+          MEASURED_REVISION: ${{ github.sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$MEASURED_REVISION" ]; then
+            echo 'The default branch advanced during measurement; run the workflow again on its latest commit.' >&2
+            exit 1
+          fi
+      - name: Download generated documentation
+        uses: actions/download-artifact@v5
+        with:
+          name: benchmark-documentation
+          path: .
+      - name: Create or update the documentation PR
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          branch: docs/benchmark-results
+          base: ${{ github.event.repository.default_branch }}
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          commit-message: "docs: refresh benchmark results from GitHub Actions"
+          title: "docs: refresh benchmark results from GitHub Actions"
+          body: |
+            Update the README benchmark section, numeric snapshot and chart from the same CI measurement.
+
+            Measured commit: `${{ github.sha }}`.
+            [Workflow, environment and raw reports](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+            All four implementations ran serially on one CPU with five samples per case.
+            The snapshot includes timing ranges, input hashes and token-sequence difference counts.
+          add-paths: |
+            README.md
+            docs/benchmarks/snapshot.json
+            docs/benchmarks/comparison.svg
 
   library:
     runs-on: ubuntu-24.04

@@ -6,24 +6,29 @@ All benchmark executables live here and are enabled with
 Keep benchmark measurements, environment records and raw logs locally under
 `benchmark/results/`. This directory is ignored by Git.
 
-The curated README chart and its compact numeric snapshot are committed under
-[`docs/benchmarks/`](../docs/benchmarks/). The current chart uses the 2026-09-27
-measurements: four owned-string output paths, two corpora, five samples per case.
+The README chart and its compact numeric snapshot are committed under
+[`docs/benchmarks/`](../docs/benchmarks/). The measurement date, source revision and
+environment are shown with the chart. It compares four owned-string output paths,
+two corpora and five samples per case.
 It plots UTF-8 MiB/s on a linear axis starting at zero, calculated as
 `utf8_bytes * rounds / (median_ms / 1000) / 1048576`;
 the whiskers convert maximum/minimum elapsed time to minimum/maximum throughput.
 Each snapshot records the measurement date, environment and revision. Raw reports remain local; the snapshot
 retains their hashes, input hashes, dependency versions, timings and comparison counts.
 
-To regenerate the SVG with Python and Matplotlib 3.3 or newer, run from the repository root:
+Use the [manual CI update](#updating-the-readme-from-ci) to refresh the published
+numbers. Once its documentation PR has been merged, regenerate the SVG locally
+with Python and Matplotlib 3.3 or newer:
 
 ```sh
-python3 docs/benchmarks/plot.py docs/benchmarks/snapshot-2026-09-27.json docs/benchmarks/comparison.svg
+python3 docs/benchmarks/plot.py docs/benchmarks/snapshot.json docs/benchmarks/comparison.svg
 ```
 
-To collect fresh measurements, use the commands in [PYTHON.md](PYTHON.md), then update
-the snapshot and regenerate the chart together. Keep the implementation, output contract,
-input sizes and timing units consistent across the plotted series.
+For local measurements, use the commands in [PYTHON.md](PYTHON.md). Keep the
+implementation, output contract, input sizes and timing units consistent across series.
+For a release-to-release regression measurement, build both revisions with the
+same compiler and flags, pin them to the same CPU, and alternate their runs.
+Record source revisions and compare token sequences as well as timings.
 
 ```sh
 git submodule update --init deps/cppjieba deps/limonp
@@ -112,3 +117,52 @@ Fork PRs retain the summary and artifacts without attempting to write a comment.
 The current tables compare implementations on the same inputs; they do not measure
 the PR's change against the base branch. A future regression comparison needs an
 explicit base-revision measurement or a stored baseline.
+
+## Updating the README from CI
+
+The `CMake` workflow accepts a manual `update_benchmark_docs` input, disabled by
+default. To publish a new measurement:
+
+1. Merge the workflow, snapshot script and README markers into the default branch.
+2. In **Settings → Actions → General → Workflow permissions**, enable
+   **Allow GitHub Actions to create and approve pull requests**.
+   See the [action's permission requirements](https://github.com/peter-evans/create-pull-request#workflow-permissions).
+3. Open **Actions → CMake → Run workflow**, select the default branch (`master`),
+   and enable `update_benchmark_docs`.
+4. After the Linux builds, tests and benchmarks pass, review and merge the
+   generated PR from `docs/benchmark-results`. Later manual runs update that PR
+   while it remains open.
+
+The measurement uses the existing GitHub-hosted `ubuntu-24.04` job: all four
+implementations run serially on one CPU with five samples per case. The generator
+checks matching revisions, environments, dictionary/model hashes and native binary
+hashes, then retains timing ranges and token-sequence differences in the snapshot.
+Shared runner timings can vary; the workflow records observations without a speed gate.
+
+The PR contains only `README.md`, `docs/benchmarks/comparison.svg` and
+`docs/benchmarks/snapshot.json`. The README's `benchmark:start` / `benchmark:end`
+markers delimit its generated measurement section; retain both markers when editing.
+Release history and upgrade instructions belong in `CHANGELOG.md`.
+
+Runner metadata, reports and hashes link the chart to its Actions run. The
+`benchmarks-linux-x64-release` artifact retains the raw results for 14 days;
+`benchmark-documentation` contains the generated files. The committed snapshot
+keeps the numeric results and provenance after artifacts expire. Existing dated
+snapshots retain their original measurement source.
+
+Only a manual run on the default branch creates a documentation PR. Its separate
+publication job has `contents: write` and `pull-requests: write`; measurement jobs
+keep read-only repository permissions. If the default branch advances before
+publication, rerun against its latest commit. The first documentation PR replaces
+the existing local measurement with the CI result; merging the workflow alone
+does not change the chart's data.
+
+GitHub may require a maintainer to select **Approve workflows to run** on the
+generated PR before its checks start. See
+[triggering workflows with GITHUB_TOKEN](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+
+To check the snapshot generator locally:
+
+```sh
+python3 -B -m unittest discover -s docs/benchmarks -p '*_test.py' -v
+```
