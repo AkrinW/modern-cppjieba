@@ -5,16 +5,17 @@
 
 - MIX、MP、HMM、FULL、SEARCH 分词，支持用户词典。
 - UTF-8、UTF-16、UTF-32 输入，提供词语及其在原文中的位置。
+- 可选 ICU 适配器，支持 GBK、GB18030 与 UTF-8 转换及字节位置映射。
 - token 视图、独立字符串和持有原文的分词结果。
 - 可复用的工作区，适合连续处理多段文本。
 - CppJieba、jieba-rs、Python jieba 三种分词规则，在编译期选择。
 
-[应用示例](examples/README.md) · [性能对比](#性能对比) · [更新记录](CHANGELOG.md)
+[应用示例](examples/README.md) · [编码转换](docs/encoding.md) · [性能对比](#性能对比) · [更新记录](CHANGELOG.md)
 
 ## 快速开始
 
 构建示例需要 CMake 3.20+ 和支持 C++23 的编译器及标准库，包括 `<format>`、`<print>`。
-CI 使用 GCC 14、LLVM 20 / libc++ 和 Visual Studio 2022，覆盖 Linux、macOS 和 Windows。
+主分支 CI 使用 GCC 15、LLVM 23 / libc++ 和 Visual Studio 2026，覆盖 Linux、macOS 和 Windows。
 
 ```sh
 git clone https://github.com/AkrinW/modern-cppjieba.git
@@ -78,6 +79,7 @@ cmake --install build-library --prefix install
 
 默认安装路径为 `install/include/neo/` 和 `install/share/cppjieba/dict/`。
 手工集成时，将 `install/include` 加入头文件搜索路径，并启用 C++23。
+使用可选 ICU 适配器时，还须链接 ICU 的 `uc` 和 `data` 库，详见 [编码转换说明](docs/encoding.md)。
 
 ## 分词模式
 
@@ -114,12 +116,17 @@ token 的 `word` 是原文视图，请在原文修改或销毁前完成使用。
 位置使用半开区间 `[begin, end)`。`position.source` 按原文编码单元计数，
 UTF-8 对应字节偏移；`position.runes` 按 Unicode 码点计数。
 
+GBK、GB18030 输入可先通过 `IcuCodec` 转换为 UTF-8；分词结果的原文位置对应转换后的 UTF-8 文本。
+需要定位原始字节时，保留转换过程的码点边界映射，详见 [编码转换与位置映射](docs/encoding.md)。
+`neo/Unicode.hpp` 还提供 `is_valid_utf(input)`，用于独立检查 UTF 编码合法性；
+常规分词入口已在解码时完成校验。
+
 批量处理可复用 `Workspace` 和输出数组。每个并发或嵌套调用独占一个工作区，输入和输出使用独立存储。
 [应用示例](examples/README.md) 包含批量处理、搜索高亮、词频统计和结果所有权的完整程序。
 
 容量类型配置见 [Config.hpp](include/neo/Config.hpp)，默认采用 32 位索引和偏移。
 输入及词典规模须在所选类型的容量范围内，容量检查在 Debug 构建中执行。
-修改配置后，所有使用本库的编译单元须采用同一配置重新编译。
+升级头文件或修改配置后，所有使用本库的编译单元须采用同一配置重新编译。
 
 ## 性能对比
 
@@ -164,6 +171,7 @@ ctest --test-dir build-tests -C Debug --output-on-failure
 | `CPPJIEBA_BUILD_LEGACY_TESTS` | OFF | 增加原版 CppJieba 回归测试，要求启用单元测试 |
 | `CPPJIEBA_BUILD_BENCHMARKS` | OFF | 构建 benchmark |
 | `CPPJIEBA_BUILD_RUST_BENCHMARKS` | OFF | 增加 Rust 比较，要求启用 benchmark |
+| `CPPJIEBA_ENABLE_ICU` | OFF | 增加 GBK / GB18030 编码转换目标，要求安装 ICU 的 `uc` 和 `data` 开发库 |
 
 公共头文件位于 `include/neo/`，`detail/` 为内部实现。
 单元测试位于 `test/unittest_neo/`，性能测试位于 `benchmark/`，格式化及静态分析脚本位于 `tools/`。
