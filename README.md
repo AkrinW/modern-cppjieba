@@ -125,8 +125,8 @@ UTF-8 对应字节偏移；`position.runes` 按 Unicode 码点计数。
 
 <!-- benchmark:start -->
 
-数据来自 [GitHub Actions](https://github.com/AkrinW/modern-cppjieba/actions/runs/37739643166)，测试日期：2026-10-08。
-测量提交：[`2341655`](https://github.com/AkrinW/modern-cppjieba/commit/23416552774103625fa229fb981cb7cb467eca16)。
+数据来自 [GitHub Actions](https://github.com/AkrinW/modern-cppjieba/actions/runs/37750171581)，测试日期：2026-10-08。
+测量提交：[`44b8f2f`](https://github.com/AkrinW/modern-cppjieba/commit/44b8f2f513bbc65a0f3c679c3b7f07ad50d677ae)。
 各实现使用同一主词典和 HMM 模型，关闭用户词典；modern-cppjieba 使用 `CPP` 规则。
 
 ![CppJieba、modern-cppjieba、jieba-rs 和 Python jieba 的分词吞吐量，线性坐标](docs/benchmarks/comparison.svg)
@@ -134,8 +134,8 @@ UTF-8 对应字节偏移；`position.runes` 按 Unicode 码点计数。
 吞吐量单位为 MiB/s，越高越好。曲线取各样本的中位数，误差线表示最小、最大吞吐量。
 各路径均返回独立字符串，计时覆盖分词、字符串构造和释放；语料读取、词典加载和预热在计时前完成。
 
-- 环境：GitHub 托管 `ubuntu-24.04`，AMD EPYC 7763 64-Core Processor，绑定 CPU 0。
-- 工具链：GCC 14.2.0（`-O3 -DNDEBUG`）、rustc 1.94.0（`opt-level=3`）、CPython 3.12.15。
+- 环境：GitHub 托管 `ubuntu-26.04`，AMD EPYC 7763 64-Core Processor，绑定 CPU 0。
+- 工具链：GCC 15.2.0（`-O3 -DNDEBUG`）、rustc 1.99.0（`opt-level=3`）、CPython 3.14.8。
 - 比较版本：jieba-rs 0.11.0、Python jieba 0.42.1。
 - 语料 `testlines`：8 行、255 字节，每样本 10,000 轮，共 5 个样本。
 - 语料 `weicheng`：245 行、733,678 字节，每样本 3 轮，共 5 个样本。
