@@ -28,6 +28,27 @@ if(CPPJIEBA_ENABLE_ICU)
 endif()
 add_test(NAME neo_unit_tests COMMAND test_neo.run)
 
+if(CPPJIEBA_BUILD_C_API)
+    add_executable(test_c_api.run ../gtest_main.cpp c_api_test.cpp)
+    target_link_libraries(test_c_api.run PRIVATE
+        neo_cppjieba::c neo_cppjieba::neo_cppjieba cppjieba_test_data GTest::gtest)
+    add_test(NAME neo_c_api_tests COMMAND test_c_api.run)
+
+    add_executable(test_c_api_smoke.run c_api_smoke.c)
+    set_target_properties(test_c_api_smoke.run PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    target_link_libraries(test_c_api_smoke.run PRIVATE neo_cppjieba::c cppjieba_test_data)
+    target_link_options(test_c_api_smoke.run PRIVATE "LINKER:--export-dynamic")
+    add_test(NAME neo_c_api_c_host COMMAND test_c_api_smoke.run)
+
+    find_program(NEO_C_API_NM NAMES llvm-nm nm REQUIRED)
+    find_program(NEO_C_API_READELF NAMES llvm-readelf readelf REQUIRED)
+    add_test(NAME neo_c_api_symbols COMMAND ${CMAKE_COMMAND}
+        "-DLIBRARY=$<TARGET_FILE:neo_cppjieba_c>"
+        "-DNM=${NEO_C_API_NM}"
+        "-DREADELF=${NEO_C_API_READELF}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/check_c_api_symbols.cmake")
+endif()
+
 # Each capacity variant is a separate executable so inline definitions never mix configurations.
 set(capacity_config_path "${PROJECT_SOURCE_DIR}/include/neo/Config.hpp")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${capacity_config_path}")
