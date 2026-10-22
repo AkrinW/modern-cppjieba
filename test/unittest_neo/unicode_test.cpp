@@ -164,6 +164,26 @@ class UnicodeCharacterTest : public ::testing::Test {};
 using UnicodeCharacterTypes = ::testing::Types<char, char8_t, char16_t, char32_t, wchar_t>;
 TYPED_TEST_SUITE(UnicodeCharacterTest, UnicodeCharacterTypes);
 
+TYPED_TEST(UnicodeCharacterTest, TextInterfacesRejectRawCharacterPointers) {
+    using Input = const TypeParam *;
+    static_assert(!requires(Input input) { is_valid_utf(input); });
+    static_assert(!requires(Input input) { decode_one(input); });
+    static_assert(!requires(Input input) { decode(input); });
+    static_assert(!requires(Input input) { decode_with_offset(input); });
+    static_assert(!requires(Input input, UnicodeWithOffset &out) { decode_with_offset_into(input, out); });
+}
+
+TEST(UnicodeTest, LiteralDecodingPreservesEmbeddedNul) {
+    EXPECT_EQ(decode("A\0中"), (Unicode{U'A', U'\0', U'中'}));
+}
+
+TEST(UnicodeTest, ExplicitlySizedPointerDecodingPreservesEmbeddedNul) {
+    const char *input = "A\0中";
+    const auto expected = Unicode{U'A', U'\0', U'中'};
+    EXPECT_EQ(decode(std::string_view{input, 5}), expected);
+    EXPECT_EQ(decode(std::span{input, std::size_t{5}}), expected);
+}
+
 TYPED_TEST(UnicodeCharacterTest, DecodeIntoReplacesContentsAndRetainsCapacity) {
     auto buffer = decode_with_offset("old text");
     buffer.runes.reserve(64);

@@ -93,6 +93,37 @@ TYPED_TEST_SUITE(JiebaRuneSpanTest, RuneSpanTypes);
 
 } // namespace
 
+TYPED_TEST(JiebaCharacterTest, TextInterfacesRejectRawCharacterPointers) {
+    using Input = const TypeParam *;
+    static_assert(!requires(const Jieba &jieba, Input input) { jieba.cut(input, CutMode::MP); });
+    static_assert(!requires(const Jieba &jieba, Input input, Workspace &workspace) {
+        jieba.cut_with_workspace(input, CutMode::MP, workspace);
+    });
+    static_assert(!requires(const Jieba &jieba, Input input, std::vector<TokenPosition> &out, Workspace &workspace) {
+        jieba.cut_into(input, CutMode::MP, out, workspace);
+    });
+    static_assert(!requires(const Jieba &jieba, Input input, Workspace &workspace, void (*emit)(TokenView<TypeParam>)) {
+        jieba.cut_each(input, CutMode::MP, emit, workspace);
+    });
+    static_assert(!requires(const Jieba &jieba, Input input) { jieba.cut_owned(input, CutMode::MP); });
+    static_assert(!requires(const Jieba &jieba, Input input) { jieba.cut_strings(input, CutMode::MP); });
+}
+
+TEST(JiebaNeoTest, LiteralInputPreservesEmbeddedNulAndOffsets) {
+    const auto tokens = test_jieba().cut("😀\0𠀀", CutMode::MP);
+    const auto expected_words = std::vector<std::string>{"😀", std::string(1, '\0'), "𠀀"};
+    const auto expected_positions = std::vector<TokenPosition>{{{0, 1}, {0, 4}}, {{1, 2}, {4, 5}}, {{2, 3}, {5, 9}}};
+    EXPECT_EQ(copy_words(tokens), expected_words);
+    EXPECT_TRUE(std::ranges::equal(tokens.positions(), expected_positions));
+}
+
+TEST(JiebaNeoTest, ExplicitlySizedPointerInputPreservesEmbeddedNul) {
+    const char *input = "😀\0𠀀";
+    const auto expected = std::vector<std::string>{"😀", std::string(1, '\0'), "𠀀"};
+    EXPECT_EQ(test_jieba().cut_strings(std::string_view{input, 9}, CutMode::MP), expected);
+    EXPECT_EQ(test_jieba().cut_strings(std::span{input, std::size_t{9}}, CutMode::MP), expected);
+}
+
 TYPED_TEST(JiebaCharacterTest, OutputFormsPreserveWordsAndBothCoordinatesInEveryMode) {
     const auto &jieba = test_jieba();
     const auto inputs = std::array{Unicode{}, Unicode{U'中', U'国', U'科', U'学', U'院'},

@@ -115,7 +115,7 @@ concept ConstCodeUnitRange =
 //  - Characters may convert to string_view; byte storage must be a contiguous range with a known size.
 template <typename T>
 concept StringLike =
-    CodeUnit<resolve_char_type_t<T>>
+    CodeUnit<resolve_char_type_t<T>> && !std::is_pointer_v<std::remove_cvref_t<T>>
     && (!std::is_array_v<std::remove_reference_t<T>> || std::is_bounded_array_v<std::remove_reference_t<T>>)
     && ((CharType<resolve_char_type_t<T>>
          && std::convertible_to<const std::remove_reference_t<T> &, std::basic_string_view<resolve_char_type_t<T>>>)
@@ -127,13 +127,11 @@ using output_char_type_t = std::conditional_t<ByteType<resolve_char_type_t<T>>, 
 
 // Owning temporaries may be decoded, but must not expose a view that outlives them.
 template <typename T>
-concept StringViewSource =
-    StringLike<T>
-    && (std::is_lvalue_reference_v<T> || std::ranges::borrowed_range<T> || std::is_pointer_v<std::remove_cvref_t<T>>);
+concept StringViewSource = StringLike<T> && (std::is_lvalue_reference_v<T> || std::ranges::borrowed_range<T>);
 
 // Unified input adaptation for as_code_units and as_view.
 // Character arrays omit one trailing NUL; byte buffers and sized ranges retain every code unit, including NULs.
-// Pointer inputs must refer to a readable, NUL-terminated C string.
+// Pointer inputs must refer to a readable, NUL-terminated C string. (Former contract; use a sized view now.)
 template <StringViewSource T>
 constexpr auto as_code_units(T &&input) -> std::span<const resolve_char_type_t<T>> {
     using CharT = resolve_char_type_t<T>;
@@ -145,12 +143,6 @@ constexpr auto as_code_units(T &&input) -> std::span<const resolve_char_type_t<T
         constexpr auto extent = std::extent_v<std::remove_reference_t<T>>;
         const auto size = extent - (source[extent - 1] == CharT{} ? 1 : 0);
         return {source, size};
-    } else if constexpr (std::is_pointer_v<std::remove_cvref_t<T>>) {
-        if (source == nullptr) [[unlikely]] {
-            check(false, "Cannot view a null C-string pointer");
-        }
-        const auto view = std::basic_string_view<CharT>{source};
-        return {view.data(), view.size()};
     } else if constexpr (detail::ConstCodeUnitRange<T>) {
         // Branch B: sized strings, views, std::vector<CharT>, std::array<CharT, N>, std::span<CharT>, etc.
         return {std::ranges::data(source), std::ranges::size(source)};

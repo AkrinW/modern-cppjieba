@@ -37,7 +37,8 @@ constexpr auto decode_one(const T &input) -> Rune {
 }
 
 // decode decodes an input string into a sequence of Unicode code points and returns it as a Unicode.
-// T can be a std::string, std::string_view, char*, char[N], etc. — any StringLike type.
+// T can be a std::string, std::string_view, char*, char[N], etc. — any StringLike type. (Former API.)
+// Raw pointers now require an explicit sized view or buffer, as in every StringLike entry point.
 template <StringLike T>
 inline auto decode(const T &input) -> Unicode {
     return detail::decode_impl<detail::OffsetMode::Omit>(as_code_units(input));
