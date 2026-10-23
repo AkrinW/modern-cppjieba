@@ -53,7 +53,7 @@ enum class MPMatchMode : uint8_t { PathOnly, Search };
 template <typename ForEachEdge>
 inline auto mp_build_route(const DictTrie &dict, size_t n, const ForEachEdge &for_each_edge, SegmentScratch &scratch)
     -> void {
-    assert(n <= std::numeric_limits<RuneIndex>::max());
+    assert(size_fits_capacity<RuneIndex>(n));
     if (n == 0) {
         return;
     }
@@ -171,7 +171,7 @@ inline auto mp_cut_dag(const DictTrie &dict, const Dag &dag, std::vector<WordRan
 /// Materialize local MP words together with the DAG needed by MIX and SEARCH.
 // MIX now consumes the route directly; SEARCH still needs these materialized results.
 inline auto mp_cut_segment(const DictTrie &dict, std::span<const Rune> runes, SegmentScratch &scratch) -> void {
-    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
+    assert_check([&] { return size_fits_capacity<RuneIndex>(runes.size()); },
                  "MPSegment: rune count exceeds the word-range limit");
     scratch.mp_words.clear();
     dict.find_dag_into(runes, scratch.dag);
@@ -273,7 +273,7 @@ struct MPSegment {
     // Replace output while reusing scratch across every separator-free segment.
     static auto cut_into(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &range,
                          detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
+        assert_check([&] { return detail::size_fits_capacity<RuneIndex>(runes.size()); },
                      "MPSegment: input exceeds the word-range limit");
         range.clear();
         range.reserve(runes.size() / 2);

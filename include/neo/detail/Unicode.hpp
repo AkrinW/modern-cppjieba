@@ -304,8 +304,7 @@ inline auto encode_validated_source(std::basic_string_view<CharT> source, std::s
 constexpr auto offset_count_for_source(size_t source_size) noexcept -> size_t {
     assert_check(
         [&] {
-            return source_size <= std::numeric_limits<SourceOffset>::max()
-                   && source_size < std::numeric_limits<size_t>::max();
+            return size_fits_capacity<SourceOffset>(source_size) && source_size < std::numeric_limits<size_t>::max();
         },
         "Source length {} exceeds the configured Unicode offset range", source_size);
     return source_size + 1;

@@ -209,6 +209,12 @@ struct IntegerSourceLocationConfig {
     using Exception = ProjectError;
 };
 
+// Supply runtime-only initializers for negative compile-time configuration tests.
+template <typename T>
+auto runtime_config_value(T value) -> T {
+    return value;
+}
+
 // An uninitialized constant declaration cannot supply a compile-time policy value.
 struct NonConstantSourceLocationConfig {
     static const bool show_source_location;
@@ -216,6 +222,9 @@ struct NonConstantSourceLocationConfig {
     static constexpr auto buffer_size = LogConfig::buffer_size;
     using Exception = ProjectError;
 };
+
+const bool NonConstantSourceLocationConfig::show_source_location =
+    runtime_config_value(LogConfig::show_source_location);
 
 // A high threshold filters ordinary messages without disabling failures.
 struct HighThresholdLogConfig {
@@ -262,6 +271,8 @@ struct NonConstantLogLevelConfig {
     using Exception = ProjectError;
 };
 
+const LogLevel NonConstantLogLevelConfig::min_level = runtime_config_value(LogConfig::min_level);
+
 // A log record needs at least one byte for its terminating newline.
 struct EmptyBufferLogConfig {
     static constexpr auto show_source_location = false;
@@ -277,6 +288,8 @@ struct NonConstantBufferLogConfig {
     static const std::size_t buffer_size;
     using Exception = ProjectError;
 };
+
+const std::size_t NonConstantBufferLogConfig::buffer_size = runtime_config_value(LogConfig::buffer_size);
 
 // Assertion death tests verify the terminate handler is invoked without leaving core dumps.
 auto prepare_assertion_death_test() -> void {
@@ -309,7 +322,8 @@ auto capture_stderr(auto &&fn) -> std::string {
     auto sz = std::ftell(tmpf);
     std::fseek(tmpf, 0, SEEK_SET);
     auto result = std::string(static_cast<size_t>(sz), '\0');
-    std::fread(result.data(), 1, static_cast<size_t>(sz), tmpf);
+    const auto bytes_read = std::fread(result.data(), 1, result.size(), tmpf);
+    EXPECT_EQ(bytes_read, result.size());
     test_platform::close_temporary_file(tmpf, directory);
     return result;
 }

@@ -184,7 +184,7 @@ class Trie {
             }
             if (entry.child == 0) {
                 // Lazy materialization: allocate a child node now.
-                assert_check([&] { return filters.size() < kAbsentNode; },
+                assert_check([&] { return detail::size_below_capacity<TrieNodeId>(filters.size()); },
                              "Trie: node count exceeds the configured index range");
                 entry.child = static_cast<TrieNodeId>(filters.size());
                 filters.push_back(0);
@@ -353,7 +353,7 @@ public:
     template <typename Emit>
     auto for_each_match_from(std::span<const Rune> runes, RuneIndex begin, Emit &&emit) const
         noexcept(noexcept(emit(RuneIndex{}, std::declval<const DictUnit &>()))) -> void {
-        assert(runes.size() <= std::numeric_limits<RuneIndex>::max());
+        assert(detail::size_fits_capacity<RuneIndex>(runes.size()));
         assert(begin <= runes.size());
         if (empty() || begin == runes.size()) {
             return;
@@ -382,9 +382,8 @@ public:
     // Replace the DAG while retaining storage for subsequent segments and calls.
     auto find_dag_into(std::span<const Rune> sentence, Dag &dag) const -> void {
         const auto n = sentence.size();
-        assert_check(
-            [&] { return n <= std::numeric_limits<RuneIndex>::max() && n < std::numeric_limits<size_t>::max(); },
-            "Trie: sentence has {} runes, exceeding the supported DAG index range", n);
+        assert_check([&] { return detail::size_fits_capacity<RuneIndex>(n) && n < std::numeric_limits<size_t>::max(); },
+                     "Trie: sentence has {} runes, exceeding the supported DAG index range", n);
         dag.offsets.clear();
         dag.edges.clear();
         dag.offsets.reserve(n + 1);
@@ -398,7 +397,7 @@ public:
 
         // We accumulate the edges directly into a flat vector.
         for (size_t i = 0; i < n; ++i) {
-            assert_check([&] { return dag.edges.size() <= std::numeric_limits<DagOffset>::max(); },
+            assert_check([&] { return detail::size_fits_capacity<DagOffset>(dag.edges.size()); },
                          "Trie: DAG edge count exceeds the supported offset range");
             dag.offsets.push_back(static_cast<DagOffset>(dag.edges.size()));
 
@@ -414,7 +413,7 @@ public:
                 }
             }
         }
-        assert_check([&] { return dag.edges.size() <= std::numeric_limits<DagOffset>::max(); },
+        assert_check([&] { return detail::size_fits_capacity<DagOffset>(dag.edges.size()); },
                      "Trie: DAG edge count exceeds the supported offset range");
         dag.offsets.push_back(static_cast<DagOffset>(dag.edges.size()));
     }

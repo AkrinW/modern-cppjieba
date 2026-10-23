@@ -1,7 +1,37 @@
-# Comparison dependencies
+# Dependencies
 
-These dependencies are loaded only for legacy tests or benchmarks. The public
-`neo_cppjieba::neo_cppjieba` target does not link to them or expose their headers.
+The public `neo_cppjieba::neo_cppjieba` target does not link to these dependencies
+or expose their headers. GoogleTest is used only with `BUILD_TESTING=ON`; the
+comparison dependencies below are loaded only for legacy tests or benchmarks.
+
+## GoogleTest
+
+`googletest.cmake` selects GoogleTest in this order:
+
+1. Reuse an existing `GTest::gtest` target supplied by the parent project.
+2. Use `find_package(GTest QUIET)` to locate an installed package or libraries.
+3. Download and build upstream `v1.18.0` through `FetchContent`.
+
+Set `GTest_DIR` to the directory containing `GTestConfig.cmake`, or add the
+installation prefix to `CMAKE_PREFIX_PATH`. The installed library must match
+the active compiler, standard library, and runtime configuration.
+
+For offline builds, point FetchContent at an existing GoogleTest source tree:
+
+```sh
+cmake -S . -B build-tests -DBUILD_TESTING=ON \
+  -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest
+```
+
+This source override is used only when no parent target or installed package is
+available. To select it explicitly, also pass `-DCMAKE_DISABLE_FIND_PACKAGE_GTest=ON`;
+an existing parent target still takes precedence.
+
+GoogleTest is not a submodule: its source is needed only when a local package is
+unavailable. The `deps/` directory contains dependency configuration as well as
+source checkouts; source downloads stay in the build tree.
+
+## Comparison dependencies
 
 | Dependency | Source | CMake target |
 | --- | --- | --- |

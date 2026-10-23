@@ -8,7 +8,7 @@ if(CPPJIEBA_BUILD_BENCHMARKS)
     target_include_directories(cppjieba_limonp SYSTEM INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/limonp/include")
 endif()
 
-include(cppjieba.cmake)
+include("${CMAKE_CURRENT_LIST_DIR}/cppjieba.cmake")
 if(CPPJIEBA_BUILD_RUST_BENCHMARKS)
     add_subdirectory(rust-jieba)
 endif()

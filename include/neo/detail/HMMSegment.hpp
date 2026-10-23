@@ -353,7 +353,7 @@ struct HMMSegment {
     // Replace output and reuse predecessor storage across HMM runs and calls.
     static auto cut_into(const HMModel &model, std::span<const Rune> runes, std::vector<WordRange> &range,
                          detail::SegmentScratch &scratch) -> void {
-        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max(); },
+        assert_check([&] { return detail::size_fits_capacity<RuneIndex>(runes.size()); },
                      "HMMSegment: input exceeds the word-range limit");
         range.clear();
         range.reserve(runes.size() / 2);

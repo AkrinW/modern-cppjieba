@@ -1,6 +1,4 @@
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/test")
-
-ADD_EXECUTABLE(test.run
+add_executable(test.run
     ../gtest_main.cpp
     keyword_extractor_test.cpp
     trie_test.cpp
@@ -14,5 +12,5 @@ ADD_EXECUTABLE(test.run
 
 target_compile_definitions(test.run PRIVATE LOGGING_LEVEL=LL_WARNING)
 # Add include directories
-target_link_libraries(test.run PRIVATE cppjieba::cppjieba cppjieba_test_data GTest::gtest)
+target_link_libraries(test.run PRIVATE cppjieba::cppjieba cppjieba_test_support)
 add_test(NAME legacy_unit_tests COMMAND test.run)

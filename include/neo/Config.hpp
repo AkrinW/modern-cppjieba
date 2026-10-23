@@ -52,6 +52,26 @@ concept CapacityInteger = std::same_as<T, std::uint8_t> || std::same_as<T, std::
 #endif
     ;
 
+// Check inclusive capacity limits without comparing a host size to an out-of-range constant.
+template <CapacityInteger T>
+constexpr auto size_fits_capacity(std::size_t size) noexcept -> bool {
+    if constexpr (std::numeric_limits<T>::digits < std::numeric_limits<std::size_t>::digits) {
+        return size <= std::numeric_limits<T>::max();
+    } else {
+        return true;
+    }
+}
+
+// Keep the maximum id reserved, including when capacity storage is wider than the host size.
+template <CapacityInteger T>
+constexpr auto size_below_capacity(std::size_t size) noexcept -> bool {
+    if constexpr (std::numeric_limits<T>::digits <= std::numeric_limits<std::size_t>::digits) {
+        return size < std::numeric_limits<T>::max();
+    } else {
+        return true;
+    }
+}
+
 } // namespace detail
 
 // Size this for the total decoded code points in one segmentation input, including separators.
