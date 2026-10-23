@@ -28,7 +28,7 @@ if(CPPJIEBA_C_API_BUILD_SHARED)
     cppjieba_configure_c_api_target(neo_cppjieba_c c_shared)
     target_compile_definitions(neo_cppjieba_c PRIVATE NEO_CPPJIEBA_C_BUILD)
     set_target_properties(neo_cppjieba_c PROPERTIES
-        VERSION 1.0.0
+        VERSION "${PROJECT_VERSION}"
         SOVERSION 1
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN YES
@@ -57,7 +57,7 @@ set(c_api_package_dir "${CMAKE_INSTALL_LIBDIR}/cmake/neo_cppjieba_c")
 configure_package_config_file(cmake/neo_cppjieba_cConfig.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/neo_cppjieba_cConfig.cmake" INSTALL_DESTINATION "${c_api_package_dir}")
 write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/neo_cppjieba_cConfigVersion.cmake"
-    VERSION 1.0.0 COMPATIBILITY SameMajorVersion)
+    VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
 install(EXPORT neo_cppjieba_cTargets NAMESPACE neo_cppjieba:: DESTINATION "${c_api_package_dir}")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/neo_cppjieba_cConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/neo_cppjieba_cConfigVersion.cmake" DESTINATION "${c_api_package_dir}")

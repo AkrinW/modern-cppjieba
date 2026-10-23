@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+## 1.2.0 - 2026-10-23
+
+本版增加适合 C 和其他语言绑定的 C ABI，以及可直接通过 `find_package` 使用的 C++ 安装包。
+文档按快速上手、使用、构建、编码转换和 C API 分开组织。
+
+### Added
+
+- 新增 [C ABI v1](api/README.md)：六个 C 函数覆盖引擎创建、UTF-8 分词、结果读取和资源释放。
+  结果独立持有原文及 token 字节区间，错误通过状态码和调用方提供的诊断缓冲返回。
+- 提供共享库和静态库，覆盖 Linux x64/ARM64、macOS ARM64 和 Windows x64 的 Debug / Release CI。
+  CMake 包 `neo_cppjieba_c` 导出 `c_shared`、`c_static` 目标，并保留 ABI 主版本 1。
+- 安装 C++ 包 `neo_cppjieba`，导出 `neo_cppjieba::neo_cppjieba` 和可选 `icu` 组件。
+  增加安装目录迁移、独立消费端、组件发现和 C ABI 符号边界验证。
+- 增加 [C++ 使用指南](docs/usage.md) 和 [构建指南](docs/building.md)，集中说明接口契约及构建选项。
+
+### Changed
+
+- C++ 文本入口统一接受带长度的字符串、视图和范围；字符指针通过显式长度视图接入。
+  字符串字面量、字符数组以及已有的 `std::string` / `std::string_view` 调用方式继续适用。
+- CMake 按项目选项、安装导出、依赖发现、平台规则和测试配置拆分模块。
+- GoogleTest 优先复用父项目目标和本地安装，源码回退固定到 `v1.18.0`，支持离线源码目录。
+- 项目、C++ 包和 C API 包的版本统一为 `1.2.0`；共享库 `SOVERSION` 保持为 `1`。
+
+### Fixed
+
+- 修复跨平台测试中的返回值忽略、静态成员未定义及文件关闭函数的模板属性警告。
+- 修复 128 位容量配置的范围比较警告，保留各位宽的容量上限和 Trie 哨兵边界。
+- 修复 macOS 上 `size_t` 与同宽固定宽度整数类型不同导致的容量测试编译失败。
+- 更新 GoogleTest，清理其旧版 CMake 兼容性和字符转换警告；移除 macOS 的冗余、弃用链接参数。
+
+### Upgrade notes
+
+- 从原始指针接收文本时，同时传入长度，例如
+  `jieba.cut(std::string_view{data, size}, neo_cppjieba::CutMode::MIX)`；长度覆盖完整输入，包括内嵌 NUL。
+- 使用安装包时，将安装前缀加入 `CMAKE_PREFIX_PATH`，通过
+  `find_package(neo_cppjieba 1.2 CONFIG REQUIRED)` 接入。C API 的组件选择见 [接入说明](api/README.md)。
+- 升级头文件后重新编译使用本库的全部编译单元，并采用一致的 `Config.hpp` 配置。
+  主词典、用户词典和 HMM 模型沿用已有文件格式。
+- C ABI 的函数及结构版本为 v1，兼容范围是同一平台 ABI；部署时匹配架构、系统要求和运行库配置。
+
 ## 1.1.0 - 2026-10-08
 
 本版增加可选编码转换，并修复 CPP 规则下词典权重精度导致的分词兼容性问题。

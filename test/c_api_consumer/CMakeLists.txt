@@ -5,7 +5,7 @@ if(C_API_VARIANT STREQUAL "static")
     # Static consumers need a C++ linker/runtime even when all their source files are C.
     enable_language(CXX)
 endif()
-find_package(neo_cppjieba_c 1 REQUIRED COMPONENTS ${C_API_VARIANT})
+find_package(neo_cppjieba_c 1.2 CONFIG REQUIRED COMPONENTS ${C_API_VARIANT})
 add_executable(c_api_consumer ../unittest_neo/c_api_smoke.c)
 set_target_properties(c_api_consumer PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 target_compile_options(c_api_consumer PRIVATE "$<$<C_COMPILER_ID:MSVC>:/utf-8>")

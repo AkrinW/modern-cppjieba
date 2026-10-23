@@ -63,24 +63,21 @@ corpus, dictionary, HMM model, rounds and samples. It requires Python 3.11 or
 newer and the `deps/python-jieba` submodule; see [PYTHON.md](PYTHON.md).
 
 Shared input paths still refer to the repository's `dict/` and `test/testdata/`.
-`QuerySegmentCompare.hpp` in `test/` is shared by query tests and the corresponding
-benchmark; it does not depend on GoogleTest.
+`QuerySegmentCompare.hpp` in `test/` supplies the same query comparison logic to
+the correctness tests and standalone benchmark.
 
-The FileIO benchmark was extracted from `FileIOPerfTest.MmapVsIfstream`.
-It retains input validation and timing output, while correctness tests remain
-in `test/unittest_neo/fileio_test.cpp`. Timing ratios are observations and do not
-decide whether the unit tests pass.
+FileIO correctness is covered by `test/unittest_neo/fileio_test.cpp`.
+The standalone benchmark validates its inputs and reports timing observations.
 
 ## GitHub Actions
 
-CI runs Debug and Release unit tests on Linux x64, Linux ARM64, macOS and Windows.
-Linux x64 also exercises the optional legacy C++ tests in both configurations.
-JUnit results and CTest logs are uploaded for each matrix job, including failed tests.
+The [build guide](../docs/building.md) describes the platform and unit-test matrix.
+CI uploads JUnit results and CTest logs for each matrix job, including failed tests.
 
 The Linux `Release benchmarks / Rust=ON` job builds the C++ benchmarks and the
 pinned Rust adapter, runs the Rust and Python adapter tests, then compares old C++,
 neo C++, Rust and Python through `python_compare_benchmark.py`. The `Rust=OFF` job
-continues to check that the standalone C++ benchmarks build without Cargo.
+checks the standalone C++ benchmark configuration.
 
 All four implementations run serially on one allowed CPU of the same runner,
 using the common dictionary and HMM model. CI uses GCC 15, Rust 1.99.0 and Python
@@ -110,26 +107,24 @@ Pull requests from branches in this repository also receive one benchmark commen
 updated in place by `marocchino/sticky-pull-request-comment`. It reuses the Actions
 summary saved as `summary.md` in the report artifact, with the job status, head and
 tested revisions, and a link to the workflow and full reports. A separate job has
-`pull-requests: write` permission and only reads the artifact; it does not check out
-or run PR code. Runs for an outdated head or a closed PR do not update the comment.
+`pull-requests: write` permission and reads only the artifact. It updates the comment
+only for the current head of an open PR; PR code executes in the measurement job.
 
-Fork PRs retain the summary and artifacts without attempting to write a comment.
-The current tables compare implementations on the same inputs; they do not measure
-the PR's change against the base branch. A future regression comparison needs an
-explicit base-revision measurement or a stored baseline.
+Fork PRs publish summaries and artifacts. The tables compare implementations on
+the same inputs. Measuring a PR against its base branch requires a separate
+base-revision measurement with matching conditions.
 
 ## Updating the README from CI
 
 The `CMake` workflow accepts a manual `update_benchmark_docs` input, disabled by
 default. To publish a new measurement:
 
-1. Merge the workflow, snapshot script and README markers into the default branch.
-2. In **Settings → Actions → General → Workflow permissions**, enable
+1. In **Settings → Actions → General → Workflow permissions**, enable
    **Allow GitHub Actions to create and approve pull requests**.
    See the [action's permission requirements](https://github.com/peter-evans/create-pull-request#workflow-permissions).
-3. Open **Actions → CMake → Run workflow**, select the default branch (`master`),
+2. Open **Actions → CMake → Run workflow**, select the default branch (`master`),
    and enable `update_benchmark_docs`.
-4. After the Linux builds, tests and benchmarks pass, review and merge the
+3. After the Linux builds, tests and benchmarks pass, review and merge the
    generated PR from `docs/benchmark-results`. Later manual runs update that PR
    while it remains open.
 
@@ -153,9 +148,8 @@ snapshots retain their original measurement source.
 Only a manual run on the default branch creates a documentation PR. Its separate
 publication job has `contents: write` and `pull-requests: write`; measurement jobs
 keep read-only repository permissions. If the default branch advances before
-publication, rerun against its latest commit. The first documentation PR replaces
-the existing local measurement with the CI result; merging the workflow alone
-does not change the chart's data.
+publication, rerun against its latest commit. Chart data changes when the generated
+documentation PR is merged.
 
 GitHub may require a maintainer to select **Approve workflows to run** on the
 generated PR before its checks start. See

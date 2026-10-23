@@ -1,8 +1,13 @@
 # C ABI libraries
 
-The v1 C API supports UTF-8 segmentation with independently owned results. Its six
-functions, fixed-width fields, status values and ownership contract are declared in
-`include/neo_cppjieba.h`. Shared and static builds expose the same API.
+[Build guide](../docs/building.md) · [Public C header](include/neo_cppjieba.h) · [Release notes](../CHANGELOG.md)
+
+Release 1.2.0 adds the v1 C API for UTF-8 segmentation and language bindings.
+Shared and static libraries expose the same six functions, fixed-width fields and
+independently owned results. Package versions follow the project release; the ABI
+major version and shared-library `SOVERSION` remain `1`.
+
+## Build and install
 
 ```sh
 cmake -S . -B build-api -DCPPJIEBA_BUILD_C_API=ON -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
@@ -10,66 +15,104 @@ cmake --build build-api --config Release
 cmake --install build-api --config Release --prefix install
 ```
 
-`CPPJIEBA_C_API_BUILD_SHARED` and `CPPJIEBA_C_API_BUILD_STATIC` both default to `ON`.
-Disable either to build only the other variant; at least one must remain enabled.
-`CPPJIEBA_BUILD_C_API` defaults to `OFF`, preserving the header-only build.
+`CPPJIEBA_BUILD_C_API` defaults to `OFF`. When enabled, both
+`CPPJIEBA_C_API_BUILD_SHARED` and `CPPJIEBA_C_API_BUILD_STATIC` default to `ON`;
+select at least one library form.
 
 | Platform in CI | Shared library | Static library |
 | --- | --- | --- |
 | Linux x64/ARM64, GCC 15 | `libneo_cppjieba_c.so.1` | `libneo_cppjieba_c.a` |
-| macOS, LLVM 23/libc++ | `libneo_cppjieba_c.1.dylib` | `libneo_cppjieba_c.a` |
+| macOS ARM64, LLVM 23/libc++ | `libneo_cppjieba_c.1.dylib` | `libneo_cppjieba_c.a` |
 | Windows x64, MSVC 2026 | `neo_cppjieba_c.dll` and import library `neo_cppjieba_c.lib` | `neo_cppjieba_c_static.lib` |
 
-All platforms build and test Debug and Release variants. ABI compatibility applies
-within the same platform ABI; architecture, deployment target and system-library
-requirements still apply. Applications supply dictionary/model paths explicitly.
+CI covers Debug and Release builds. Binary compatibility applies within the same
+platform ABI, with matching architecture, deployment target and system requirements.
+Deploy the dictionary and model files with the application and pass their paths explicitly.
 
-## Linking an installed package
+## Link an installed package
 
-For a shared-library consumer, C is sufficient:
+Set `CMAKE_PREFIX_PATH` to the installation prefix. A shared-library consumer uses C:
 
 ```cmake
 project(example LANGUAGES C)
-find_package(neo_cppjieba_c 1 REQUIRED COMPONENTS shared)
+find_package(neo_cppjieba_c 1.2 CONFIG REQUIRED COMPONENTS shared)
 add_executable(example main.c)
 target_link_libraries(example PRIVATE neo_cppjieba::c_shared)
 ```
 
-Static consumers enable the C++ linker/runtime even if their sources are all C:
+Static consumers enable the C++ linker and runtime for their C sources:
 
 ```cmake
 project(example LANGUAGES C CXX)
-find_package(neo_cppjieba_c 1 REQUIRED COMPONENTS static)
+find_package(neo_cppjieba_c 1.2 CONFIG REQUIRED COMPONENTS static)
 add_executable(example main.c)
 target_link_libraries(example PRIVATE neo_cppjieba::c_static)
 ```
 
-Set `CMAKE_PREFIX_PATH` to the installation prefix. Both targets carry the public
-include directory; `c_static` also defines `NEO_CPPJIEBA_C_STATIC`. When linking
-manually, define that macro for static consumers, especially on Windows, and link
-with a compatible C++ runtime. `neo_cppjieba::c` selects shared when present,
-otherwise static. Prefer an explicit target when linkage matters.
+Both targets carry the public include directory; `c_static` also defines
+`NEO_CPPJIEBA_C_STATIC`. Manual static linking requires that definition and a compatible
+C++ runtime. `neo_cppjieba::c` selects shared when available, then static; use explicit
+targets to choose the linkage. A complete C caller is available in
+[c_api_smoke.c](../test/unittest_neo/c_api_smoke.c).
 
-## Runtime and symbol boundaries
+## Calls and ownership
 
-Shared libraries export only the six C functions. Linux uses an ELF version
-script and private static GNU C++/unwind runtimes. macOS uses an exported-symbol
-list and private libc++/libc++abi/libunwind archives. Windows uses explicit exports
-and a private `/MT` or `/MTd` runtime. C++ exceptions and allocation ownership remain
-inside the shared library; token results must be destroyed through its C API.
+| Function | Purpose |
+| --- | --- |
+| `neo_jieba_v1_max_input_bytes` | Query this build's conservative input byte limit |
+| `neo_jieba_v1_engine_create` | Load dictionary/model paths and return an engine |
+| `neo_jieba_v1_cut_utf8_owned` | Segment a byte buffer with an explicit length and return an owned result |
+| `neo_jieba_v1_tokens_borrow_data` | Read the result's UTF-8 text and token byte ranges |
+| `neo_jieba_v1_tokens_destroy` | Release a result and its borrowed storage |
+| `neo_jieba_v1_engine_destroy` | Release an engine |
 
-The macOS build locates the runtime archives beside the selected compiler, matching
-the Homebrew LLVM layout used by CI. Override `CPPJIEBA_C_API_LIBCXX`,
-`CPPJIEBA_C_API_LIBCXXABI`, and `CPPJIEBA_C_API_LIBUNWIND` with matching PIC archive
-paths when using another layout. A missing archive is a configuration error.
+Create an engine with nonempty main dictionary and model paths; an empty user
+dictionary path selects the main dictionary alone. Input pointers are borrowed during
+the call. Results own a copy of the input and all token ranges, independently of the
+engine and earlier results. Engines may be destroyed after producing results.
 
-Static archives contain the adapter and instantiated implementation, without a
-private C++ runtime or an independent symbol boundary. The final application owns
-runtime selection and symbol visibility. On MSVC, the static target honors
-`CMAKE_MSVC_RUNTIME_LIBRARY`; consumers must use the same runtime setting and a
-compatible build configuration. The static `.lib` is distinct from the DLL import
-library and must not be substituted for it without the static compile definition.
+Read each token with its `byte_offset` and `byte_length`. Lengths are authoritative:
+text may contain NUL bytes and individual tokens are not NUL-terminated.
+Borrowed text/range pointers remain valid until their result is destroyed; release
+the result through `tokens_destroy` in the library that created it. NULL is accepted
+by both destroy functions and for zero-length input.
 
-With `BUILD_TESTING=ON`, the suite tests both variants, shared-library exports and
-runtime dependencies, and separate installed C consumers. Linux additionally tests
-the shared library in a C host with conflicting C++ runtime symbols.
+Serialize calls that share an engine. Input, output and diagnostic buffers use
+separate live storage. Release a previous handle before reusing its output slot,
+finish reads before destroying a result, and release all handles before unloading
+the library. FULL and SEARCH can return overlapping byte ranges.
+
+## Status and diagnostics
+
+The public header defines `OK`, `INVALID_ARGUMENT`, `OPERATION_FAILED`,
+`OUT_OF_MEMORY` and `LIMIT_EXCEEDED`. Invalid UTF-8 and dictionary/model failures
+return `OPERATION_FAILED`. The byte-limit query describes representable sizes;
+allocations can still fail within that limit.
+
+Pass a caller-owned `neo_jieba_error_buffer_v1`, NULL to omit diagnostics, or
+`{NULL, 0, 0}` to request the required message length. `message_size` reports the
+full byte length excluding NUL. Positive buffer capacity receives a NUL-terminated
+prefix; truncation preserves the operation's status. Successful calls clear the message.
+
+Failed create/cut calls clear their output handles. A failed borrow call clears a
+valid output descriptor. C++ exceptions are translated into status values inside
+the adapter; internal invariant failures remain fatal.
+
+## Runtime and validation
+
+Shared libraries export the six C functions and bundle private C++ runtimes:
+GNU C++/unwind archives on Linux, libc++/libc++abi/libunwind on macOS, and `/MT`
+or `/MTd` on Windows. Allocation ownership stays inside the library.
+
+The macOS build searches beside the selected compiler, following the Homebrew LLVM
+layout in CI. Set `CPPJIEBA_C_API_LIBCXX`, `CPPJIEBA_C_API_LIBCXXABI` and
+`CPPJIEBA_C_API_LIBUNWIND` to matching PIC archives for other layouts.
+
+Static libraries use the final application's runtime and symbol visibility.
+On MSVC, match `CMAKE_MSVC_RUNTIME_LIBRARY` and the build configuration between
+the library and its consumers. The static `.lib` and DLL import `.lib` serve their
+respective targets and compile definitions.
+
+With `BUILD_TESTING=ON`, tests cover both variants, exported symbols, runtime
+dependencies and installed C consumers. Linux also checks a C host with conflicting
+C++ runtime symbols. Configuration commands are listed in the [build guide](../docs/building.md#测试).

@@ -2,7 +2,7 @@
 
 `python_compare_benchmark.py` 使用 `deps/python-jieba` 中的官方
 [jieba v0.42.1](https://github.com/fxsjy/jieba/tree/v0.42.1)，与旧 C++、Neo C++、
-jieba-rs 0.11.0 对比。Python 源码通过子模块固定，无需 pip 安装，也不会成为 C++ 库的依赖。
+jieba-rs 0.11.0 对比。Python 脚本直接导入固定版本的子模块；依赖说明见 [deps/README.md](../deps/README.md)。
 
 ## 构建和运行
 
@@ -27,8 +27,8 @@ Linux 可在 `python3` 前加 `taskset -c 2`；原生子进程会继承 CPU 亲�
 选择当前机器允许使用、较空闲的 CPU。运行期间避免其他编译或性能测试。
 
 `--dict` 和 `--model` 默认指向仓库 `dict/jieba.dict.utf8` 与 `dict/hmm_model.utf8`。
-四方只加载这份主词典，不加载用户词典。Python 的内置 HMM 发射概率精度与这份文本模型存在差异，
-适配器因此在初始化时把外部模型的 B/E/M/S 概率装入 `jieba.finalseg`，不改动上游算法或源码。
+四方共同使用主词典并关闭用户词典。Python 的内置 HMM 发射概率精度与这份文本模型存在差异，
+适配器在初始化时把外部模型的 B/E/M/S 概率装入 `jieba.finalseg`，随后调用上游分词接口。
 该适配仅用于独立基准进程；模型概率是 Python jieba 的模块级状态。
 
 ## 模式和计时口径
@@ -44,9 +44,9 @@ Python 每次调用均生成完整 `list[str]`，计时包含分词、结果物�
 每条路径先预热；Python 样本轮换四种模式的顺序，原生样本按既有方式轮换八种输出路径。
 报告中位数、最小值和最大值，每个计时样本核对 token 总数。
 
-语料读取、引擎加载、正确性校验、预热、跨进程启动和 JSON 导出均不计时。
+语料读取、引擎加载、正确性校验、预热和进程启动在计时前完成，JSON 在计时后导出。
 Python 持有已经解码的 `str`，UTF-8 解码在计时前完成；C++ 接收 UTF-8 字符串，
-Rust 接收已验证的 UTF-8 `&str`。这些是各语言自然接口的成本，不能将差异全部归因于算法。
+Rust 接收已验证的 UTF-8 `&str`。计时包含各语言接口的表示和转换成本。
 借用 token、复用位置数组和拥有字符串的成本不同，原生路径的详细定义见 [RUST.md](RUST.md)。
 
 加载语料时仅以 LF 分行、去掉行末一个 CR、跳过空行，保留其他空白、NUL 和 Unicode 内容，
@@ -62,7 +62,7 @@ Rust 接收已验证的 UTF-8 `&str`。这些是各语言自然接口的成本�
 - `path.native.json`：原生计时及逐行 Neo UTF-8 字节区间。
 - `path.native.log`：原生基准完整输出，包括 HMM-only 附录。
 
-所有测量结果放在 Git 忽略的 `benchmark/results/`，不提交。脚本不输出跨语料的汇总速度排名。
+测量结果保存在 Git 忽略的 `benchmark/results/`，报告按语料、模式和输出契约分别比较。
 运行适配器测试：
 
 ```sh
