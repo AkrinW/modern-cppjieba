@@ -1,102 +1,78 @@
 # Dependencies
 
-The public `neo_cppjieba::neo_cppjieba` target does not link to these dependencies
-or expose their headers. GoogleTest is used only with `BUILD_TESTING=ON`; the
-comparison dependencies below are loaded only for legacy tests or benchmarks.
+[Build options](../docs/building.md#构建选项) · [Benchmarks](../benchmark/README.md)
+
+This directory configures test and comparison dependencies. GoogleTest belongs to
+`BUILD_TESTING`; the remaining dependencies serve legacy tests and benchmarks.
+The core C++ target uses the standard library and headers shipped under `include/`.
 
 ## GoogleTest
 
-`googletest.cmake` selects GoogleTest in this order:
+`googletest.cmake` resolves the test dependency in this order:
 
-1. Reuse an existing `GTest::gtest` target supplied by the parent project.
-2. Use `find_package(GTest QUIET)` to locate an installed package or libraries.
+1. Reuse the parent project's `GTest::gtest` target.
+2. Locate an installed package or libraries with `find_package(GTest QUIET)`.
 3. Download and build upstream `v1.18.0` through `FetchContent`.
 
-Set `GTest_DIR` to the directory containing `GTestConfig.cmake`, or add the
-installation prefix to `CMAKE_PREFIX_PATH`. The installed library must match
-the active compiler, standard library, and runtime configuration.
+Set `GTest_DIR` to the directory containing `GTestConfig.cmake`, or add its
+installation prefix to `CMAKE_PREFIX_PATH`. Match the active compiler, standard
+library and runtime configuration when using prebuilt libraries.
 
-For offline builds, point FetchContent at an existing GoogleTest source tree:
+For an offline source build:
 
 ```sh
 cmake -S . -B build-tests -DBUILD_TESTING=ON \
   -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest
 ```
 
-This source override is used only when no parent target or installed package is
-available. To select it explicitly, also pass `-DCMAKE_DISABLE_FIND_PACKAGE_GTest=ON`;
-an existing parent target still takes precedence.
+To select source discovery over installed packages, also pass
+`-DCMAKE_DISABLE_FIND_PACKAGE_GTest=ON`. An existing parent target takes precedence.
+FetchContent manages this optional source dependency in the build tree; the
+submodules below pin comparison implementations.
 
-GoogleTest is not a submodule: its source is needed only when a local package is
-unavailable. The `deps/` directory contains dependency configuration as well as
-source checkouts; source downloads stay in the build tree.
+## Pinned comparison sources
 
-## Comparison dependencies
-
-| Dependency | Source | CMake target |
+| Dependency | Revision | CMake target |
 | --- | --- | --- |
-| cppjieba | Official upstream submodule, pinned commit | `cppjieba::cppjieba` |
-| limonp | Official upstream submodule, pinned commit | `limonp::limonp` |
-| jieba-rs | Official upstream submodule, 0.11.0 source commit | `jieba_rs::jieba_rs` |
-| Python jieba | Official upstream submodule, v0.42.1 | Standalone Python benchmark |
+| CppJieba | [8f171de](https://github.com/yanyiwu/cppjieba/tree/8f171de5018e8478ff22ca58caacf579cba809c8) | `cppjieba::cppjieba` |
+| limonp | [4065c5f](https://github.com/yanyiwu/limonp/tree/4065c5f6d5a7a7248aacdd34d738fe0351b97c3f) | `limonp::limonp` |
+| jieba-rs 0.11.0 | [3a0d75c](https://github.com/messense/jieba-rs/tree/3a0d75cf7455e2006330a5b4e94156da272cd7b9) | `jieba_rs::jieba_rs` |
+| Python jieba 0.42.1 | [1e20c89](https://github.com/fxsjy/jieba/tree/1e20c89b66f56c9301b0feed211733ffaa1bd72a) | Python benchmark script |
+
+The checkout's submodule gitlinks and `rust-jieba/Cargo.lock` determine the exact
+versions. Initialize only the sources needed by the selected comparison.
+
+## C++ comparisons
 
 ```sh
 git submodule update --init deps/cppjieba deps/limonp
 ```
 
-## Versions checked on 2026-09-22
+`cppjieba.cmake` supplies targets for the pinned upstream headers. Legacy tests
+use CppJieba's helpers; FileIO comparisons and the legacy load benchmark explicitly
+link limonp. Their build and installation are controlled by this repository.
 
-- cppjieba: `8f171de5018e8478ff22ca58caacf579cba809c8`, upstream `master` HEAD.
-- limonp: `4065c5f6d5a7a7248aacdd34d738fe0351b97c3f`, upstream `master` HEAD.
-- jieba-rs: `0.11.0`, commit `3a0d75cf7455e2006330a5b4e94156da272cd7b9`, matching the published crate's source.
+Comparisons pass the shared dictionary, HMM model and user-dictionary paths
+explicitly. The upstream facade also offers default paths inside its own checkout.
+The earlier upstream guide remains in [cppjieba-upstream-history.md](cppjieba-upstream-history.md).
 
-The submodule gitlinks and Cargo lockfile determine the versions used by a
-checkout. An installed limonp package does not override the pinned source.
-
-## C++ dependencies
-
-`cppjieba.cmake` exposes the upstream headers without invoking its CMake project.
-Upstream already includes the FullSegment null-match length fix previously kept
-in our vendored snapshot, as well as the UTF-8 decoding interfaces. No local fork
-or source patch is needed for these changes.
-
-Current upstream cppjieba no longer depends on limonp. Legacy tests use cppjieba's
-own formatting helpers; the FileIO comparison and legacy load benchmark link to
-limonp explicitly. Neither upstream project's tests or installation rules are
-pulled into our build.
-
-The upstream facade's default paths resolve to its own `dict/` directory.
-Segmentation comparisons explicitly pass our common dictionary, HMM model and
-user-dictionary path, so updating the submodule's data does not change the common
-benchmark inputs. The neo implementation and root `dict/` remain unchanged.
-The former upstream guide is retained in [cppjieba-upstream-history.md](cppjieba-upstream-history.md).
-
-## Rust dependency and adapter
-
-`jieba-rs/` pins the [official upstream repository](https://github.com/messense/jieba-rs)
-at the source commit used by the `0.11.0` release. Initialize it with:
+## Rust comparison
 
 ```sh
 git submodule update --init deps/jieba-rs
 ```
 
-`rust-jieba/` contains our C ABI adapter and C++ wrapper. Cargo uses a local path
-dependency for the pinned jieba-rs library and its workspace's jieba-macros crate;
-other dependencies remain locked by `rust-jieba/Cargo.lock` and are downloaded
-when the Rust benchmark is built. All build outputs stay in the CMake build tree.
-See [the Rust benchmark guide](../benchmark/RUST.md).
+`rust-jieba/` contains the benchmark C ABI adapter and C++ wrapper. Cargo uses
+local paths for the pinned jieba-rs and jieba-macros crates, and downloads other
+locked dependencies during the build. Output stays in the CMake build tree.
+See [RUST.md](../benchmark/RUST.md) for output contracts and commands.
 
-## Python dependency
-
-`python-jieba/` pins [fxsjy/jieba](https://github.com/fxsjy/jieba) at the
-`v0.42.1` release, commit `1e20c89b66f56c9301b0feed211733ffaa1bd72a`.
-Its upstream MIT license is retained in the submodule. Initialize it with:
+## Python comparison
 
 ```sh
 git submodule update --init deps/python-jieba
 ```
 
-The benchmark imports this checkout directly; no pip installation or Python
-development headers are required. Python is not a dependency of the C++ library
-or its ordinary build. The adapter reads the shared dictionary and HMM model
-before timing without patching upstream code. See [the Python comparison guide](../benchmark/PYTHON.md).
+The benchmark imports this checkout directly and loads the shared dictionary
+and HMM model before timing. Its upstream MIT license remains in the submodule.
+Python is needed when running this script; see [PYTHON.md](../benchmark/PYTHON.md).

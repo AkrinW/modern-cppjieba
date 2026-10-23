@@ -1,31 +1,33 @@
-# CppJieba字典
+# 词典与模型
 
-文件后缀名代表的是词典的编码方式。
-比如filename.utf8 是 utf8编码，filename.gbk 是 gbk编码方式。
+本目录保存 UTF-8 数据文件。`Jieba` 构造函数接收主词典、HMM 模型和用户词典路径，
+部署时将所需文件随应用提供。安装后的默认位置为 `share/cppjieba/dict/`。
 
+| 文件 | 用途 |
+| --- | --- |
+| `jieba.dict.utf8` | 主词典，每行包含词、词频和词性 |
+| `hmm_model.utf8` | HMM 未登录词识别模型 |
+| `user.dict.utf8` | 用户词典示例，按业务需要替换 |
+| `idf.utf8` | 原版 CppJieba 关键词提取使用的逆文档频率 |
+| `stop_words.utf8` | 原版 CppJieba 关键词提取使用的停用词 |
+| `pos_dict/` | 词性模型数据 |
 
-## 分词
+## 用户词典
 
-### jieba.dict.utf8/gbk
+用户词典每行接受以下形式，字段以空格分隔：
 
-作为最大概率法(MPSegment: Max Probability)分词所使用的词典。
+| 格式 | 含义 |
+| --- | --- |
+| `词` | 使用默认权重和默认词性 |
+| `词 词性` | 使用默认权重，指定词性 |
+| `词 词频 词性` | 指定词频和词性 |
 
-### hmm_model.utf8/gbk
+例如：
 
-作为隐式马尔科夫模型(HMMSegment: Hidden Markov Model)分词所使用的词典。
+```text
+自然语言处理 1000 n
+清华大学 100000 nt
+```
 
-__对于MixSegment(混合MPSegment和HMMSegment两者)则同时使用以上两个词典__
-
-
-## 关键词抽取
-
-### idf.utf8
-
-IDF(Inverse Document Frequency)
-在KeywordExtractor中，使用的是经典的TF-IDF算法，所以需要这么一个词典提供IDF信息。
-
-### stop_words.utf8
-
-停用词词典
-
-
+构造时将用户词典参数设为 `""`，即可仅加载主词典。
+完整用法见 [C++ 指南](../docs/usage.md)，词性缩写可参考 [词性标记表](../词性标记.md)。

@@ -1,21 +1,24 @@
 # modern-cppjieba
 
 基于 [CppJieba](https://github.com/yanyiwu/cppjieba) 重写的 C++23 中文分词库，
-以头文件形式提供，使用 `neo_cppjieba` 命名空间。
+以头文件形式提供，使用 `neo_cppjieba` 命名空间；另提供适合 C 和其他语言绑定的 C ABI。
 
 - MIX、MP、HMM、FULL、SEARCH 分词，支持用户词典。
-- UTF-8、UTF-16、UTF-32 输入，提供词语及其在原文中的位置。
-- 可选 ICU 适配器，支持 GBK、GB18030 与 UTF-8 转换及字节位置映射。
-- token 视图、独立字符串和持有原文的分词结果。
-- 可复用的工作区，适合连续处理多段文本。
-- CppJieba、jieba-rs、Python jieba 三种分词规则，在编译期选择。
+- UTF-8、UTF-16、UTF-32 输入，返回词语、原文位置和 Unicode 码点位置。
+- 借用视图、独立字符串、持有原文的结果，以及可复用的工作区。
+- 可选 ICU 适配器，支持 GBK / GB18030 转换及原始字节映射。
+- 在编译期选择 CppJieba、jieba-rs 或 Python jieba 分词规则。
 
-[应用示例](examples/README.md) · [编码转换](docs/encoding.md) · [性能对比](#性能对比) · [更新记录](CHANGELOG.md)
+[C++ 使用](docs/usage.md) · [构建与安装](docs/building.md) · [C ABI](api/README.md) ·
+[应用示例](examples/README.md) · [编码转换](docs/encoding.md) · [更新记录](CHANGELOG.md)
+
+**1.2.0** 增加 C ABI v1、可安装的 CMake 包和本地优先的 GoogleTest 发现。
+升级方式见 [1.2.0 发布说明](CHANGELOG.md#120---2026-10-23)。
 
 ## 快速开始
 
-构建示例需要 CMake 3.20+ 和支持 C++23 的编译器及标准库，包括 `<format>`、`<print>`。
-主分支 CI 使用 GCC 15、LLVM 23 / libc++ 和 Visual Studio 2026，覆盖 Linux、macOS 和 Windows。
+使用 CMake 3.20+ 和支持 C++23（包括 `<format>`、`<print>`）的编译器及标准库。
+CI 覆盖 GCC 15、LLVM 23 / libc++ 和 Visual Studio 2026，详见 [构建环境](docs/building.md#环境)。
 
 ```sh
 git clone https://github.com/AkrinW/modern-cppjieba.git
@@ -27,7 +30,6 @@ cmake --build build --config Release --target jieba_basic_cut --parallel
 ```
 
 Visual Studio 生成器的程序路径为 `build/examples/Release/jieba_basic_cut.exe`。
-平台配置见 [Linux CI](.github/workflows/cmake.yml) 和 [macOS / Windows CI](.github/workflows/platforms.yml)。
 
 ## 使用示例
 
@@ -55,87 +57,36 @@ int main() {
 清华大学
 ```
 
-构造函数依次接收主词典、HMM 模型和用户词典路径，第三个参数传 `""` 可关闭用户词典。
-路径相对于进程工作目录解析，Windows 路径使用 UTF-8。部署时将词典和模型文件一并提供。
+构造参数依次为主词典、HMM 模型和用户词典路径；第三个参数传 `""` 可关闭用户词典。
+部署时携带这些数据文件，路径及格式见 [词典说明](dict/README.md)。
 
 ## CMake 集成
 
-将项目放入 `external/modern-cppjieba`，链接到应用目标：
+源码接入：
 
 ```cmake
 add_subdirectory(external/modern-cppjieba)
 target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 ```
 
-目标会设置头文件路径、C++23 标准和 MSVC 的 `/utf-8` 选项。
-`BUILD_TESTING` 沿用父项目设置，只使用库时可在配置命令中传入 `-DBUILD_TESTING=OFF`。
-
-安装头文件、词典和 CMake 包：
-
-```sh
-cmake -S . -B build-library -DBUILD_TESTING=OFF
-cmake --install build-library --prefix install
-```
-
-默认安装路径为 `install/include/neo/` 和 `install/share/cppjieba/dict/`。
-将安装前缀加入消费端的 `CMAKE_PREFIX_PATH`，即可使用与源码集成相同的目标：
+安装后，将安装前缀加入 `CMAKE_PREFIX_PATH`：
 
 ```cmake
-find_package(neo_cppjieba 1.1 CONFIG REQUIRED)
+find_package(neo_cppjieba 1.2 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 ```
 
-CMake 包默认安装到 `install/lib/cmake/neo_cppjieba/`，实际库目录遵循 `GNUInstallDirs`。
-手工集成时，将 `install/include` 加入头文件搜索路径，并启用 C++23。
-安装时启用 `CPPJIEBA_ENABLE_ICU` 后，可通过 `COMPONENTS icu` 获取 `neo_cppjieba::icu` 目标；
-该目标自动链接 ICU 的 `uc` 和 `data` 库。核心包消费端不会查找 ICU，详见 [编码转换说明](docs/encoding.md)。
-
-## 分词模式
-
-| `CutMode` | 说明 |
-| --- | --- |
-| `MIX` | 词典分词结合 HMM，识别未登录词 |
-| `MIX_NO_HMM` / `MP` | 词典最大概率分词 |
-| `SEARCH` | 在混合分词基础上补充较短词，适合搜索索引 |
-| `SEARCH_NO_HMM` | 搜索分词，关闭 HMM |
-| `FULL` | 输出词典匹配，结果可以重叠 |
-| `HMM` | 使用隐马尔可夫模型分词 |
-
-[Config.hpp](include/neo/Config.hpp) 中的 `compile_config::segmentation_style`
-可选 `CPP`、`RUST`、`PYTHON`，默认值为 `CPP`。
-三套规则分别参考 CppJieba、jieba-rs 0.11.0 和 jieba 0.42.1；
-词典加载和用户词典行为以本库接口为准。具体差异见 [Rust 对比](benchmark/RUST.md) 和 [Python 对比](benchmark/PYTHON.md)。
+安装命令、可选 ICU 组件和完整选项表见 [构建指南](docs/building.md)。
+共享库与静态库接入见 [C ABI 指南](api/README.md)。
 
 ## API
 
-| 入口 | 结果 |
-| --- | --- |
-| `cut(text, mode)` | 借用原文的 token 视图及位置 |
-| `cut_owned(string, mode)` | 持有原文和位置的结果 |
-| `cut_strings(text, mode)` | 每个词独立存储的字符串数组 |
-| `cut_with_workspace(text, mode, workspace)` | 复用工作区，返回借用原文的结果 |
-| `cut_into(text, mode, out, workspace)` | 将位置或字符串写入调用方数组，复用其容量 |
-| `cut_each(text, mode, emit, workspace)` | 通过返回 `void` 的回调逐词接收 token |
-| `cut_runes(runes, mode)` / `cut_runes_into(runes, mode, out, workspace)` | 对已解码码点分词，输出 `WordRange` |
+`cut` 返回借用原文的 token，`cut_owned` 持有原文，`cut_strings` 返回独立字符串。
+批量处理可复用 `Workspace`，并通过 `cut_into` 复用输出数组，或通过 `cut_each` 逐词处理。
+使用借用结果期间保持原文有效且稳定。
 
-token 的 `word` 是原文视图，请在原文修改或销毁前完成使用。
-需要长期保存结果时，可用 `cut_owned` 或 `cut_strings`；
-`cut_owned` 的结果移动后，应重新获取 token 视图。
-
-位置使用半开区间 `[begin, end)`。`position.source` 按原文编码单元计数，
-UTF-8 对应字节偏移；`position.runes` 按 Unicode 码点计数。
-
-GBK、GB18030 输入可先通过 `IcuCodec` 转换为 UTF-8；分词结果的原文位置对应转换后的 UTF-8 文本。
-需要定位原始字节时，保留转换过程的码点边界映射，详见 [编码转换与位置映射](docs/encoding.md)。
-`neo/Unicode.hpp` 还提供 `is_valid_utf(input)`，用于独立检查 UTF 编码合法性；
-常规分词入口已在解码时完成校验。
-
-批量处理可复用 `Workspace` 和输出数组。每个并发或嵌套调用独占一个工作区，输入和输出使用独立存储。
-[应用示例](examples/README.md) 包含批量处理、搜索高亮、词频统计和结果所有权的完整程序。
-
-容量类型配置见 [Config.hpp](include/neo/Config.hpp)，默认采用 32 位索引和偏移。
-输入及词典规模须在所选类型的容量范围内，容量检查在 Debug 构建中执行。
-升级头文件或修改配置后，所有使用本库的编译单元须采用同一配置重新编译。
+[分词模式](docs/usage.md#分词模式) · [输出形式](docs/usage.md#选择输出形式) ·
+[位置与工作区](docs/usage.md#位置与工作区) · [容量配置](docs/usage.md#容量与错误处理)
 
 ## 性能对比
 
@@ -165,29 +116,8 @@ GBK、GB18030 输入可先通过 `IcuCodec` 转换为 UTF-8；分词结果的原
 
 ## 开发
 
-```sh
-cmake -S . -B build-tests -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
-cmake --build build-tests --config Debug --parallel
-ctest --test-dir build-tests -C Debug --output-on-failure
-```
-
-启用单元测试时，CMake 优先复用父项目的 `GTest::gtest`，随后查找本地安装的 GoogleTest；
-找不到时才下载并构建 `v1.18.0`。可通过 `GTest_DIR` 或 `CMAKE_PREFIX_PATH` 指定本地安装位置。
-离线源码配置、比较程序依赖和子模块初始化命令见 [deps/README.md](deps/README.md)。
-
-| CMake 选项 | 默认值 | 作用 |
-| --- | --- | --- |
-| `BUILD_TESTING` | 顶层 ON；子项目未预设时 OFF | 构建单元测试 |
-| `CPPJIEBA_BUILD_EXAMPLES` | OFF | 构建应用示例 |
-| `CPPJIEBA_BUILD_LEGACY_TESTS` | OFF | 增加原版 CppJieba 回归测试，要求启用单元测试 |
-| `CPPJIEBA_BUILD_BENCHMARKS` | OFF | 构建 benchmark |
-| `CPPJIEBA_BUILD_RUST_BENCHMARKS` | OFF | 增加 Rust 比较，要求启用 benchmark |
-| `CPPJIEBA_ENABLE_ICU` | OFF | 增加 GBK / GB18030 编码转换目标，要求安装 ICU 的 `uc` 和 `data` 开发库 |
-
-公共头文件位于 `include/neo/`，`detail/` 为内部实现。
-单元测试位于 `test/unittest_neo/`，性能测试位于 `benchmark/`，格式化及静态分析脚本位于 `tools/`。
-`cmake/` 管理项目选项、安装导出和共享测试数据，`deps/` 管理第三方依赖配置。
-`api/cmake/` 保存 C ABI 平台规则和包模板，`test/cmake/` 保存测试变体、符号检查及安装消费端验证。
+[构建与测试](docs/building.md#测试) · [依赖和离线配置](deps/README.md) ·
+[性能测量与 CI 更新](benchmark/README.md) · [仓库布局](docs/building.md#仓库布局)
 
 ## 许可证
 
