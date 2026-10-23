@@ -12,6 +12,7 @@ _Static_assert(sizeof(neo_jieba_token_range_v1) == 16, "Token ABI must remain tw
 _Static_assert(offsetof(neo_jieba_token_range_v1, byte_length) == 8, "Token field offset changed");
 
 /* Export hostile C++ runtime symbols from this C-only host to detect accidental interposition. */
+#ifdef NEO_CPPJIEBA_C_TEST_PRIVATE_RUNTIME
 #if UINTPTR_MAX == UINT64_MAX
 void *host_cpp_new(size_t size) __asm__("_Znwm");
 #else
@@ -34,6 +35,7 @@ void host_cpp_throw(void *exception, void *type, void (*destroy)(void *)) {
     (void)destroy;
     abort();
 }
+#endif
 
 /* Compile and link as C, exercising owned results and an error with conflicting host symbols present. */
 int main(void) {

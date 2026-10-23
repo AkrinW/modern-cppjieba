@@ -36,7 +36,7 @@ jobs:
         # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
         # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
         # run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
-        run: cmake -B ${{github.workspace}}/build -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_STANDARD=${{matrix.cpp_version}} -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        run: cmake -B ${{github.workspace}}/build -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON -DCPPJIEBA_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_STANDARD=${{matrix.cpp_version}} -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
       - name: Build
         # Build your program with the given configuration
@@ -58,4 +58,15 @@ jobs:
             build/unit-tests.xml
             build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Install C API libraries and package metadata
+        run: cmake --install build/api --config ${{env.BUILD_TYPE}} --prefix install
+
+      - name: Upload C API package
+        uses: actions/upload-artifact@v7
+        with:
+          name: c-api-linux-arm64-${{ matrix.build_type }}
+          path: install/
+          if-no-files-found: error
           retention-days: 14

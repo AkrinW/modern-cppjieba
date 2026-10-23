@@ -39,7 +39,7 @@ option(CPPJIEBA_BUILD_EXAMPLES "Build standalone usage examples" OFF)
 option(CPPJIEBA_BUILD_BENCHMARKS "Build standalone benchmarks" OFF)
 option(CPPJIEBA_BUILD_RUST_BENCHMARKS "Build the pinned Rust comparison benchmark (requires Cargo)" OFF)
 option(CPPJIEBA_ENABLE_ICU "Enable the optional GBK/GB18030 codec" OFF)
-option(CPPJIEBA_BUILD_C_API "Build the Linux shared C ABI library" OFF)
+option(CPPJIEBA_BUILD_C_API "Build the C ABI libraries" OFF)
 
 if(CPPJIEBA_ENABLE_ICU)
     find_package(ICU REQUIRED COMPONENTS uc data)

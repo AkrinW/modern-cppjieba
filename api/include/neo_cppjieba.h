@@ -2,6 +2,20 @@
 
 #include <stdint.h>
 
+/* Static consumers define NEO_CPPJIEBA_C_STATIC; the CMake static target supplies it automatically.
+ * NEO_CPPJIEBA_C_BUILD is private to the shared-library build. */
+#if defined(NEO_CPPJIEBA_C_STATIC)
+#define NEO_CPPJIEBA_C_API
+#elif defined(_WIN32)
+#if defined(NEO_CPPJIEBA_C_BUILD)
+#define NEO_CPPJIEBA_C_API __declspec(dllexport)
+#else
+#define NEO_CPPJIEBA_C_API __declspec(dllimport)
+#endif
+#else
+#define NEO_CPPJIEBA_C_API __attribute__((visibility("default")))
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -70,31 +84,34 @@ typedef struct neo_jieba_borrowed_tokens_v1 {
 } neo_jieba_borrowed_tokens_v1;
 
 /* Returns a conservative byte limit for this build's source/rune indices; allocation can still fail. */
-__attribute__((visibility("default"))) uint64_t neo_jieba_v1_max_input_bytes(void);
+NEO_CPPJIEBA_C_API uint64_t neo_jieba_v1_max_input_bytes(void);
 
 /* On success transfers one engine to out_owned_engine; on failure sets it to NULL.
  * The output slot must not hold an unreleased owner. File/format failures return OPERATION_FAILED. */
-__attribute__((visibility("default"))) neo_jieba_status_v1 neo_jieba_v1_engine_create(
-    const neo_jieba_paths_v1 *paths, neo_jieba_engine_v1 **out_owned_engine, neo_jieba_error_buffer_v1 *error);
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_create(const neo_jieba_paths_v1 *paths,
+                                                                  neo_jieba_engine_v1 **out_owned_engine,
+                                                                  neo_jieba_error_buffer_v1 *error);
 
 /* Releases an engine; NULL is accepted. Existing token results remain valid. */
-__attribute__((visibility("default"))) void neo_jieba_v1_engine_destroy(neo_jieba_engine_v1 *owned_engine);
+NEO_CPPJIEBA_C_API void neo_jieba_v1_engine_destroy(neo_jieba_engine_v1 *owned_engine);
 
 /* Borrows input only during this call; NULL is accepted exactly when input_size is zero.
  * On success transfers an independent result to out_owned_tokens; on failure sets it to NULL.
  * Invalid UTF-8 returns OPERATION_FAILED. The output slot must not hold an unreleased owner. */
-__attribute__((visibility("default"))) neo_jieba_status_v1 neo_jieba_v1_cut_utf8_owned(
-    const neo_jieba_engine_v1 *engine, const char *input, uint64_t input_size, neo_jieba_mode_v1 mode,
-    neo_jieba_tokens_v1 **out_owned_tokens, neo_jieba_error_buffer_v1 *error);
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_cut_utf8_owned(const neo_jieba_engine_v1 *engine, const char *input,
+                                                                   uint64_t input_size, neo_jieba_mode_v1 mode,
+                                                                   neo_jieba_tokens_v1 **out_owned_tokens,
+                                                                   neo_jieba_error_buffer_v1 *error);
 
 /* Copies a borrowed descriptor into caller storage; a valid output is zeroed on failure.
  * This transfers no ownership and never invalidates earlier borrowed descriptors. */
-__attribute__((visibility("default"))) neo_jieba_status_v1 neo_jieba_v1_tokens_borrow_data(
-    const neo_jieba_tokens_v1 *tokens, neo_jieba_borrowed_tokens_v1 *out_borrowed, neo_jieba_error_buffer_v1 *error);
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_tokens_borrow_data(const neo_jieba_tokens_v1 *tokens,
+                                                                       neo_jieba_borrowed_tokens_v1 *out_borrowed,
+                                                                       neo_jieba_error_buffer_v1 *error);
 
 /* Releases a result and invalidates all its borrowed pointers; NULL is accepted.
  * Release all handles before unloading their library. Internal invariant failures remain fatal. */
-__attribute__((visibility("default"))) void neo_jieba_v1_tokens_destroy(neo_jieba_tokens_v1 *owned_tokens);
+NEO_CPPJIEBA_C_API void neo_jieba_v1_tokens_destroy(neo_jieba_tokens_v1 *owned_tokens);
 
 #ifdef __cplusplus
 }

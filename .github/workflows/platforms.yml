@@ -34,17 +34,18 @@ jobs:
         run: |
           llvm_prefix="$(brew --prefix llvm@23)"
           cmake -S . -B build -G Ninja \
+            -DCMAKE_C_COMPILER="$llvm_prefix/bin/clang" \
             -DCMAKE_CXX_COMPILER="$llvm_prefix/bin/clang++" \
             -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
             -DCMAKE_EXE_LINKER_FLAGS="-L$llvm_prefix/lib/c++ -L$llvm_prefix/lib/unwind -lunwind -Wl,-rpath,$llvm_prefix/lib/c++ -Wl,-rpath,$llvm_prefix/lib/unwind" \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-            -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
+            -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
 
       - name: Configure Windows
         if: runner.os == 'Windows'
         run: >-
           cmake -S . -B build -G "Visual Studio 18 2026" -A x64
-          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
 
       - name: Build library users, tests and benchmarks
         run: cmake --build build --config ${{ matrix.build_type }} --parallel 3
@@ -67,3 +68,14 @@ jobs:
 
       - name: Install public headers and dictionaries
         run: cmake --install build --config ${{ matrix.build_type }} --prefix install
+
+      - name: Install C API libraries and package metadata
+        run: cmake --install build/api --config ${{ matrix.build_type }} --prefix c-api-install
+
+      - name: Upload C API package
+        uses: actions/upload-artifact@v7
+        with:
+          name: c-api-${{ matrix.os }}-${{ matrix.build_type }}
+          path: c-api-install/
+          if-no-files-found: error
+          retention-days: 14
