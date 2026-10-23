@@ -70,7 +70,7 @@ target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 目标会设置头文件路径、C++23 标准和 MSVC 的 `/utf-8` 选项。
 `BUILD_TESTING` 沿用父项目设置，只使用库时可在配置命令中传入 `-DBUILD_TESTING=OFF`。
 
-安装头文件和词典：
+安装头文件、词典和 CMake 包：
 
 ```sh
 cmake -S . -B build-library -DBUILD_TESTING=OFF
@@ -78,8 +78,17 @@ cmake --install build-library --prefix install
 ```
 
 默认安装路径为 `install/include/neo/` 和 `install/share/cppjieba/dict/`。
+将安装前缀加入消费端的 `CMAKE_PREFIX_PATH`，即可使用与源码集成相同的目标：
+
+```cmake
+find_package(neo_cppjieba 1.1 CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
+```
+
+CMake 包默认安装到 `install/lib/cmake/neo_cppjieba/`，实际库目录遵循 `GNUInstallDirs`。
 手工集成时，将 `install/include` 加入头文件搜索路径，并启用 C++23。
-使用可选 ICU 适配器时，还须链接 ICU 的 `uc` 和 `data` 库，详见 [编码转换说明](docs/encoding.md)。
+安装时启用 `CPPJIEBA_ENABLE_ICU` 后，可通过 `COMPONENTS icu` 获取 `neo_cppjieba::icu` 目标；
+该目标自动链接 ICU 的 `uc` 和 `data` 库。核心包消费端不会查找 ICU，详见 [编码转换说明](docs/encoding.md)。
 
 ## 分词模式
 
@@ -162,7 +171,9 @@ cmake --build build-tests --config Debug --parallel
 ctest --test-dir build-tests -C Debug --output-on-failure
 ```
 
-启用单元测试时，CMake 会获取 GoogleTest。比较程序使用的依赖和初始化命令见 [deps/README.md](deps/README.md)。
+启用单元测试时，CMake 优先复用父项目的 `GTest::gtest`，随后查找本地安装的 GoogleTest；
+找不到时才下载并构建 `release-1.12.1`。可通过 `GTest_DIR` 或 `CMAKE_PREFIX_PATH` 指定本地安装位置。
+离线源码配置、比较程序依赖和子模块初始化命令见 [deps/README.md](deps/README.md)。
 
 | CMake 选项 | 默认值 | 作用 |
 | --- | --- | --- |
@@ -175,6 +186,8 @@ ctest --test-dir build-tests -C Debug --output-on-failure
 
 公共头文件位于 `include/neo/`，`detail/` 为内部实现。
 单元测试位于 `test/unittest_neo/`，性能测试位于 `benchmark/`，格式化及静态分析脚本位于 `tools/`。
+`cmake/` 管理项目选项、安装导出和共享测试数据，`deps/` 管理第三方依赖配置。
+`api/cmake/` 保存 C ABI 平台规则和包模板，`test/cmake/` 保存测试变体、符号检查及安装消费端验证。
 
 ## 许可证
 

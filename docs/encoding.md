@@ -28,20 +28,30 @@ target_link_libraries(my_app PRIVATE neo_cppjieba::icu)
 ICU development headers and the `uc` and `data` libraries must be installed. The option is off
 by default; the core target and `neo/Jieba.hpp` do not require ICU.
 
-For installed headers or a manual header copy, configure the header search path
-and C++23 as described in the [README](../README.md#cmake-集成), then discover and
-link ICU in the consuming project:
+For an installation configured with `CPPJIEBA_ENABLE_ICU=ON`, add the installation
+prefix to `CMAKE_PREFIX_PATH` and request the `icu` component:
+
+```cmake
+find_package(neo_cppjieba 1.1 CONFIG REQUIRED COMPONENTS icu)
+target_link_libraries(my_app PRIVATE neo_cppjieba::icu)
+```
+
+The package discovers ICU's `uc` and `data` libraries only when the `icu` component
+is requested. Core-only consumers can use `neo_cppjieba::neo_cppjieba` without ICU,
+even when the installation includes the adapter target.
+
+For a manual header copy, configure the header search path and C++23 as described
+in the [README](../README.md#cmake-集成), then discover and link ICU directly:
 
 ```cmake
 find_package(ICU REQUIRED COMPONENTS uc data)
 target_link_libraries(my_app PRIVATE ICU::uc ICU::data)
 ```
 
-Installation copies headers and dictionaries; it does not export a CMake package
-or the `neo_cppjieba::neo_cppjieba` and `neo_cppjieba::icu` targets. All public
-headers, including `IcuCodec.hpp`, are installed even with `CPPJIEBA_ENABLE_ICU=OFF`.
-The option enables the source-tree adapter target and conversion tests; manual
-integration configures ICU directly in the application.
+All public headers, including `IcuCodec.hpp`, are installed even with
+`CPPJIEBA_ENABLE_ICU=OFF`. The option enables the source-tree adapter target,
+its installed package component, and conversion tests. Manual integration
+configures ICU directly in the application.
 
 ```cpp
 #include "neo/Jieba.hpp"

@@ -1,0 +1,23 @@
+# Define a variable to check if this is the top-level project
+if(NOT DEFINED CPPJIEBA_TOP_LEVEL_PROJECT)
+    if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+        set(CPPJIEBA_TOP_LEVEL_PROJECT ON)
+    else()
+        set(CPPJIEBA_TOP_LEVEL_PROJECT OFF)
+    endif()
+endif()
+
+option(BUILD_TESTING "Build unit tests" ${CPPJIEBA_TOP_LEVEL_PROJECT})
+option(CPPJIEBA_BUILD_LEGACY_TESTS "Build tests for the legacy dependency" OFF)
+option(CPPJIEBA_BUILD_EXAMPLES "Build standalone usage examples" OFF)
+option(CPPJIEBA_BUILD_BENCHMARKS "Build standalone benchmarks" OFF)
+option(CPPJIEBA_BUILD_RUST_BENCHMARKS "Build the pinned Rust comparison benchmark (requires Cargo)" OFF)
+option(CPPJIEBA_ENABLE_ICU "Enable the optional GBK/GB18030 codec" OFF)
+option(CPPJIEBA_BUILD_C_API "Build the C ABI libraries" OFF)
+
+if(CPPJIEBA_BUILD_LEGACY_TESTS AND NOT BUILD_TESTING)
+    message(FATAL_ERROR "CPPJIEBA_BUILD_LEGACY_TESTS requires BUILD_TESTING=ON")
+endif()
+if(CPPJIEBA_BUILD_RUST_BENCHMARKS AND NOT CPPJIEBA_BUILD_BENCHMARKS)
+    message(FATAL_ERROR "CPPJIEBA_BUILD_RUST_BENCHMARKS requires CPPJIEBA_BUILD_BENCHMARKS=ON")
+endif()

@@ -31,7 +31,8 @@
 
 #include <iostream>
 
-GTEST_API_ auto main(int argc, char **argv) -> int {
+// The entry point belongs to this executable even when GoogleTest is a shared library.
+auto main(int argc, char **argv) -> int {
     std::cout << "Running main() from gtest_main.cc\n";
 
     testing::InitGoogleTest(&argc, argv);

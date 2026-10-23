@@ -1,0 +1,21 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/neo_cppjiebaTargets.cmake")
+
+foreach(_neo_cppjieba_component IN LISTS neo_cppjieba_FIND_COMPONENTS)
+    set(neo_cppjieba_${_neo_cppjieba_component}_FOUND FALSE)
+    if(_neo_cppjieba_component STREQUAL "icu" AND @CPPJIEBA_ENABLE_ICU@)
+        if(neo_cppjieba_FIND_REQUIRED_icu)
+            include(CMakeFindDependencyMacro)
+            find_dependency(ICU COMPONENTS uc data)
+        else()
+            find_package(ICU QUIET COMPONENTS uc data)
+        endif()
+        if(ICU_FOUND)
+            include("${CMAKE_CURRENT_LIST_DIR}/neo_cppjiebaIcuTargets.cmake")
+            set(neo_cppjieba_icu_FOUND TRUE)
+        endif()
+    endif()
+endforeach()
+unset(_neo_cppjieba_component)
+check_required_components(neo_cppjieba)
