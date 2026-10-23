@@ -35,7 +35,7 @@ struct FullSegment {
     // The DAG path is now replaced by direct matching; only separator storage is reused here.
     static auto cut_into(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &range,
                          detail::SegmentScratch &scratch) -> void {
-        assert(runes.size() <= std::numeric_limits<RuneIndex>::max());
+        assert(detail::size_fits_capacity<RuneIndex>(runes.size()));
         range.clear();
         range.reserve(runes.size() / 2);
         get_pre_filter_separators(runes, scratch.separators);

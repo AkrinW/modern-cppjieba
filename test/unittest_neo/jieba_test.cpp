@@ -476,9 +476,9 @@ TEST(JiebaNeoTest, TextEntriesRejectMalformedUtfInEveryMode) {
     const auto utf16 = std::u16string{u'中', char16_t{0xD800}};
     const auto utf32 = std::u32string{U'中', char32_t{0x110000}};
     for (const auto mode : all_modes) {
-        EXPECT_THROW(test_jieba().cut(utf8, mode), LogConfig::Exception);
-        EXPECT_THROW(test_jieba().cut(utf16, mode), LogConfig::Exception);
-        EXPECT_THROW(test_jieba().cut(utf32, mode), LogConfig::Exception);
+        EXPECT_THROW(static_cast<void>(test_jieba().cut(utf8, mode)), LogConfig::Exception);
+        EXPECT_THROW(static_cast<void>(test_jieba().cut(utf16, mode)), LogConfig::Exception);
+        EXPECT_THROW(static_cast<void>(test_jieba().cut(utf32, mode)), LogConfig::Exception);
     }
 }
 
@@ -486,7 +486,7 @@ TEST(JiebaNeoTest, TextEntryChecksCurrentBytesAfterSuccessfulPreflight) {
     auto input = std::string{"中国"};
     ASSERT_TRUE(is_valid_utf(input));
     input.back() = char{0x7F};
-    EXPECT_THROW(test_jieba().cut(input, CutMode::MIX), LogConfig::Exception);
+    EXPECT_THROW(static_cast<void>(test_jieba().cut(input, CutMode::MIX)), LogConfig::Exception);
 }
 
 TEST(JiebaNeoTest, UnknownModesUseTheConfiguredErrorPathForEveryEntryPoint) {

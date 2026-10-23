@@ -10,7 +10,7 @@ comparison dependencies below are loaded only for legacy tests or benchmarks.
 
 1. Reuse an existing `GTest::gtest` target supplied by the parent project.
 2. Use `find_package(GTest QUIET)` to locate an installed package or libraries.
-3. Download and build upstream `release-1.12.1` through `FetchContent`.
+3. Download and build upstream `v1.18.0` through `FetchContent`.
 
 Set `GTest_DIR` to the directory containing `GTestConfig.cmake`, or add the
 installation prefix to `CMAKE_PREFIX_PATH`. The installed library must match

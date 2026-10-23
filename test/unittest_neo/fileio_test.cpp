@@ -442,8 +442,11 @@ TEST_F(FileBufferTest, LoadedContentSurvivesInPlaceOverwrite) {
 TEST_F(FileBufferTest, TruncationDuringReadThrowsInsteadOfReturningPartialContent) {
     ASSERT_NO_FATAL_FAILURE(write_file("short-read", "12345678"));
     const auto path = file_path("short-read");
-    const auto input = std::unique_ptr<std::FILE, decltype(&std::fclose)>{
-        test_platform::open_binary_file(directory_ / "short-read", test_platform::FileMode::Read), &std::fclose};
+    const auto close_file = [](std::FILE *file) {
+        std::fclose(file);
+    };
+    const auto input = std::unique_ptr<std::FILE, decltype(close_file)>{
+        test_platform::open_binary_file(directory_ / "short-read", test_platform::FileMode::Read), close_file};
     ASSERT_NE(input, nullptr);
 
     // Simulate truncation after the original size was obtained, including a successful partial read before EOF.
@@ -463,8 +466,11 @@ TEST_F(FileBufferTest, TruncationDuringReadThrowsInsteadOfReturningPartialConten
 
 TEST_F(FileBufferTest, ReadFailureReportsPathAndSystemError) {
     const auto path = file_path("write-only");
-    const auto output = std::unique_ptr<std::FILE, decltype(&std::fclose)>{
-        test_platform::open_binary_file(directory_ / "write-only", test_platform::FileMode::Write), &std::fclose};
+    const auto close_file = [](std::FILE *file) {
+        std::fclose(file);
+    };
+    const auto output = std::unique_ptr<std::FILE, decltype(close_file)>{
+        test_platform::open_binary_file(directory_ / "write-only", test_platform::FileMode::Write), close_file};
     ASSERT_NE(output, nullptr);
     auto destination = std::array<char, 8>{};
     try {

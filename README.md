@@ -172,7 +172,7 @@ ctest --test-dir build-tests -C Debug --output-on-failure
 ```
 
 启用单元测试时，CMake 优先复用父项目的 `GTest::gtest`，随后查找本地安装的 GoogleTest；
-找不到时才下载并构建 `release-1.12.1`。可通过 `GTest_DIR` 或 `CMAKE_PREFIX_PATH` 指定本地安装位置。
+找不到时才下载并构建 `v1.18.0`。可通过 `GTest_DIR` 或 `CMAKE_PREFIX_PATH` 指定本地安装位置。
 离线源码配置、比较程序依赖和子模块初始化命令见 [deps/README.md](deps/README.md)。
 
 | CMake 选项 | 默认值 | 作用 |

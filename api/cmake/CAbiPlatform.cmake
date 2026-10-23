@@ -43,7 +43,7 @@ function(cppjieba_configure_c_api_runtime target)
         target_link_options(${target} PRIVATE -nostdlib++
             "LINKER:-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/exports.darwin"
             "LINKER:-u,___cxa_pure_virtual"
-            "LINKER:-dead_strip" "LINKER:-undefined,error")
+            "LINKER:-dead_strip")
         target_link_libraries(${target} PRIVATE
             "${CPPJIEBA_C_API_LIBCXX}" "${CPPJIEBA_C_API_LIBCXXABI}" "${CPPJIEBA_C_API_LIBUNWIND}")
         set_target_properties(${target} PROPERTIES MACOSX_RPATH YES INSTALL_NAME_DIR "@rpath")

@@ -53,7 +53,6 @@ jobs:
           cmake -S . -B build-c-api -G Ninja \
             -DCMAKE_C_COMPILER="$llvm_prefix/bin/clang" \
             -DCMAKE_CXX_COMPILER="$llvm_prefix/bin/clang++" \
-            -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
             -DCMAKE_EXE_LINKER_FLAGS="-L$llvm_prefix/lib/c++ -L$llvm_prefix/lib/unwind -lunwind -Wl,-rpath,$llvm_prefix/lib/c++ -Wl,-rpath,$llvm_prefix/lib/unwind" \
             -DCMAKE_CXX_STANDARD=23 -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON \

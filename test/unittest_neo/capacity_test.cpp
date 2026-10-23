@@ -14,9 +14,11 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 using namespace neo_cppjieba;
@@ -30,6 +32,33 @@ auto capacity_jieba() -> const Jieba & {
 }
 
 } // namespace
+
+TEST(CapacityTest, SizeChecksPreserveInclusiveAndReservedEightBitLimits) {
+    static_assert(detail::size_fits_capacity<std::uint8_t>(255));
+    static_assert(!detail::size_fits_capacity<std::uint8_t>(256));
+    static_assert(detail::size_below_capacity<std::uint8_t>(254));
+    static_assert(!detail::size_below_capacity<std::uint8_t>(255));
+    static_assert(!detail::size_below_capacity<std::uint8_t>(256));
+}
+
+TEST(CapacityTest, HostWidthCapacityReservesOnlyTheMaximumSize) {
+    // Equal-width size_t and fixed-width integers can be distinct types, as on macOS.
+    using HostCapacity = std::conditional_t<sizeof(std::size_t) == sizeof(std::uint64_t), std::uint64_t, std::uint32_t>;
+    static_assert(detail::CapacityInteger<HostCapacity>);
+    static_assert(std::numeric_limits<HostCapacity>::digits == std::numeric_limits<std::size_t>::digits);
+    constexpr auto max = std::numeric_limits<std::size_t>::max();
+    static_assert(detail::size_fits_capacity<HostCapacity>(max));
+    static_assert(detail::size_below_capacity<HostCapacity>(max - 1));
+    static_assert(!detail::size_below_capacity<HostCapacity>(max));
+}
+
+TEST(CapacityTest, WiderConfiguredCapacitiesAcceptTheMaximumHostSize) {
+    if constexpr (std::numeric_limits<RuneIndex>::digits > std::numeric_limits<std::size_t>::digits) {
+        constexpr auto max = std::numeric_limits<std::size_t>::max();
+        EXPECT_TRUE(detail::size_fits_capacity<RuneIndex>(max));
+        EXPECT_TRUE(detail::size_below_capacity<RuneIndex>(max));
+    }
+}
 
 TEST(CapacityTest, EveryModePreservesRuneAndSourcePositionsPast127) {
     const auto input = std::string(200, ' ') + "𠮷 😀";

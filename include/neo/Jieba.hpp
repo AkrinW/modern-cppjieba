@@ -56,10 +56,7 @@ inline auto check_cut_mode(CutMode mode) -> void {
 // Rune indices must fit WordRange, with room for the trailing DAG offset.
 inline auto assert_rune_count(size_t rune_count) noexcept -> void {
     assert_check(
-        [&] {
-            return rune_count <= std::numeric_limits<RuneIndex>::max()
-                   && rune_count < std::numeric_limits<size_t>::max();
-        },
+        [&] { return size_fits_capacity<RuneIndex>(rune_count) && rune_count < std::numeric_limits<size_t>::max(); },
         "Jieba: input has {} runes, exceeding the configured index range", rune_count);
 }
 
