@@ -1,0 +1,17 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/neo_cppjieba_cTargets.cmake")
+foreach(variant IN ITEMS shared static)
+    set(neo_cppjieba_c_${variant}_FOUND FALSE)
+    if(TARGET neo_cppjieba::c_${variant})
+        set(neo_cppjieba_c_${variant}_FOUND TRUE)
+    endif()
+endforeach()
+if(NOT TARGET neo_cppjieba::c)
+    if(TARGET neo_cppjieba::c_shared)
+        add_library(neo_cppjieba::c ALIAS neo_cppjieba::c_shared)
+    else()
+        add_library(neo_cppjieba::c ALIAS neo_cppjieba::c_static)
+    endif()
+endif()
+check_required_components(neo_cppjieba_c)

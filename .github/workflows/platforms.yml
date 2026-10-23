@@ -34,17 +34,18 @@ jobs:
         run: |
           llvm_prefix="$(brew --prefix llvm@23)"
           cmake -S . -B build -G Ninja \
+            -DCMAKE_C_COMPILER="$llvm_prefix/bin/clang" \
             -DCMAKE_CXX_COMPILER="$llvm_prefix/bin/clang++" \
             -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
             -DCMAKE_EXE_LINKER_FLAGS="-L$llvm_prefix/lib/c++ -L$llvm_prefix/lib/unwind -lunwind -Wl,-rpath,$llvm_prefix/lib/c++ -Wl,-rpath,$llvm_prefix/lib/unwind" \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-            -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
+            -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=OFF -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
 
       - name: Configure Windows
         if: runner.os == 'Windows'
         run: >-
           cmake -S . -B build -G "Visual Studio 18 2026" -A x64
-          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=OFF -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_BENCHMARKS=ON
 
       - name: Build library users, tests and benchmarks
         run: cmake --build build --config ${{ matrix.build_type }} --parallel 3

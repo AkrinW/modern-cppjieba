@@ -1,0 +1,6 @@
+_neo_jieba_v1_max_input_bytes
+_neo_jieba_v1_engine_create
+_neo_jieba_v1_engine_destroy
+_neo_jieba_v1_cut_utf8_owned
+_neo_jieba_v1_tokens_borrow_data
+_neo_jieba_v1_tokens_destroy

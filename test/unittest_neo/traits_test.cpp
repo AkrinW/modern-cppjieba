@@ -55,6 +55,13 @@ concept CanView = requires(T &&input) { as_view(std::forward<T>(input)); };
 template <typename T>
 concept CanViewCodeUnits = requires(T &&input) { as_code_units(std::forward<T>(input)); };
 
+// Pointer rejection must apply to every supported character encoding.
+template <typename CharT>
+class TraitsCharacterTest : public ::testing::Test {};
+
+using TraitCharacterTypes = ::testing::Types<char, char8_t, char16_t, char32_t, wchar_t>;
+TYPED_TEST_SUITE(TraitsCharacterTest, TraitCharacterTypes);
+
 } // namespace
 
 TEST(TraitsTest, OutputCharactersMustBeUnqualifiedCharacterTypes) {
@@ -75,7 +82,7 @@ TEST(TraitsTest, StringLikeRequiresReadableConstCharacterStorage) {
     static_assert(StringLike<std::string> && StringLike<std::u8string> && StringLike<std::u16string>);
     static_assert(StringLike<std::u32string> && StringLike<std::wstring> && StringLike<std::string_view>);
     static_assert(StringLike<std::span<const char>> && StringLike<std::vector<char>>);
-    static_assert(StringLike<std::array<char, 3>> && StringLike<const char *> && StringLike<char[3]>);
+    static_assert(StringLike<std::array<char, 3>> && StringLike<char[3]>);
     static_assert(StringLike<ThrowingViewSource> && StringLike<ConstOnlyRange>);
     static_assert(!StringLike<MutableViewSource> && !StringLike<std::span<volatile char>>);
     static_assert(!StringLike<std::vector<int>> && !StringLike<int> && !StringLike<void>);
@@ -85,7 +92,7 @@ TEST(TraitsTest, StringLikeRequiresReadableConstCharacterStorage) {
 TEST(TraitsTest, BorrowedViewsRejectOwningTemporaries) {
     static_assert(CanView<std::string &> && CanView<const std::string &>);
     static_assert(CanView<std::vector<char> &> && CanView<std::array<char, 3> &>);
-    static_assert(CanView<std::string_view> && CanView<std::span<const char>> && CanView<const char *>);
+    static_assert(CanView<std::string_view> && CanView<std::span<const char>>);
     static_assert(!CanView<std::string> && !CanView<const std::string> && !CanView<std::vector<char>>);
     static_assert(!CanView<std::array<char, 3>>);
 }
@@ -121,14 +128,21 @@ TEST(TraitsTest, ConstOnlyRangeUsesConstAccess) {
     EXPECT_EQ(as_view(input), "ab");
 }
 
-TEST(TraitsTest, CStringPointerStopsAtFirstNul) {
+TEST(TraitsTest, ExplicitlySizedPointerViewsPreserveEmbeddedNul) {
     const char *input = "a\0b";
-    EXPECT_EQ(as_view(input), "a");
+    const auto expected = std::string_view{"a\0b", 3};
+    EXPECT_EQ(as_view(std::string_view{input, 3}), expected);
+    EXPECT_EQ(as_view(std::span{input, std::size_t{3}}), expected);
 }
 
-TEST(TraitsTest, NullCStringThrowsConfiguredException) {
-    const char *input = nullptr;
-    EXPECT_THROW(as_view(input), LogConfig::Exception);
+TYPED_TEST(TraitsCharacterTest, RawPointersRequireExplicitLength) {
+    static_assert(!StringLike<TypeParam *> && !StringLike<const TypeParam *>);
+    static_assert(!StringLike<TypeParam *&> && !StringLike<const TypeParam *const &>);
+    static_assert(!StringViewSource<TypeParam *> && !StringViewSource<const TypeParam *>);
+    static_assert(!CanView<TypeParam *> && !CanView<const TypeParam *>);
+    static_assert(!CanView<TypeParam *&> && !CanView<const TypeParam *const &>);
+    static_assert(!CanViewCodeUnits<TypeParam *> && !CanViewCodeUnits<const TypeParam *>);
+    static_assert(!CanViewCodeUnits<TypeParam *&> && !CanViewCodeUnits<const TypeParam *const &>);
 }
 
 TEST(TraitsTest, CustomConversionExceptionPropagates) {

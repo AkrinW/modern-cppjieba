@@ -39,6 +39,7 @@ option(CPPJIEBA_BUILD_EXAMPLES "Build standalone usage examples" OFF)
 option(CPPJIEBA_BUILD_BENCHMARKS "Build standalone benchmarks" OFF)
 option(CPPJIEBA_BUILD_RUST_BENCHMARKS "Build the pinned Rust comparison benchmark (requires Cargo)" OFF)
 option(CPPJIEBA_ENABLE_ICU "Enable the optional GBK/GB18030 codec" OFF)
+option(CPPJIEBA_BUILD_C_API "Build the C ABI libraries" OFF)
 
 if(CPPJIEBA_ENABLE_ICU)
     find_package(ICU REQUIRED COMPONENTS uc data)
@@ -67,6 +68,13 @@ if(BUILD_TESTING OR CPPJIEBA_BUILD_BENCHMARKS)
         "${PROJECT_BINARY_DIR}/generated"
         "${PROJECT_SOURCE_DIR}/test"
     )
+endif()
+
+if(CPPJIEBA_BUILD_C_API)
+    if(BUILD_TESTING)
+        enable_language(C)
+    endif()
+    add_subdirectory(api)
 endif()
 
 if(BUILD_TESTING)

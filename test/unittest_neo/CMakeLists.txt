@@ -28,6 +28,61 @@ if(CPPJIEBA_ENABLE_ICU)
 endif()
 add_test(NAME neo_unit_tests COMMAND test_neo.run)
 
+if(CPPJIEBA_BUILD_C_API)
+    # Exercise the same ownership and error contract through each enabled library variant.
+    function(add_c_api_tests name library)
+        add_executable(test_${name}.run ../gtest_main.cpp c_api_test.cpp)
+        target_link_libraries(test_${name}.run PRIVATE
+            ${library} neo_cppjieba::neo_cppjieba cppjieba_test_data GTest::gtest)
+        add_test(NAME neo_${name}_tests COMMAND test_${name}.run)
+
+        add_executable(test_${name}_smoke.run c_api_smoke.c)
+        set_target_properties(test_${name}_smoke.run PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+        target_compile_options(test_${name}_smoke.run PRIVATE "$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+        target_link_libraries(test_${name}_smoke.run PRIVATE ${library} cppjieba_test_data)
+        add_test(NAME neo_${name}_c_host COMMAND test_${name}_smoke.run)
+    endfunction()
+
+    if(CPPJIEBA_C_API_BUILD_SHARED)
+        add_c_api_tests(c_api neo_cppjieba::c_shared)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            target_compile_definitions(test_c_api_smoke.run PRIVATE NEO_CPPJIEBA_C_TEST_PRIVATE_RUNTIME)
+            target_link_options(test_c_api_smoke.run PRIVATE "LINKER:--export-dynamic")
+            find_program(NEO_C_API_NM NAMES llvm-nm nm REQUIRED)
+            find_program(NEO_C_API_READELF NAMES llvm-readelf readelf REQUIRED)
+        elseif(APPLE)
+            find_program(NEO_C_API_NM NAMES llvm-nm nm REQUIRED)
+            find_program(NEO_C_API_OTOOL NAMES llvm-otool otool REQUIRED)
+        elseif(MSVC)
+            get_filename_component(c_api_msvc_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+            find_program(NEO_C_API_DUMPBIN NAMES dumpbin HINTS "${c_api_msvc_dir}" REQUIRED)
+        endif()
+        add_test(NAME neo_c_api_symbols COMMAND ${CMAKE_COMMAND}
+            "-DLIBRARY=$<TARGET_FILE:neo_cppjieba_c>"
+            "-DPLATFORM=${CMAKE_SYSTEM_NAME}"
+            "-DNM=${NEO_C_API_NM}" "-DREADELF=${NEO_C_API_READELF}"
+            "-DOTOOL=${NEO_C_API_OTOOL}" "-DDUMPBIN=${NEO_C_API_DUMPBIN}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/check_c_api_symbols.cmake")
+    endif()
+    if(CPPJIEBA_C_API_BUILD_STATIC)
+        add_c_api_tests(c_api_static neo_cppjieba::c_static)
+    endif()
+
+    add_test(NAME neo_c_api_install COMMAND ${CMAKE_COMMAND}
+        "-DBUILD_DIR=${PROJECT_BINARY_DIR}" "-DINSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+        "-DCONSUMER_DIR=${PROJECT_SOURCE_DIR}/test/c_api_consumer" "-DCONFIG=$<CONFIG>"
+        "-DBUILD_SHARED=${CPPJIEBA_C_API_BUILD_SHARED}" "-DBUILD_STATIC=${CPPJIEBA_C_API_BUILD_STATIC}"
+        "-DGENERATOR=${CMAKE_GENERATOR}" "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "-DC_COMPILER=${CMAKE_C_COMPILER}" "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "-DCXX_FLAGS=${CMAKE_CXX_FLAGS}" "-DEXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+        "-DMSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY}"
+        "-DOSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}" "-DOSX_SYSROOT=${CMAKE_OSX_SYSROOT}"
+        "-DOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+        "-DCTEST=${CMAKE_CTEST_COMMAND}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/check_c_api_install.cmake")
+endif()
+
 # Each capacity variant is a separate executable so inline definitions never mix configurations.
 set(capacity_config_path "${PROJECT_SOURCE_DIR}/include/neo/Config.hpp")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${capacity_config_path}")
