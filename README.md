@@ -117,7 +117,8 @@ target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 ## 开发
 
 [构建与测试](docs/building.md#测试) · [依赖和离线配置](deps/README.md) ·
-[性能测量与 CI 更新](benchmark/README.md) · [仓库布局](docs/building.md#仓库布局)
+[性能测量与 CI 更新](benchmark/README.md) · [仓库布局](docs/building.md#仓库布局) ·
+[路线图](ROADMAP.md)
 
 ## 许可证
 
