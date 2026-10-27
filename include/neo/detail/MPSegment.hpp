@@ -2,11 +2,10 @@
 
 #include "neo/Config.hpp"
 #include "neo/Unicode.hpp"
-#include "neo/detail/Dag.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/Logging.hpp"
+#include "neo/detail/SegmentCommon.hpp"
 #include "neo/detail/SegmentScratch.hpp"
-#include "neo/detail/StringUtil.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -20,36 +19,12 @@ namespace neo_cppjieba {
 
 namespace detail {
 
-/// Check a word partition whose rune span starts at a caller-provided global offset.
-[[nodiscard]] inline auto valid_segment_partition_at(std::span<const WordRange> words, size_t rune_count,
-                                                     RuneIndex pos) noexcept -> bool {
-    auto next = pos;
-    for (const auto &word : words) {
-        if (word.begin != next || word.begin >= word.end || word.end - pos > rune_count) {
-            return false;
-        }
-        next = word.end;
-    }
-    return next - pos == rune_count;
-}
-
-/// Check that local word ranges form a nonempty-token partition of the rune span.
-[[nodiscard]] inline auto valid_segment_partition(std::span<const WordRange> words, size_t rune_count) noexcept
-    -> bool {
-    return valid_segment_partition_at(words, rune_count, 0);
-}
-
-/// Select local result construction or appending ranges with global rune offsets.
-enum class MPOutput : uint8_t { Local, Append };
-
 /// Select route construction alone or also retain short-word matches for SEARCH.
 enum class MPMatchMode : uint8_t { PathOnly, Search };
 
-/// Run MP segmentation on a separator-free rune span and keep the DAG for downstream reuse.
-/// The caller owns the DAG and destination; only the DP scratch is local to this call.
-// DP storage now belongs to the caller's reusable algorithm scratch.
-// Scoring and traceback now accept either stored DAG edges or direct dictionary matches.
-// Route construction is shared; each consumer chooses how to traverse it.
+/// Build the maximum-probability route of an n-rune segment into scratch.route by reverse DP.
+/// for_each_edge(begin, emit) calls emit(end, weight) for every candidate word [begin, end);
+/// kMissingWordWeight marks an unknown single rune, which scores with the dictionary fallback.
 template <typename ForEachEdge>
 inline auto mp_build_route(const DictTrie &dict, size_t n, const ForEachEdge &for_each_edge, SegmentScratch &scratch)
     -> void {
@@ -65,23 +40,18 @@ inline auto mp_build_route(const DictTrie &dict, size_t n, const ForEachEdge &fo
         dp.resize(n);
     }
 
-    // The zero-sentinel descriptions below are historical; unknown edges now carry kMissingWordWeight.
-
-    // Fallback weight for single characters not found in the dictionary.
-    // In the DAG, such edges carry weight == 0.0f as a sentinel; the real penalty should be the dictionary minimum
-    // weight.
+    // Unknown runes score with the dictionary minimum weight.
     auto fallback = dict.min_weight();
-    assert_check([&] { return std::isfinite(fallback) && fallback <= 0.0f; },
+    assert_check([&] { return std::isfinite(fallback) && fallback <= 0.0; },
                  "MPSegment: invalid dictionary minimum weight");
-    if (fallback == 0.0f) {
+    if (fallback == 0.0) {
         // A single-entry dictionary still needs a penalty for unknown runes: one pseudo-count out of sum + 1.
         const auto freq_sum = dict.freq_sum();
-        assert_check([&] { return std::isfinite(freq_sum) && freq_sum > 0.0f; },
+        assert_check([&] { return std::isfinite(freq_sum) && freq_sum > 0.0; },
                      "MPSegment: invalid dictionary frequency sum");
         fallback = static_cast<WordWeight>(-std::log1p(static_cast<double>(freq_sum)));
     }
 
-    // ── Reverse DP ───────────────────────────────────────────────────
     for (auto i = n; i > 0;) {
         --i;
         dp[i] = MPNode{-std::numeric_limits<WordWeight>::infinity(), 0};
@@ -89,21 +59,19 @@ inline auto mp_build_route(const DictTrie &dict, size_t n, const ForEachEdge &fo
 
         for_each_edge(static_cast<RuneIndex>(i), [&](RuneIndex next_pos, WordWeight word_weight) {
             assert_check([&] { return i < next_pos && next_pos <= n; },
-                         "MPSegment: DAG edge must advance within the rune span");
-            // weight == 0.0f ⇒ not a real dictionary word (sentinel).
-            // All genuine log-weights are strictly negative.
-            // Only the missing-weight sentinel uses the fallback; a real zero weight participates in scoring as-is.
+                         "MPSegment: route edge must advance within the rune span");
+            // A real zero weight participates in scoring as-is; only the missing sentinel uses the fallback.
             const auto is_dictionary_word = word_weight != kMissingWordWeight;
             const auto weight = is_dictionary_word ? word_weight : fallback;
             assert_check([&] { return std::isfinite(weight); }, "MPSegment: non-finite edge weight");
 
-            // Add the best accumulated weight from the continuation.
             auto total = weight;
             if (next_pos < n) {
                 total += dp[next_pos].weight;
             }
             assert_check([&] { return std::isfinite(total); }, "MPSegment: non-finite accumulated weight");
 
+            // On equal totals a dictionary word beats the unknown-rune fallback.
             if (total > dp[i].weight || (total == dp[i].weight && is_dictionary_word && !best_is_dictionary_word)) {
                 dp[i].weight = total;
                 dp[i].next_pos = next_pos;
@@ -113,74 +81,8 @@ inline auto mp_build_route(const DictTrie &dict, size_t n, const ForEachEdge &fo
     }
 }
 
-/// Trace the active MP route into local ranges or append ranges at a global rune offset.
-template <MPOutput output>
-inline auto mp_trace_route(size_t n, std::vector<WordRange> &words, RuneIndex pos, const SegmentScratch &scratch)
-    -> void {
-    assert(n <= std::numeric_limits<RuneIndex>::max() - pos);
-    assert(scratch.route.size() >= n);
-    if constexpr (output == MPOutput::Local) {
-        assert_check([&] { return pos == 0 && words.empty(); }, "MPSegment: local output must start empty at zero");
-    }
-    const auto appended_begin = words.size();
-    const auto &dp = scratch.route;
-
-    // ── Trace forward ────────────────────────────────────────────────
-    if constexpr (output == MPOutput::Local) {
-        words.reserve(n);
-    }
-    for (auto i = RuneIndex{0}; i < n;) {
-        auto next = dp[i].next_pos;
-        assert_check([&] { return i < next && next <= n; }, "MPSegment: traceback must advance within the rune span");
-        if constexpr (output == MPOutput::Local) {
-            words.push_back(WordRange{i, next});
-        } else {
-            words.push_back(WordRange{static_cast<RuneIndex>(pos + i), static_cast<RuneIndex>(pos + next)});
-        }
-        i = next;
-    }
-
-    assert_check(
-        [&] { return valid_segment_partition_at(std::span<const WordRange>{words}.subspan(appended_begin), n, pos); },
-        "MPSegment: words must cover the rune span exactly once");
-}
-
-/// Adapt stored DAG edges to the shared MP scoring and traceback path.
-template <MPOutput output>
-inline auto mp_cut_dag(const DictTrie &dict, const Dag &dag, std::vector<WordRange> &words, RuneIndex pos,
-                       SegmentScratch &scratch) -> void {
-    const auto n = dag.size();
-    const auto offsets = std::span<const DagOffset>{dag.offsets};
-    const auto all_edges = std::span<const DagEdge>{dag.edges};
-    // Reverse DP visits only existing vertices; the DAG stays immutable while the route is built.
-    const auto for_each_edge = [&](RuneIndex begin, const auto &emit) {
-        assert(begin < n);
-        const auto i = static_cast<size_t>(begin);
-        assert(offsets[i] <= offsets[i + 1] && offsets[i + 1] <= all_edges.size());
-        const auto edges =
-            all_edges.subspan(static_cast<size_t>(offsets[i]), static_cast<size_t>(offsets[i + 1] - offsets[i]));
-        assert(!edges.empty() && edges.front().next_pos == begin + 1);
-        for (const auto &edge : edges) {
-            emit(edge.next_pos, edge.weight);
-        }
-    };
-    mp_build_route(dict, n, for_each_edge, scratch);
-    mp_trace_route<output>(n, words, pos, scratch);
-}
-
-/// Materialize local MP words together with the DAG needed by MIX and SEARCH.
-// MIX now consumes the route directly; SEARCH still needs these materialized results.
-inline auto mp_cut_segment(const DictTrie &dict, std::span<const Rune> runes, SegmentScratch &scratch) -> void {
-    assert_check([&] { return size_fits_capacity<RuneIndex>(runes.size()); },
-                 "MPSegment: rune count exceeds the word-range limit");
-    scratch.mp_words.clear();
-    dict.find_dag_into(runes, scratch.dag);
-    assert_check([&] { return scratch.dag.size() == runes.size(); }, "MPSegment: DAG size must match the rune span");
-    mp_cut_dag<MPOutput::Local>(dict, scratch.dag, scratch.mp_words, 0, scratch);
-}
-
-/// Append MP segmentation results for a separator-free segment with a caller-provided global offset.
-// Matching now prepares only the route; mp_cut_one_segment below appends the output.
+/// Build the MP route of a separator-free segment directly from trie matches, without materializing a DAG.
+/// Search mode also records two- and three-rune dictionary membership at every start position.
 template <MPMatchMode mode>
 inline auto mp_build_route_from_matches(const DictTrie &dict, std::span<const Rune> runes, SegmentScratch &scratch)
     -> void {
@@ -213,56 +115,59 @@ inline auto mp_build_route_from_matches(const DictTrie &dict, std::span<const Ru
     mp_build_route(dict, runes.size(), for_each_edge, scratch);
 }
 
-/// Build and append the MP path without materializing dictionary edges or local word ranges.
-inline auto mp_cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
-                               RuneIndex pos, SegmentScratch &scratch) -> void {
-    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
-                 "MPSegment: global word offsets overflow");
-    if (runes.empty()) {
-        return;
+/// Visit the route built for an n-rune segment as local word ranges, in input order.
+template <typename Emit>
+inline auto mp_emit_route(size_t n, const Emit &emit, const SegmentScratch &scratch) -> void {
+    assert(scratch.route.size() >= n);
+    const auto &route = scratch.route;
+    for (auto begin = RuneIndex{0}; begin < n;) {
+        const auto end = route[begin].next_pos;
+        assert_check([&] { return begin < end && end <= n; }, "MPSegment: route must advance within the rune span");
+        emit(WordRange{begin, end});
+        begin = end;
     }
-    mp_build_route_from_matches<MPMatchMode::PathOnly>(dict, runes, scratch);
-    mp_trace_route<MPOutput::Append>(runes.size(), result, pos, scratch);
 }
 
-/// Append MP segmentation results while preserving separator runes as standalone tokens.
-inline auto mp_cut_append(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &range,
+/// Append MP segmentation results at global offset pos, keeping separator runes as standalone tokens.
+inline auto mp_cut_append(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &out,
                           RuneIndex pos, SegmentScratch &scratch) -> void {
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "MPSegment: global word offsets overflow");
-    get_pre_filter_separators(runes, scratch.separators);
-    const auto &segments = scratch.separators;
-    auto segment_pos = pos;
-    // First text segment before the first separator.
-    mp_cut_one_segment(dict, range, runes.subspan(0, segments[0]), segment_pos, scratch);
-    for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
-        // Emit the separator rune itself.
-        range.push_back(
-            WordRange{static_cast<RuneIndex>(pos + segments[i]), static_cast<RuneIndex>(pos + segments[i] + 1)});
-        auto next_begin = segments[i] + 1;
-        segment_pos = pos + next_begin;
-        // Continue with the following text segment.
-        mp_cut_one_segment(dict, range, runes.subspan(next_begin, segments[i + 1] - next_begin), segment_pos, scratch);
-    }
+    const auto appended_begin = out.size();
+    for_each_separated(
+        runes, scratch.separators,
+        [&](std::span<const Rune> segment, RuneIndex offset) {
+            if (segment.empty()) {
+                return;
+            }
+            const auto base = static_cast<RuneIndex>(pos + offset);
+            mp_build_route_from_matches<MPMatchMode::PathOnly>(dict, segment, scratch);
+            mp_emit_route(
+                segment.size(),
+                [&](WordRange word) {
+                    out.push_back({static_cast<RuneIndex>(base + word.begin), static_cast<RuneIndex>(base + word.end)});
+                },
+                scratch);
+        },
+        [&](RuneIndex separator) {
+            out.push_back({static_cast<RuneIndex>(pos + separator), static_cast<RuneIndex>(pos + separator + 1)});
+        });
+    assert_check(
+        [&] {
+            return valid_segment_partition_at(std::span<const WordRange>{out}.subspan(appended_begin), runes.size(),
+                                              pos);
+        },
+        "MPSegment: words must cover the rune span exactly once");
 }
 
 } // namespace detail
 
 /// Stateless maximum-probability segmentation operator.
 ///
-/// MP mode ("最大概率模式") uses dynamic programming on the dictionary DAG
+/// MP mode ("最大概率模式") uses dynamic programming over dictionary matches
 /// to find the segmentation path with the highest total log-probability.
-/// This produces the most likely word sequence according to dictionary
-/// frequencies.
-///
-/// This is a purely static utility — no instance state, no ownership of
-/// dictionaries. The DictTrie is taken as a const reference parameter.
+/// The input is split by default separators first; each separator is emitted as its own token.
 struct MPSegment {
-    /// Perform MP segmentation on a Unicode rune sequence.
-    ///
-    /// The input is split by default separators first. Each non-separator
-    /// segment is segmented independently, while separator characters are
-    /// emitted as individual tokens.
     [[nodiscard]] static auto cut(const DictTrie &dict, std::span<const Rune> runes) -> std::vector<WordRange> {
         auto range = std::vector<WordRange>{};
         auto scratch = detail::SegmentScratch{};

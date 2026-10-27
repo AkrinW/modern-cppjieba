@@ -84,6 +84,20 @@ inline auto append_sub_words_from_dag(const Dag &dag, RuneIndex segment_offset, 
     result.push_back(word);
 }
 
+// Reference MP over a materialized DAG: the library builds the same route directly from trie matches.
+inline auto mp_words_from_dag(const DictTrie &dict, const Dag &dag) -> std::vector<WordRange> {
+    auto scratch = neo_cppjieba::detail::SegmentScratch{};
+    const auto for_each_edge = [&](RuneIndex begin, const auto &emit) {
+        for (const auto &edge : dag.get_edges(begin)) {
+            emit(edge.next_pos, edge.weight);
+        }
+    };
+    neo_cppjieba::detail::mp_build_route(dict, dag.size(), for_each_edge, scratch);
+    auto words = std::vector<WordRange>{};
+    neo_cppjieba::detail::mp_emit_route(dag.size(), [&](WordRange word) { words.push_back(word); }, scratch);
+    return words;
+}
+
 template <bool hmm>
 inline auto append_mix_words(const DictTrie &dict, const HMModel &model, std::vector<WordRange> &result,
                              const std::vector<WordRange> &mp_words, std::span<const Rune> runes, RuneIndex pos)
@@ -150,10 +164,10 @@ inline auto mix_cut_with_dag_buffered(const DictTrie &dict, const HMModel &model
         if (segment_runes.empty()) {
             return;
         }
-        auto scratch = neo_cppjieba::detail::SegmentScratch{};
-        neo_cppjieba::detail::mp_cut_segment(dict, segment_runes, scratch);
-        result.dags.push_back(typename BufferedMixResult<hmm>::SegmentDag{segment_pos, std::move(scratch.dag)});
-        append_mix_words<hmm>(dict, model, result.words, scratch.mp_words, segment_runes, segment_pos);
+        auto dag = dict.find_dag(segment_runes);
+        const auto mp_words = mp_words_from_dag(dict, dag);
+        result.dags.push_back(typename BufferedMixResult<hmm>::SegmentDag{segment_pos, std::move(dag)});
+        append_mix_words<hmm>(dict, model, result.words, mp_words, segment_runes, segment_pos);
     };
 
     cut_one(runes.subspan(pos, segments[0] - pos), pos);

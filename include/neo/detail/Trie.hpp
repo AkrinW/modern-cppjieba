@@ -21,6 +21,9 @@
 
 namespace neo_cppjieba {
 
+// Missing entries use a value outside finite dictionary weights, so log(1) == 0 remains valid.
+inline constexpr auto kMissingWordWeight = -std::numeric_limits<detail::WordWeight>::infinity();
+
 namespace detail {
 
 /// A transition retains the full parent id and rune independently of the configured node width.
@@ -51,19 +54,13 @@ struct TrieTransitionHash {
 
 } // namespace detail
 
-/// Compact dictionary entry — 8 bytes total, stored by value in trie nodes (no pointer indirection).
-///
-/// Replacing the original DictUnit { Unicode word; double weight; string tag; } (~80 bytes)
-/// with a minimal { float weight; PosTag tag; } that fits in 8 bytes — same size as a pointer
-/// on 64-bit platforms — eliminates one level of indirection entirely.
-// The compact layout applies to CPP; other styles retain double-precision weights.
+/// Compact dictionary entry stored by value in trie transitions, with no pointer indirection.
+/// The original CppJieba DictUnit also stored the word and a std::string tag (~80 bytes).
 struct DictUnit {
     detail::WordWeight weight{kMissingWordWeight};
     PosTag tag{};
 
-    /// A valid dictionary entry always has a non-zero weight.
-    /// Default-constructed (weight == 0) means "no value".
-    /// These former rules are superseded: zero is valid; only kMissingWordWeight means "no value".
+    /// Default construction means "no value"; every finite weight, including zero, is a real entry.
     [[nodiscard]] constexpr auto has_value() const noexcept -> bool {
         return weight != kMissingWordWeight;
     }
@@ -110,8 +107,8 @@ class Trie {
         return {parent, rune};
     }
 
-    /// Collisions only add a table lookup; both 16-bit halves must match before probing.
-    // Queries now reserve the top bit for storage selection and test the other 31 filter bits.
+    /// Two filter bits per rune, one in each 16-bit half; collisions only add a table lookup.
+    /// Queries mask out the top bit, which selects compact or hashed child storage.
     [[nodiscard]] static constexpr auto child_bits(Rune rune) noexcept -> uint32_t {
         const uint32_t hash = static_cast<uint32_t>(rune) * uint32_t{0x9E3779B1};
         return (uint32_t{1} << (hash >> 28)) | (uint32_t{1} << (16 + ((hash >> 24) & 15)));
@@ -176,9 +173,7 @@ class Trie {
             auto &entry = ensure_transition(parent, key[i]);
             filters[static_cast<size_t>(parent)] |= child_bits(key[i]);
             if (i + 1 == key.size()) {
-                // Superseded by the last-value-wins policy; only the value is replaced.
-                // assert_check([&] { return !it->second.value.has_value(); },
-                //              "Trie: duplicate dictionary key"); // duplicate key should not have a value already
+                // A duplicate key replaces the value: the last entry wins.
                 entry.value = value;
                 return;
             }
@@ -401,9 +396,7 @@ public:
                          "Trie: DAG edge count exceeds the supported offset range");
             dag.offsets.push_back(static_cast<DagOffset>(dag.edges.size()));
 
-            // In typical jieba, an edge for length-1 (single character) is always added first,
-            // even if it does not form a word (weight = 0.0f).
-            // The former zero sentinel is now kMissingWordWeight; known zero weights are retained.
+            // A single-rune edge always comes first; an unknown rune carries kMissingWordWeight.
             const auto *entry = find_root(sentence[i]);
             dag.edges.push_back({static_cast<RuneIndex>(i + 1), entry ? entry->value.weight : kMissingWordWeight});
             for (size_t j = i + 1; entry && j < n; ++j) {

@@ -187,7 +187,7 @@ TEST(CapacityTest, AppendedWordsPreserveTheConfiguredRuneLimit) {
     const auto pos = static_cast<RuneIndex>(limit - 2);
     auto words = std::vector<WordRange>{};
     auto scratch = detail::SegmentScratch{};
-    detail::mp_cut_one_segment(dict, words, runes, pos, scratch);
+    detail::mp_cut_append(dict, runes, words, pos, scratch);
     ASSERT_EQ(words.size(), 2u);
     EXPECT_EQ(words.front(), (WordRange{pos, static_cast<RuneIndex>(limit - 1)}));
     EXPECT_EQ(words.back(), (WordRange{static_cast<RuneIndex>(limit - 1), limit}));
