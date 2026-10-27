@@ -4,6 +4,7 @@
 以头文件形式提供，使用 `neo_cppjieba` 命名空间；另提供适合 C 和其他语言绑定的 C ABI。
 
 - MIX、MP、HMM、FULL、SEARCH 分词，支持用户词典和词性标注。
+- TF-IDF 和 TextRank 关键词提取，结果与 CppJieba 一致。
 - UTF-8、UTF-16、UTF-32 输入，返回词语、原文位置和 Unicode 码点位置。
 - 借用视图、独立字符串、持有原文的结果，以及可复用的工作区。
 - 可选 ICU 适配器，支持 GBK / GB18030 转换及原始字节映射。

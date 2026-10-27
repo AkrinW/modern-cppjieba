@@ -103,6 +103,45 @@ Python jieba 的 `posseg` 使用独立的词性 HMM 模型，本库不提供该�
 
 词性只在 `Tagging::Pos` 实例中查询；默认的 `Tagging::None` 不做任何词性相关的工作。
 
+## 关键词提取
+
+可选头文件 `neo/KeywordExtractor.hpp` 提供两种提取器，二者借用已构造的 `Jieba`，`Jieba` 须比提取器活得更久：
+
+| 提取器 | 打分方式 | 需要的文件 |
+| --- | --- | --- |
+| `TfIdfExtractor(jieba, idf_path, stop_words_path)` | 词在本文中的出现次数 × 该词的 IDF；IDF 文件中没有的词取文件内 IDF 的平均值 | [`idf.utf8`](../dict/idf.utf8)、[`stop_words.utf8`](../dict/stop_words.utf8) |
+| `TextRankExtractor(jieba, stop_words_path, options)` | 在窗口内共现的词之间连边，按类似 PageRank 的迭代打分，最高分归一为 1 | [`stop_words.utf8`](../dict/stop_words.utf8) |
+
+两者先用 `CutMode::MIX` 分词，丢弃单字词和停用词，再对剩下的不同词打分，按分数从高到低取前 `top_n` 个；
+分数相同时先出现的词在前。结果是 `std::vector<Keyword<CharT>>`，每项含独立的 `word`、`weight`
+和该词每次出现的 `positions`（坐标与分词结果一致）。
+
+```cpp
+#include "neo/KeywordExtractor.hpp"
+
+const auto extractor = neo_cppjieba::TfIdfExtractor{jieba, "dict/idf.utf8", "dict/stop_words.utf8"};
+for (const auto &keyword : extractor.extract("我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。", 5)) {
+    std::println("{} {:.4f} @{}", keyword.word, keyword.weight, keyword.positions.front().source.begin);
+}
+// CEO 11.7392 @93 / 升职 10.8562 @72 / 加薪 10.6426 @78 / 手扶拖拉机 10.0089 @21 / 巅峰 9.4940 @111
+```
+
+连续处理文本时，用 `extract_into(text, top_n, out, keyword_workspace)` 复用 `KeywordWorkspace` 和输出数组；
+同一工作区可在两种提取器之间共用。`TextRankOptions` 的 `window`、`iterations`、`damping`
+默认为 5、10、0.85，对应 CppJieba `Extract` 的 `span`、`rankTime` 和固定的阻尼系数。
+
+结果与 CppJieba 的 `KeywordExtractor` / `TextRankExtractor` 一致，分数逐位相同。两处差别：
+CppJieba 对同分词的顺序未作规定；TextRank 中没有任何共现边的词（例如全文只剩一个候选词），
+CppJieba 返回空的 `word`，本库返回该词本身，分数同为 0。
+Python jieba 的 `extract_tags` / `textrank` 采用不同的规则（词频归一化、IDF 中位数、按词性过滤等），分数与本库不同。
+
+| CppJieba | modern-cppjieba |
+| --- | --- |
+| `KeywordExtractor(dict, hmm, idf, stop_words, user_dict)` | `TfIdfExtractor{Jieba{dict, hmm, user_dict}, idf, stop_words}` |
+| `TextRankExtractor(dict, hmm, stop_words, user_dict)` | `TextRankExtractor{Jieba{dict, hmm, user_dict}, stop_words}` |
+| `Extract(s, words, topN)` | `extract(s, top_n)` |
+| `Word::offsets` | `Keyword::positions[i].source.begin` |
+
 ## 位置与工作区
 
 位置采用半开区间 `[begin, end)`：

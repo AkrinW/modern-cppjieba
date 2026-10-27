@@ -9,6 +9,10 @@
   未登录词沿用 CppJieba 规则标为 `m`、`eng` 或 `x`；MIX 结果与 CppJieba `Tag` 一致。
   默认的 `Tagging::None` 生成的代码不变。见 [词性标注](docs/usage.md#词性标注)。
 - `jieba_benchmark` 增加 TAG 项，与 CppJieba `Tag` 比较结果和吞吐。
+- 新增可选头文件 `neo/KeywordExtractor.hpp`：`TfIdfExtractor` 和 `TextRankExtractor`，
+  输入支持 UTF-8 / UTF-16 / UTF-32，结果含每次出现的位置，可通过 `KeywordWorkspace` 复用缓冲。
+  分数与 CppJieba `KeywordExtractor` / `TextRankExtractor` 逐位一致，legacy 测试在语料上逐项比较。
+  见 [关键词提取](docs/usage.md#关键词提取)。
 
 ### Changed
 

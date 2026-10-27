@@ -8,8 +8,8 @@
 | `jieba.dict.utf8` | 主词典，每行包含词、词频和词性 |
 | `hmm_model.utf8` | HMM 未登录词识别模型 |
 | `user.dict.utf8` | 用户词典示例，按业务需要替换 |
-| `idf.utf8` | 原版 CppJieba 关键词提取使用的逆文档频率 |
-| `stop_words.utf8` | 原版 CppJieba 关键词提取使用的停用词 |
+| `idf.utf8` | `TfIdfExtractor` 使用的逆文档频率，每行为词和 IDF |
+| `stop_words.utf8` | 关键词提取使用的停用词，每行一个 |
 | `pos_dict/` | 词性模型数据 |
 
 ## 用户词典

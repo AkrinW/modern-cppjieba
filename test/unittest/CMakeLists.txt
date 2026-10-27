@@ -8,9 +8,10 @@ add_executable(test.run
     pre_filter_test.cpp
     unicode_test.cpp
     textrank_test.cpp
+    keyword_compare_test.cpp
 )
 
 target_compile_definitions(test.run PRIVATE LOGGING_LEVEL=LL_WARNING)
 # Add include directories
-target_link_libraries(test.run PRIVATE cppjieba::cppjieba cppjieba_test_support)
+target_link_libraries(test.run PRIVATE cppjieba::cppjieba neo_cppjieba::neo_cppjieba cppjieba_test_support)
 add_test(NAME legacy_unit_tests COMMAND test.run)

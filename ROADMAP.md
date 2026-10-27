@@ -12,7 +12,7 @@
 - 可选 ICU 编码转换、C ABI v1、可安装的 CMake 包。
 - Linux x64/ARM64、macOS ARM64、Windows x64 CI，以及与 CppJieba、jieba-rs、Python jieba 的性能对比。
 
-主要差距：原版 CppJieba 的关键词提取和运行时加词尚未迁移；C ABI 只覆盖单次分词。
+主要差距：原版 CppJieba 的运行时加词尚未迁移；C ABI 只覆盖单次分词。
 
 ## 1.3 — 补齐 CppJieba 功能
 
@@ -28,12 +28,12 @@
 
 ### 关键词提取
 
-[`dict/idf.utf8`](dict/idf.utf8) 和 [`dict/stop_words.utf8`](dict/stop_words.utf8) 随包安装，
-目前只被 legacy 测试和 `benchmark/load_test.cpp` 使用。
+提取器见 [关键词提取](docs/usage.md#关键词提取)。
 
-- [ ] 新增独立的可选头文件 `neo/KeywordExtractor.hpp`，提供 TF-IDF 和 TextRank。
-- [ ] 复用 `Workspace` 和借用结果，不给核心分词入口增加依赖。
-- [ ] 与原版 `KeywordExtractor` / `TextRankExtractor` 的结果做比较测试。
+- [x] 新增独立的可选头文件 `neo/KeywordExtractor.hpp`，提供 TF-IDF 和 TextRank。
+- [x] 复用 `Workspace` 和借用结果，不给核心分词入口增加依赖。
+- [x] 与原版 `KeywordExtractor` / `TextRankExtractor` 的结果做比较测试。
+- [ ] 可选的词性过滤（Python jieba 的 `allowPOS`），基于已有的词性标注。
 
 ### 词典加载与运行时加词
 
