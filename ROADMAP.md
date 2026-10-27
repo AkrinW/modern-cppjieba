@@ -37,10 +37,10 @@
 
 ### 词典加载与运行时加词
 
-[`DictTrie`](include/neo/detail/DictTrie.hpp) 目前只能在构造时从文件加载。
+[`DictTrie`](include/neo/detail/DictTrie.hpp) 可从文件或内存加载，见 [从内存加载词典](docs/usage.md#从内存加载词典)。
 
-- [ ] 支持从内存加载主词典、用户词典和 HMM 模型（`std::span<const char>` 或流），
-  覆盖资源内嵌、WASM 等不便访问文件系统的场景。
+- [x] 支持从内存加载主词典、用户词典、HMM 模型、IDF 和停用词（`DictSource::memory`），
+  覆盖资源内嵌、WASM 等不便访问文件系统的场景；用户词典可有多个。
 - [ ] 支持追加用户词，对应 CppJieba 的 `InsertUserWord` 和 Python jieba 的 `add_word` / `suggest_freq`。
 - [ ] 先确定并发模型。倾向保持 `Jieba` 构建后不可变：通过 builder 或派生新实例加入新词，
   调用方自行替换实例，避免在分词热路径上加锁。

@@ -1,7 +1,7 @@
 #pragma once
 
+#include "neo/DictSource.hpp"
 #include "neo/Unicode.hpp"
-#include "neo/detail/FileIO.hpp"
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/StringUtil.hpp"
 #include "neo/detail/Trie.hpp"
@@ -30,11 +30,20 @@ public:
     /// @param user_word_weight_opt  strategy for default weight of user words without freq
     explicit DictTrie(std::string_view dict_path, std::string_view user_dict_path = "",
                       UserWordWeightOption user_word_weight_opt = UserWordWeightOption::WordWeightMedian) {
-        check(user_word_weight_opt == UserWordWeightOption::WordWeightMin
-                  || user_word_weight_opt == UserWordWeightOption::WordWeightMedian
-                  || user_word_weight_opt == UserWordWeightOption::WordWeightMax,
-              "DictTrie: invalid user word weight option {}", static_cast<uint8_t>(user_word_weight_opt));
-        init(dict_path, user_dict_path, user_word_weight_opt);
+        check_weight_option(user_word_weight_opt);
+        auto user_dicts = std::vector<DictSource>{};
+        if (!user_dict_path.empty()) {
+            user_dicts.push_back(DictSource::file(user_dict_path));
+        }
+        init(DictSource::file(dict_path), user_dicts, user_word_weight_opt);
+    }
+
+    /// Construct from file or memory sources. User dictionaries load in order; for a repeated word
+    /// the last entry wins. Weight statistics come from the main dictionary only.
+    explicit DictTrie(const DictSource &dict, std::span<const DictSource> user_dicts = {},
+                      UserWordWeightOption user_word_weight_opt = UserWordWeightOption::WordWeightMedian) {
+        check_weight_option(user_word_weight_opt);
+        init(dict, user_dicts, user_word_weight_opt);
     }
 
     // ── Query interface ──────────────────────────────────────────────────
@@ -109,6 +118,12 @@ private:
         PosTag tag;
     };
 
+    static auto check_weight_option(UserWordWeightOption opt) -> void {
+        check(opt == UserWordWeightOption::WordWeightMin || opt == UserWordWeightOption::WordWeightMedian
+                  || opt == UserWordWeightOption::WordWeightMax,
+              "DictTrie: invalid user word weight option {}", static_cast<uint8_t>(opt));
+    }
+
     // ── Core initialisation ──────────────────────────────────────────────
     //
     // Pipeline:  load dicts → stats on int freqs → convert → build trie
@@ -129,13 +144,14 @@ private:
     //      Eliminates std::vector<DictUnit> + std::deque<DictUnit> + pointer
     //      indirections that the original design required.
 
-    auto init(std::string_view dict_path, std::string_view user_dict_path, UserWordWeightOption opt) -> void {
+    auto init(const DictSource &dict, std::span<const DictSource> user_dicts, UserWordWeightOption opt) -> void {
 
         // ── Phase 1: Load main dictionary ────────────────────────────────
         auto entries = std::vector<RawEntry>{};
         auto freqs = std::vector<int>{}; // parallel to entries (main dict only)
-        load_main_dict(dict_path, entries, freqs);
-        check(!entries.empty(), "DictTrie: main dictionary is empty: {}", dict_path);
+        with_source_text(
+            dict, [&](std::string_view text, std::string_view name) { load_main_dict(text, name, entries, freqs); });
+        check(!entries.empty(), "DictTrie: main dictionary is empty: {}", dict.name());
         assert_check([&] { return entries.size() == freqs.size(); },
                      "DictTrie: main dictionary entries and frequencies must have equal sizes");
 
@@ -144,7 +160,7 @@ private:
         for (auto f : freqs) {
             assert_check([=] { return f > 0; }, "DictTrie: unchecked main dictionary frequency {}", f);
             check(f <= std::numeric_limits<int64_t>::max() - freq_sum,
-                  "DictTrie: frequency sum exceeds the supported range: {}", dict_path);
+                  "DictTrie: frequency sum exceeds the supported range: {}", dict.name());
             freq_sum += f;
         }
         assert_check([&] { return freq_sum > 0; }, "DictTrie: frequency sum must be positive");
@@ -180,8 +196,9 @@ private:
         set_user_default_weight(opt);
 
         // ── Phase 3: Load user dictionary entries ────────────────────────
-        if (!user_dict_path.empty()) {
-            load_user_dict_file(user_dict_path, entries);
+        for (const auto &user_dict : user_dicts) {
+            with_source_text(user_dict,
+                             [&](std::string_view text, std::string_view) { load_user_dict(text, entries); });
         }
 
         // ── Phase 4: Build Trie from all entries ─────────────────────────
@@ -209,9 +226,9 @@ private:
     // Each line has exactly 3 space-separated fields: "word freq tag"
     // e.g.  "AT&T 3 nz",  "我们 � r"
 
-    auto load_main_dict(std::string_view path, std::vector<RawEntry> &entries, std::vector<int> &freqs) -> void {
-        auto file = read_file(path);
-        auto line = get_line_view(file.content());
+    auto load_main_dict(std::string_view text, std::string_view path, std::vector<RawEntry> &entries,
+                        std::vector<int> &freqs) -> void {
+        auto line = get_line_view(text);
         auto line_number = size_t{0};
 
         for (auto &&line_view : line) {
@@ -248,15 +265,14 @@ private:
         }
     }
 
-    /// Load a single user dictionary file.
+    /// Load the text of a single user dictionary.
     ///
     /// Supported line formats (fields separated by space):
     ///   1 field  — "word"            → default weight, empty tag
     ///   2 fields — "word tag"        → default weight, explicit tag
     ///   3 fields — "word freq tag"   → weight from freq, explicit tag
-    auto load_user_dict_file(std::string_view path, std::vector<RawEntry> &entries) -> void {
-        auto file = read_file(path);
-        auto line = get_line_view(file.content());
+    auto load_user_dict(std::string_view text, std::vector<RawEntry> &entries) -> void {
+        auto line = get_line_view(text);
         for (auto &&one_line : line) {
             if (one_line.empty()) {
                 continue;

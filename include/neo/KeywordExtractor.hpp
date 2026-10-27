@@ -1,11 +1,11 @@
 #pragma once
 
+#include "neo/DictSource.hpp"
 #include "neo/Jieba.hpp"
 #include "neo/TokenView.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/Workspace.hpp"
-#include "neo/detail/FileIO.hpp"
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/Output.hpp"
 #include "neo/detail/PosTag.hpp"
@@ -74,10 +74,9 @@ using IdfTable = gtl::flat_hash_map<std::u32string, double, RuneStringHash, std:
 }
 
 // One word per line, compared exactly as written; empty lines are ignored.
-inline auto load_stop_words(std::string_view path) -> RuneStringSet {
-    auto file = read_file(path);
+inline auto load_stop_words(std::string_view text) -> RuneStringSet {
     auto words = RuneStringSet{};
-    for (auto line : get_line_view(file.content())) {
+    for (auto line : get_line_view(text)) {
         if (!line.empty()) {
             const auto runes = decode(line);
             words.emplace(runes.begin(), runes.end());
@@ -87,11 +86,10 @@ inline auto load_stop_words(std::string_view path) -> RuneStringSet {
 }
 
 // Each nonempty line is "word idf". Words absent from the table score with the average IDF, as in CppJieba.
-inline auto load_idf(std::string_view path, IdfTable &table) -> double {
-    auto file = read_file(path);
+inline auto load_idf(std::string_view text, std::string_view path, IdfTable &table) -> double {
     auto sum = 0.0;
     auto line_number = size_t{0};
-    for (auto line : get_line_view(file.content())) {
+    for (auto line : get_line_view(text)) {
         ++line_number;
         if (line.empty()) {
             continue;
@@ -111,6 +109,15 @@ inline auto load_idf(std::string_view path, IdfTable &table) -> double {
     }
     check(!table.empty(), "KeywordExtractor: IDF table is empty: {}", path);
     return sum / static_cast<double>(table.size());
+}
+
+inline auto load_stop_words(const DictSource &source) -> RuneStringSet {
+    return with_source_text(source, [](std::string_view text, std::string_view) { return load_stop_words(text); });
+}
+
+inline auto load_idf(const DictSource &source, IdfTable &table) -> double {
+    return with_source_text(source,
+                            [&](std::string_view text, std::string_view name) { return load_idf(text, name, table); });
 }
 
 // A distinct candidate word; ids follow first occurrence, which also breaks score ties.
@@ -242,10 +249,15 @@ class TfIdfExtractor {
 public:
     TfIdfExtractor(const Jieba &jieba, std::string_view idf_path, std::string_view stop_words_path,
                    TfIdfOptions options = {})
-        : jieba_(&jieba), idf_average_(detail::load_idf(idf_path, idf_)),
-          stop_words_(detail::load_stop_words(stop_words_path)), options_(std::move(options)) {
+        : TfIdfExtractor(jieba, DictSource::file(idf_path), DictSource::file(stop_words_path), std::move(options)) {
     }
     TfIdfExtractor(const Jieba &&, std::string_view, std::string_view, TfIdfOptions = {}) = delete;
+
+    TfIdfExtractor(const Jieba &jieba, const DictSource &idf, const DictSource &stop_words, TfIdfOptions options = {})
+        : jieba_(&jieba), idf_average_(detail::load_idf(idf, idf_)), stop_words_(detail::load_stop_words(stop_words)),
+          options_(std::move(options)) {
+    }
+    TfIdfExtractor(const Jieba &&, const DictSource &, const DictSource &, TfIdfOptions = {}) = delete;
 
     template <StringLike Input>
     [[nodiscard]] auto extract(const Input &input, size_t top_n) const
@@ -295,11 +307,16 @@ private:
 class TextRankExtractor {
 public:
     TextRankExtractor(const Jieba &jieba, std::string_view stop_words_path, TextRankOptions options = {})
-        : jieba_(&jieba), stop_words_(detail::load_stop_words(stop_words_path)), options_(std::move(options)) {
+        : TextRankExtractor(jieba, DictSource::file(stop_words_path), std::move(options)) {
+    }
+    TextRankExtractor(const Jieba &&, std::string_view, TextRankOptions = {}) = delete;
+
+    TextRankExtractor(const Jieba &jieba, const DictSource &stop_words, TextRankOptions options = {})
+        : jieba_(&jieba), stop_words_(detail::load_stop_words(stop_words)), options_(std::move(options)) {
         check(options_.damping >= 0.0 && options_.damping <= 1.0, "TextRankExtractor: damping {} is outside [0, 1]",
               options_.damping);
     }
-    TextRankExtractor(const Jieba &&, std::string_view, TextRankOptions = {}) = delete;
+    TextRankExtractor(const Jieba &&, const DictSource &, TextRankOptions = {}) = delete;
 
     template <StringLike Input>
     [[nodiscard]] auto extract(const Input &input, size_t top_n) const

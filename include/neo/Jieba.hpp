@@ -1,6 +1,7 @@
 #pragma once
 
 #include "neo/Config.hpp"
+#include "neo/DictSource.hpp"
 #include "neo/Token.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
@@ -106,6 +107,11 @@ public:
     // An empty user dictionary path explicitly disables user dictionary loading.
     explicit Jieba(std::string_view dict_path, std::string_view model_path, std::string_view user_dict_path)
         : dict_(dict_path, user_dict_path), model_(model_path) {
+    }
+
+    // Load from files or memory; user dictionaries load in order and a repeated word takes the last entry.
+    explicit Jieba(const DictSource &dict, const DictSource &model, std::span<const DictSource> user_dicts = {})
+        : dict_(dict, user_dicts), model_(model) {
     }
 
     // Tagging::Pos makes an entry point attach each word's part-of-speech tag without changing segmentation:

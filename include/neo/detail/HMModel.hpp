@@ -1,7 +1,7 @@
 #pragma once
 
+#include "neo/DictSource.hpp"
 #include "neo/Unicode.hpp"
-#include "neo/detail/FileIO.hpp"
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/StringUtil.hpp"
 #include "neo/third_party/gtl.hpp"
@@ -57,8 +57,12 @@ constexpr auto get_hmm_state_label(HMMState state) noexcept -> char {
 struct HMModel {
     // ── Constructors ─────────────────────────────────────────────────────
     /// Construct and load the model from the given file path.
-    explicit HMModel(std::string_view model_path) {
-        load(model_path);
+    explicit HMModel(std::string_view model_path) : HMModel(DictSource::file(model_path)) {
+    }
+
+    /// Construct and load the model from a file or memory source.
+    explicit HMModel(const DictSource &source) {
+        with_source_text(source, [this](std::string_view text, std::string_view name) { load(text, name); });
     }
 
     constexpr auto get_start_prob(HMMState state) const noexcept -> double {
@@ -146,9 +150,8 @@ private:
     }
 
     // ── Loading ──────────────────────────────────────────────────────────
-    auto load(std::string_view model_path) -> void {
-        auto file = read_file(model_path);
-        auto lines = get_line_view(file.content());
+    auto load(std::string_view text, std::string_view model_path) -> void {
+        auto lines = get_line_view(text);
         constexpr auto expected_line_count = 1 + 2 * kHMMStatesNum;
 
         // Collect non-comment, non-empty lines.

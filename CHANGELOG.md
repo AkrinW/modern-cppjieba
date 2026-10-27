@@ -15,6 +15,9 @@
   见 [关键词提取](docs/usage.md#关键词提取)。
 - 关键词提取支持按词性过滤：`TfIdfOptions` / `TextRankOptions` 的 `allowed_tags` 对应 Python jieba 的 `allowPOS`，
   默认不过滤；`Keyword::tag` 返回每个关键词的词性。
+- 新增 `DictSource`：主词典、用户词典、HMM 模型、IDF 和停用词均可从文件或内存加载，
+  `Jieba`、`HMModel`、`TfIdfExtractor`、`TextRankExtractor` 增加对应构造函数；用户词典可有多个。
+  见 [从内存加载词典](docs/usage.md#从内存加载词典)。
 
 ### Changed
 

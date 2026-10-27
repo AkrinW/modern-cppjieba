@@ -5,6 +5,7 @@
 公共入口是 `neo/Jieba.hpp` 中的 `neo_cppjieba::Jieba`。
 构造时依次提供主词典、HMM 模型和用户词典路径；用户词典参数 `""` 表示仅使用主词典。
 路径相对于进程工作目录解析，Windows 路径使用 UTF-8。文件格式见 [词典说明](../dict/README.md)。
+从内存加载和多个用户词典见 [从内存加载词典](#从内存加载词典)。
 
 ## 输入文本
 
@@ -163,6 +164,31 @@ Python jieba 的 `extract_tags` / `textrank` 采用不同的规则（词频归�
 | `TextRankExtractor(dict, hmm, stop_words, user_dict)` | `TextRankExtractor{Jieba{dict, hmm, user_dict}, stop_words}` |
 | `Extract(s, words, topN)` | `extract(s, top_n)` |
 | `Word::offsets` | `Keyword::positions[i].source.begin` |
+
+## 从内存加载词典
+
+`neo/DictSource.hpp` 的 `DictSource` 表示一份输入：`DictSource::file(path)` 在加载时读取文件，
+`DictSource::memory(text, name)` 直接解析内存中的 UTF-8 文本，适合把词典编译进程序（如 `#embed`、
+资源段）或在 WASM 等不便访问文件系统的环境中使用。格式与对应文件相同；`name` 只用于错误信息。
+内存文本是借用的，只需在构造期间有效；构造完成后的对象不再引用它。
+
+```cpp
+#include "neo/Jieba.hpp"
+
+using namespace neo_cppjieba;
+extern const std::string_view embedded_dict, embedded_hmm, embedded_user_dict;
+
+const auto user_dicts = std::array{DictSource::memory(embedded_user_dict, "user.dict")};
+const auto jieba = Jieba{DictSource::memory(embedded_dict, "jieba.dict"), DictSource::memory(embedded_hmm),
+                         user_dicts};
+```
+
+用户词典可以有多个，按顺序加载，同一个词以最后一次出现为准，对应 CppJieba 用 `;` 分隔的多个用户词典路径。
+文件与内存来源可以混用。`TfIdfExtractor`、`TextRankExtractor` 同样接受 `DictSource`：
+
+```cpp
+const auto extractor = TfIdfExtractor{jieba, DictSource::memory(embedded_idf), DictSource::memory(embedded_stop_words)};
+```
 
 ## 位置与工作区
 
