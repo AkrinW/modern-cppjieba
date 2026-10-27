@@ -12,7 +12,7 @@
 - 可选 ICU 编码转换、C ABI v1、可安装的 CMake 包。
 - Linux x64/ARM64、macOS ARM64、Windows x64 CI，以及与 CppJieba、jieba-rs、Python jieba 的性能对比。
 
-主要差距：原版 CppJieba 的词性标注、关键词提取和运行时加词尚未迁移；C ABI 只覆盖单次分词。
+主要差距：原版 CppJieba 的关键词提取和运行时加词尚未迁移；C ABI 只覆盖单次分词。
 
 ## 1.3 — 补齐 CppJieba 功能
 
@@ -20,11 +20,11 @@
 
 ### 词性标注
 
-[`detail/PosTag.hpp`](include/neo/detail/PosTag.hpp) 和词典中的词性字段已经存在，但 `Jieba` 未对外提供接口。
+`Jieba` 的分词入口已支持 `Tagging::Pos` 模板参数和 `lookup_tag`，见 [词性标注](docs/usage.md#词性标注)。
 
-- [ ] 增加带词性的输出入口，例如 `cut_tagged`，以及 `cut_into` 可接受的带词性输出类型。
-- [ ] 未登录词沿用上游规则：数字为 `m`，英文为 `eng`，其余为 `x`。
-- [ ] 将根目录的 [词性标记表](词性标记.md) 移入 `docs/`，并在使用指南中引用。
+- [x] 增加带词性的输出入口，例如 `cut_tagged`，以及 `cut_into` 可接受的带词性输出类型。
+- [x] 未登录词沿用上游规则：数字为 `m`，英文为 `eng`，其余为 `x`。
+- [x] 将根目录的 [词性标记表](docs/pos_tags.md) 移入 `docs/`，并在使用指南中引用。
 
 ### 关键词提取
 

@@ -63,6 +63,46 @@ GBK / GB18030 输入先通过 [编码适配器](encoding.md) 转换为 UTF-8。
 `token.word` 借用原文；在原文修改或销毁前完成读取。`cut_owned` 的结果移动后，重新获取 token 视图。
 需要让每个词独立存活时，选择 `cut_strings`。完整的所有权示例见 [owned_results.cpp](../examples/owned_results.cpp)。
 
+## 词性标注
+
+`cut`、`cut_with_workspace`、`cut_owned`、`cut_strings` 和 `cut_each` 接受模板参数 `Tagging`，
+默认 `Tagging::None`。传入 `Tagging::Pos` 后，分词结果与同一模式不变，每个词附加 `PosTag`：
+
+| 入口 | 带词性的结果 |
+| --- | --- |
+| `cut<Tagging::Pos>(text, mode)` / `cut_with_workspace<Tagging::Pos>(...)` | 借用原文的 `TaggedTokenView`，含 `word`、`position`、`tag` |
+| `cut_owned<Tagging::Pos>(string, mode)` | 持有原文的带词性结果 |
+| `cut_strings<Tagging::Pos>(text, mode)` | `TaggedWord` 数组，每项含独立的 `word` 和 `tag` |
+| `cut_each<Tagging::Pos>(text, mode, emit, workspace)` | 回调逐词接收 `TaggedTokenView` |
+| `cut_into(text, mode, out, workspace)` | 由输出类型决定：`std::vector<TaggedPosition>` 或 `std::vector<TaggedWord<CharT>>` |
+| `lookup_tag(word)` | 查询单个完整词的词性，不做分词；也接受 `std::span<const Rune>` |
+
+返回类型 `Tokens<CharT, Tagging::Pos>` 也可写作 `TaggedTokens<CharT>`。
+
+```cpp
+using neo_cppjieba::CutMode, neo_cppjieba::Tagging;
+for (const auto token : jieba.cut<Tagging::Pos>("我来到北京清华大学，使用iPhone6", CutMode::MIX)) {
+    std::println("{}/{}", token.word, token.tag.to_string_view());
+}
+// 我/r 来到/v 北京/ns 清华大学/nt ，/x 使用/v iPhone6/eng
+```
+
+词性取自主词典或用户词典的第三列。词典中没有该词，或用户词典未给出词性时，沿用 CppJieba 的规则：
+从词首开始统计 ASCII 字符，统计数达到词长一半即停止；没有 ASCII 为 `x`，全为数字为 `m`，否则为 `eng`。
+因此单字词总是 `x`，`3.14` 为 `eng`。词性规则不受 `segmentation_style` 影响；
+Python jieba 的 `posseg` 使用独立的词性 HMM 模型，本库不提供该模型。
+
+`PosTag` 最多 4 个 ASCII 字符，按值存储，可与字符串或 `neo_cppjieba::pos` 中的常量比较，
+例如 `token.tag == neo_cppjieba::pos::ns` 或 `token.tag == "ns"`。缩写含义见 [词性标记表](pos_tags.md)。
+
+| CppJieba / Python jieba | modern-cppjieba |
+| --- | --- |
+| `jieba.Tag(s, words)` | `jieba.cut_strings<Tagging::Pos>(s, CutMode::MIX)` |
+| `jieba.LookupTag(word)` | `jieba.lookup_tag(word)` |
+| `jieba.posseg.lcut(s)` / `lcut(s, HMM=False)` | `cut_strings<Tagging::Pos>(s, CutMode::MIX)` / `CutMode::MIX_NO_HMM` |
+
+词性只在 `Tagging::Pos` 实例中查询；默认的 `Tagging::None` 不做任何词性相关的工作。
+
 ## 位置与工作区
 
 位置采用半开区间 `[begin, end)`：

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- 新增词性标注：`cut`、`cut_with_workspace`、`cut_owned`、`cut_strings`、`cut_each` 接受模板参数
+  `Tagging::Pos`（默认 `Tagging::None`），`cut_into` 接受 `TaggedPosition` 与 `TaggedWord` 输出，另增 `lookup_tag`。
+  未登录词沿用 CppJieba 规则标为 `m`、`eng` 或 `x`；MIX 结果与 CppJieba `Tag` 一致。
+  默认的 `Tagging::None` 生成的代码不变。见 [词性标注](docs/usage.md#词性标注)。
+- `jieba_benchmark` 增加 TAG 项，与 CppJieba `Tag` 比较结果和吞吐。
+
+### Changed
+
+- 词性标记表移至 [docs/pos_tags.md](docs/pos_tags.md)。
+
 ## 1.2.0 - 2026-10-23
 
 本版增加适合 C 和其他语言绑定的 C ABI，以及可直接通过 `find_package` 使用的 C++ 安装包。

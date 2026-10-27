@@ -8,12 +8,13 @@
 ///   3. Benchmarks Old vs Neo at the string-level (full pipeline: decode →
 ///      pre-filter → cut → encode) for a fair comparison.
 ///
-/// Five segmentation methods:
+/// Five segmentation methods, plus MIX with part-of-speech tags (TAG):
 ///   MIX    — Dictionary (MP) + HMM  (recommended default)
 ///   MP     — Pure dictionary (maximum probability, no HMM)
 ///   HMM    — Pure HMM (Viterbi only, no dictionary)
 ///   FULL   — All dictionary-matching words (overlapping)
 ///   SEARCH — MIX + sub-word extraction (for search engines)
+///   TAG    — MIX words with POS tags (old Jieba::Tag vs neo cut_strings<Tagging::Pos>)
 
 // ── Old headers ──
 #include "cppjieba/Jieba.hpp"
@@ -32,6 +33,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -111,6 +113,26 @@ static auto verify_method(const char *method_name, const OldCutFn &old_fn, const
     }
     std::printf("✗ %zu / %zu lines differ\n", mismatches, lines.size());
     return false;
+}
+
+// Tagged results compare as "word/tag" strings so verify_method can report mismatches.
+static auto old_tagged_words(const cppjieba::Jieba &jieba, const std::string &s) -> std::vector<std::string> {
+    auto pairs = std::vector<std::pair<std::string, std::string>>{};
+    jieba.Tag(s, pairs);
+    auto words = std::vector<std::string>{};
+    words.reserve(pairs.size());
+    for (auto &[word, tag] : pairs) {
+        words.push_back(word + "/" + tag);
+    }
+    return words;
+}
+
+static auto neo_tagged_words(const neo_cppjieba::Jieba &jieba, const std::string &s) -> std::vector<std::string> {
+    auto words = std::vector<std::string>{};
+    for (auto &[word, tag] : jieba.cut_strings<neo_cppjieba::Tagging::Pos>(s, neo_cppjieba::CutMode::MIX)) {
+        words.push_back(word + "/" + tag.to_string());
+    }
+    return words;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -287,6 +309,10 @@ auto main(int argc, char *argv[]) -> int {
         },
         [&](const std::string &s) { return jieba.cut_strings(s, neo_cppjieba::CutMode::SEARCH); }, lines);
 
+    all_ok &= verify_method(
+        "TAG", [&](const std::string &s) { return old_tagged_words(old_jieba, s); },
+        [&](const std::string &s) { return neo_tagged_words(jieba, s); }, lines);
+
     std::printf("\n");
     if (!all_ok) {
         std::printf("WARNING: Some methods differ. Benchmark proceeds anyway.\n\n");
@@ -448,6 +474,23 @@ auto main(int argc, char *argv[]) -> int {
         total_runes, ROUNDS);
     print_report(neo_search_str);
 
+    // ── TAG ──
+    auto old_tag_r = bench_cut_string(
+        "Old Jieba.Tag  (MIX + POS)",
+        [&](const std::string &s) {
+            auto w = std::vector<std::pair<std::string, std::string>>{};
+            old_jieba.Tag(s, w);
+            return w;
+        },
+        lines, total_runes, ROUNDS);
+    print_report(old_tag_r);
+
+    auto neo_tag_str = bench_cut_string(
+        "Neo Jieba.cut_strings<Pos>(MIX)",
+        [&](const std::string &s) { return jieba.cut_strings<neo_cppjieba::Tagging::Pos>(s, CM::MIX); }, lines,
+        total_runes, ROUNDS);
+    print_report(neo_tag_str);
+
     // ── Old vs Neo summary table ─────────────────────────────────────────
     {
         struct Pair {
@@ -455,12 +498,13 @@ auto main(int argc, char *argv[]) -> int {
             double old_ms;
             double neo_ms;
         };
-        auto pairs = std::array<Pair, 5>{{
+        auto pairs = std::array<Pair, 6>{{
             {"MIX", old_mix_r.total_ms, neo_mix_str.total_ms},
             {"MP", old_mp_r.total_ms, neo_mp_str.total_ms},
             {"HMM", old_hmm_r.total_ms, neo_hmm_str.total_ms},
             {"FULL", old_full_r.total_ms, neo_full_str.total_ms},
             {"SEARCH", old_query_r.total_ms, neo_search_str.total_ms},
+            {"TAG", old_tag_r.total_ms, neo_tag_str.total_ms},
         }};
 
         std::printf("══════════════════════════════════════════════════════════════\n");

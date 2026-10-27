@@ -23,9 +23,11 @@ concept OutputValue = CharType<CharT>
                           || std::same_as<Output, std::basic_string<CharT>>);
 
 // Invoke visitors as lvalues without copying them; failure is reported through exceptions.
+template <typename Emit, typename View>
+concept ViewVisitor = std::invocable<Emit &, View> && std::same_as<std::invoke_result_t<Emit &, View>, void>;
+
 template <typename Emit, typename CharT>
-concept TokenVisitor = CharType<CharT> && std::invocable<Emit &, TokenView<CharT>>
-                       && std::same_as<std::invoke_result_t<Emit &, TokenView<CharT>>, void>;
+concept TokenVisitor = CharType<CharT> && ViewVisitor<Emit, TokenView<CharT>>;
 
 // The offset sentinel maps the exclusive rune end to the corresponding source boundary.
 [[nodiscard]] inline auto to_source_range(WordRange range, std::span<const SourceOffset> offsets) noexcept

@@ -15,6 +15,7 @@ add_executable(test_neo.run
     mixseg_test.cpp
     queryseg_test.cpp
     jieba_test.cpp
+    tagging_test.cpp
 )
 
 target_compile_definitions(test_neo.run PRIVATE LOGGING_LEVEL=LL_WARNING)
