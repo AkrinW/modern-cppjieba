@@ -25,6 +25,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 // This fixture uses a different dictionary from the segmentation tests; keep its path local to this file.
 constexpr auto DICT_FILE = std::string_view{TEST_DATA_DIR "/extra_dict/jieba.dict.small.utf8"};

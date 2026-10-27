@@ -15,9 +15,7 @@
 #include <span>
 #include <vector>
 
-namespace neo_cppjieba {
-
-namespace detail {
+namespace neo_cppjieba::detail {
 
 /// Select route construction alone or also retain short-word matches for SEARCH.
 enum class MPMatchMode : uint8_t { PathOnly, Search };
@@ -129,8 +127,8 @@ inline auto mp_emit_route(size_t n, const Emit &emit, const SegmentScratch &scra
 }
 
 /// Append MP segmentation results at global offset pos, keeping separator runes as standalone tokens.
-inline auto mp_cut_append(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &out,
-                          RuneIndex pos, SegmentScratch &scratch) -> void {
+inline auto mp_cut_append(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &out, RuneIndex pos,
+                          SegmentScratch &scratch) -> void {
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "MPSegment: global word offsets overflow");
     const auto appended_begin = out.size();
@@ -160,8 +158,6 @@ inline auto mp_cut_append(const DictTrie &dict, std::span<const Rune> runes, std
         "MPSegment: words must cover the rune span exactly once");
 }
 
-} // namespace detail
-
 /// Stateless maximum-probability segmentation operator.
 ///
 /// MP mode ("最大概率模式") uses dynamic programming over dictionary matches
@@ -186,4 +182,4 @@ struct MPSegment {
     }
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

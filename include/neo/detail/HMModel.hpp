@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 /// Emit probability map: maps a single Unicode code point (Rune) to its log-probability.
 using EmitProbMap = std::unordered_map<Rune, double>;
@@ -252,4 +252,4 @@ private:
     }
 }; // struct HMModel
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

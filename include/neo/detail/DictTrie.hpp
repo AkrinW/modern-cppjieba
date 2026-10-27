@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 class DictTrie {
 public:
@@ -344,4 +344,4 @@ private:
     gtl::flat_hash_set<Rune> user_dict_single_chinese_word_;
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

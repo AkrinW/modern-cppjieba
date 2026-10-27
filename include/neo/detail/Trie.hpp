@@ -1,11 +1,11 @@
 #pragma once
 
 #include "neo/Config.hpp"
+#include "neo/PosTag.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/detail/Dag.hpp"
 #include "neo/detail/Logging.hpp"
-#include "neo/detail/PosTag.hpp"
 #include "neo/detail/TrieStats.hpp"
 #include "neo/third_party/gtl.hpp"
 
@@ -19,12 +19,10 @@
 #include <utility>
 #include <vector>
 
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 // Missing entries use a value outside finite dictionary weights, so log(1) == 0 remains valid.
 inline constexpr auto kMissingWordWeight = -std::numeric_limits<detail::WordWeight>::infinity();
-
-namespace detail {
 
 /// A transition retains the full parent id and rune independently of the configured node width.
 template <CapacityInteger NodeId>
@@ -51,8 +49,6 @@ struct TrieTransitionHash {
         }
     }
 };
-
-} // namespace detail
 
 /// Compact dictionary entry stored by value in trie transitions, with no pointer indirection.
 /// The original CppJieba DictUnit also stored the word and a std::string tag (~80 bytes).
@@ -524,4 +520,4 @@ public:
     }
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

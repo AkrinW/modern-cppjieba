@@ -22,6 +22,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 namespace {
 

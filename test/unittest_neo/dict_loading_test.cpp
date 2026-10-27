@@ -17,6 +17,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 using namespace std::string_view_literals;
 
 namespace {

@@ -2,13 +2,13 @@
 
 #include "neo/DictSource.hpp"
 #include "neo/Jieba.hpp"
+#include "neo/PosTag.hpp"
 #include "neo/TokenView.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/Workspace.hpp"
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/Output.hpp"
-#include "neo/detail/PosTag.hpp"
 #include "neo/detail/StringUtil.hpp"
 #include "neo/third_party/gtl.hpp"
 

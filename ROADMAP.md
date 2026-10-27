@@ -107,9 +107,8 @@
 
 - [x] [`include/neo/Jieba.hpp`](include/neo/Jieba.hpp) 中 `Jieba` 的类注释仍描述旧接口
   （"These usage notes describe the former facade"）；`cut_runes_into` 中的 "Former policy" 注释同理，改写为当前契约。
-- [ ] 明确公开边界：`DictTrie`、`HMModel`、`Trie`、各 `*Segment` 位于 `detail/` 目录却在公开命名空间
+- [x] 明确公开边界：`DictTrie`、`HMModel`、`Trie`、各 `*Segment` 位于 `detail/` 目录却在公开命名空间
   `neo_cppjieba` 中，`PosTag` 是公开类型却位于 `detail/`。见 [架构](docs/architecture.md#公开边界)。
-  移动命名空间会破坏直接使用这些类型的调用方，宜在一个次版本中统一处理。
 - [ ] 统一命名：项目名 modern-cppjieba、命名空间与包名 `neo_cppjieba`，词典却安装到 `share/cppjieba/dict`，
   可能与上游 CppJieba 的安装冲突。改为 `share/neo_cppjieba/dict` 并保留过渡期，同时在 CMake 包中导出词典目录变量。
 - [ ] 删除 [`.github/workflows/cmake.yml`](.github/workflows/cmake.yml) 中的模板注释。

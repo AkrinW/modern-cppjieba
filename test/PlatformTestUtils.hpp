@@ -116,7 +116,7 @@ inline auto prepare_fileio_death_test() noexcept -> void {
 // UTF-8 validation is specific to Windows path conversion; POSIX accepts arbitrary path bytes.
 inline auto expect_invalid_utf8_path_rejected() -> void {
 #ifdef _WIN32
-    EXPECT_THROW(neo_cppjieba::read_file(std::string_view{"\xff"}), neo_cppjieba::LogConfig::Exception);
+    EXPECT_THROW(neo_cppjieba::detail::read_file(std::string_view{"\xff"}), neo_cppjieba::LogConfig::Exception);
 #else
     GTEST_SKIP() << "POSIX paths do not require UTF-8";
 #endif
@@ -133,7 +133,7 @@ inline auto expect_rejected_directory_closes_descriptor(const std::filesystem::p
     ASSERT_NE(descriptor_before, -1);
     ASSERT_EQ(::close(descriptor_before), 0);
 
-    EXPECT_THROW(neo_cppjieba::read_file(path), neo_cppjieba::LogConfig::Exception);
+    EXPECT_THROW(neo_cppjieba::detail::read_file(path), neo_cppjieba::LogConfig::Exception);
 
     // open reuses the lowest available descriptor; a failed constructor must leave it available.
     const auto descriptor_after = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
@@ -157,7 +157,7 @@ inline auto expect_fifo_rejected_without_waiting(const std::filesystem::path &fi
         {
             ::alarm(5);
             try {
-                const auto file = neo_cppjieba::read_file(path);
+                const auto file = neo_cppjieba::detail::read_file(path);
             } catch (const neo_cppjieba::LogConfig::Exception &) {
                 std::_Exit(0);
             }

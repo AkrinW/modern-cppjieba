@@ -28,6 +28,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 template <typename Input, typename = void>
 inline constexpr bool full_segment_invocable_v = false;

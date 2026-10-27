@@ -107,7 +107,7 @@ class hash_symbol_set {
 public:
     [[nodiscard]] static auto contains(char32_t r) -> bool {
         static const auto set = []() {
-            const auto &symbols = neo_cppjieba::DEFAULT_SEPARATORS;
+            const auto &symbols = neo_cppjieba::detail::DEFAULT_SEPARATORS;
             auto s = std::unordered_set<char32_t>{};
             s.max_load_factor(load_factor);
             s.reserve(symbols.size());
@@ -122,21 +122,21 @@ public:
 class bitmask_symbol_set {
 public:
     [[nodiscard]] static constexpr auto contains(char32_t r) noexcept -> bool {
-        return neo_cppjieba::is_default_separator(r);
+        return neo_cppjieba::detail::is_default_separator(r);
     }
 };
 
 class bitmask_symbol_set_branchless {
 public:
     [[nodiscard]] static constexpr auto contains(char32_t r) noexcept -> bool {
-        return neo_cppjieba::is_default_separator_branchless(r);
+        return neo_cppjieba::detail::is_default_separator_branchless(r);
     }
 };
 
 class bitmask_symbol_set_unlikely {
 public:
     [[nodiscard]] static constexpr auto contains(char32_t r) noexcept -> bool {
-        return neo_cppjieba::is_default_separator_unlikely(r);
+        return neo_cppjieba::detail::is_default_separator_unlikely(r);
     }
 };
 
@@ -144,7 +144,7 @@ public:
 class sorted_symbol_set {
 public:
     [[nodiscard]] static constexpr auto contains(char32_t r) noexcept -> bool {
-        const auto &symbols = neo_cppjieba::DEFAULT_SEPARATORS;
+        const auto &symbols = neo_cppjieba::detail::DEFAULT_SEPARATORS;
 
         auto lo = size_t{0};
         auto hi = symbols.size();
@@ -166,7 +166,7 @@ public:
 class linear_symbol_set {
 public:
     [[nodiscard]] static constexpr auto contains(char32_t r) noexcept -> bool {
-        const auto &symbols = neo_cppjieba::DEFAULT_SEPARATORS;
+        const auto &symbols = neo_cppjieba::detail::DEFAULT_SEPARATORS;
         for (auto s : symbols) {
             if (s == r) {
                 return true;
@@ -268,7 +268,7 @@ static auto count_segments_production(const std::vector<LineData> &lines) -> Seg
         if (runes.empty()) {
             continue;
         }
-        auto seps = neo_cppjieba::get_pre_filter_separators(runes);
+        auto seps = neo_cppjieba::detail::get_pre_filter_separators(runes);
         auto pos = uint32_t{0};
         on_text_segment(runes.subspan(pos, seps[0] - pos), checksum);
         for (auto i = size_t{0}; i < seps.size() - 1; ++i) {
@@ -412,8 +412,8 @@ static auto bench_index_scan(const char *label, const std::vector<LineData> &lin
             if (runes.empty()) {
                 continue;
             }
-            // auto seps = neo_cppjieba::get_pre_filter_separators(runes);
-            neo_cppjieba::get_pre_filter_separators(runes, seps);
+            // auto seps = neo_cppjieba::detail::get_pre_filter_separators(runes);
+            neo_cppjieba::detail::get_pre_filter_separators(runes, seps);
             auto pos = size_t{0};
             on_text_segment(runes.subspan(pos, seps[0] - pos), checksum);
             for (auto i = size_t{0}; i < seps.size() - 1; ++i) {
@@ -433,8 +433,8 @@ static auto bench_index_scan(const char *label, const std::vector<LineData> &lin
             if (runes.empty()) {
                 continue;
             }
-            // auto sep_indices = neo_cppjieba::get_pre_filter_separators(runes);
-            neo_cppjieba::get_pre_filter_separators(runes, seps);
+            // auto sep_indices = neo_cppjieba::detail::get_pre_filter_separators(runes);
+            neo_cppjieba::detail::get_pre_filter_separators(runes, seps);
             auto pos = size_t{0};
             on_text_segment(runes.subspan(pos, seps[0] - pos), checksum);
             for (auto i = size_t{0}; i < seps.size() - 1; ++i) {
@@ -606,7 +606,7 @@ auto main(int, char *[]) -> int {
 
     std::printf("Text file  : %s\n", text_path.c_str());
     std::printf("Rounds     : %zu\n", ROUNDS);
-    std::printf("Separators : %zu runes (tab, newline, space, 。, ，)\n\n", neo::DEFAULT_SEPARATORS.size());
+    std::printf("Separators : %zu runes (tab, newline, space, 。, ，)\n\n", neo::detail::DEFAULT_SEPARATORS.size());
 
     // ── Load and decode ──────────────────────────────────────────────────
     auto lines = load_unicode_lines(text_path);

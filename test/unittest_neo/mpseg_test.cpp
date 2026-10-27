@@ -15,6 +15,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
 

@@ -13,7 +13,7 @@
 #include <span>
 #include <vector>
 
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 /// Stateless full-mode segmentation operator.
 ///
@@ -71,4 +71,4 @@ private:
     }
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

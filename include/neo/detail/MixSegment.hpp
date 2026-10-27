@@ -16,9 +16,7 @@
 #include <span>
 #include <vector>
 
-namespace neo_cppjieba {
-
-namespace detail {
+namespace neo_cppjieba::detail {
 
 /// Visit the MP route built for a separator-free segment as local word ranges, in input order.
 /// With HMM, each run of single-rune route words that are not user-dictionary singletons is
@@ -88,8 +86,6 @@ inline auto mix_cut_append(const DictTrie &dict, const HMModel &model, std::span
     }
 }
 
-} // namespace detail
-
 /// Stateless mixed-mode segmentation operator.
 ///
 /// Mix mode ("混合模式") combines maximum-probability (MP) segmentation with
@@ -120,4 +116,4 @@ struct MixSegment {
     }
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

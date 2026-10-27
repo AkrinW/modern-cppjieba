@@ -15,6 +15,9 @@
 
 namespace neo_cppjieba::test {
 
+// The comparison helpers exercise internal segmenters directly.
+using namespace neo_cppjieba::detail;
+
 namespace detail {
 
 template <bool hmm>

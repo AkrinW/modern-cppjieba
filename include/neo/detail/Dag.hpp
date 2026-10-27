@@ -13,7 +13,7 @@
 #include <string_view>
 #include <vector>
 
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 struct DagEdge {
     RuneIndex next_pos; // The index of the next rune after the matched word
@@ -82,4 +82,4 @@ struct Dag {
     }
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

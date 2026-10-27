@@ -13,7 +13,7 @@
 #include <string_view>
 #include <system_error>
 #include <vector>
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 // decode_value is a helper function that decodes a value of type T from a string_view using std::from_chars.
 // it add error checking and throws an exception if parsing fails.
@@ -311,4 +311,4 @@ constexpr auto trim(std::string_view sv) noexcept -> std::string_view {
     return sv.substr(start, end - start + 1);
 }
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

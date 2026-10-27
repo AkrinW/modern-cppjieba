@@ -16,9 +16,7 @@
 #include <span>
 #include <vector>
 
-namespace neo_cppjieba {
-
-namespace detail {
+namespace neo_cppjieba::detail {
 
 // A reference HMM transition retains the selected predecessor along with its score.
 struct HMMTransition {
@@ -306,13 +304,10 @@ inline auto hmm_cut_append(const HMModel &model, std::span<const Rune> runes, st
                 hmm_cut_one_segment(model, range, segment, static_cast<RuneIndex>(pos + offset), scratch);
             },
             [&](RuneIndex separator) {
-                range.push_back(
-                    {static_cast<RuneIndex>(pos + separator), static_cast<RuneIndex>(pos + separator + 1)});
+                range.push_back({static_cast<RuneIndex>(pos + separator), static_cast<RuneIndex>(pos + separator + 1)});
             });
     }
 }
-
-} // namespace detail
 
 /// Stateless HMM-based segmentation operator.
 ///
@@ -345,4 +340,4 @@ struct HMMSegment {
     }
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

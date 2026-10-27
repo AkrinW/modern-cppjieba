@@ -9,11 +9,11 @@
 | 层 | 头文件 | 职责 |
 | --- | --- | --- |
 | 门面 | `Jieba.hpp`、`KeywordExtractor.hpp` | 公开入口：解码、调用分派、按输出类型填充结果 |
-| 结果与输入 | `Token.hpp`、`TokenView.hpp`、`TaggedToken.hpp`、`Workspace.hpp`、`DictSource.hpp`、`CutMode.hpp` | 公开值类型，不含算法 |
+| 结果与输入 | `Token.hpp`、`TokenView.hpp`、`TaggedToken.hpp`、`PosTag.hpp`、`Workspace.hpp`、`DictSource.hpp`、`CutMode.hpp` | 公开值类型，不含算法 |
 | 分派 | `detail/Segmenter.hpp` | `CutMode` × `SegmentationStyle` → 具体算法，唯一的分支点 |
 | 算法 | `detail/MPSegment.hpp` → `MixSegment.hpp` → `QuerySegment.hpp`；`FullSegment.hpp`、`HMMSegment.hpp`、`StyledSegment.hpp` | 在 rune 序列上产出 `WordRange`，不接触原文编码 |
 | 算法公共件 | `detail/SegmentCommon.hpp`、`SegmentScratch.hpp`、`SegmentPolicy.hpp` | 分隔符切分、结果校验、可复用缓冲、字符分类 |
-| 数据 | `detail/DictTrie.hpp`、`Trie.hpp`、`HMModel.hpp`、`PosTag.hpp` | 构建后只读的词典和模型 |
+| 数据 | `detail/DictTrie.hpp`、`Trie.hpp`、`HMModel.hpp` | 构建后只读的词典和模型 |
 | 基础 | `Config.hpp`、`Traits.hpp`、`Unicode*.hpp`、`detail/Logging.hpp`、`StringUtil.hpp`、`FileIO.hpp` | 容量配置、编码、诊断、解析 |
 
 `Dag.hpp` 仅供 `Trie::find_dag` 的诊断和对照测试使用，分词路径不物化 DAG。
@@ -64,9 +64,9 @@ HMM：for_each_separated + hmm_emit_one_segment
 
 ## 公开边界
 
-公开 API 是 `neo/` 顶层头文件中、命名空间 `neo_cppjieba`（非 `detail`）里的类型和函数。
-`detail/` 目录中的内容不保证兼容。目前有两处历史遗留尚未对齐，已列入 [Roadmap](../ROADMAP.md#维护清理)：
+公开 API 是 `neo/` 顶层头文件中、命名空间 `neo_cppjieba`（非 `detail`）里的类型和函数，
+包括 `neo/PosTag.hpp` 的 `PosTag` 和 `pos::` 常量。`detail/` 目录中的内容都在 `neo_cppjieba::detail` 中，不保证兼容；
+测试内部实现的用例通过 `using namespace neo_cppjieba::detail;` 显式声明这一点，只测公开接口的用例不引入它。
 
-- `DictTrie`、`HMModel`、`Trie`、`DictUnit` 和各 `*Segment` 结构体位于 `detail/` 目录，却在 `neo_cppjieba`
-  命名空间中；测试和基准直接使用它们。
-- `PosTag` 和 `pos::` 常量是公开类型（`TaggedToken`、`Keyword` 使用），却位于 `detail/PosTag.hpp`。
+一处例外：`detail/Logging.hpp` 的 `check`、`log`、`assert_check` 仍在 `neo_cppjieba` 中，
+因为错误通过公开的 `LogConfig::Exception` 报告。它们随 [Roadmap](../ROADMAP.md#日志与错误处理) 的日志改造一起调整。

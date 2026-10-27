@@ -116,8 +116,7 @@ public:
 
     // Move the source into its final owner before building positions, including for small strings.
     template <Tagging tagging = Tagging::None, CharType CharT>
-    [[nodiscard]] auto cut_owned(std::basic_string<CharT> source, CutMode mode) const
-        -> OwnedTokens<CharT, tagging> {
+    [[nodiscard]] auto cut_owned(std::basic_string<CharT> source, CutMode mode) const -> OwnedTokens<CharT, tagging> {
         auto result = OwnedTokens<CharT, tagging>{std::move(source), {}};
         auto workspace = Workspace{};
         cut_into(result.source_, mode, result.positions_, workspace);
@@ -177,8 +176,8 @@ private:
         return workspace.ranges_;
     }
 
-    DictTrie dict_;
-    HMModel model_;
+    detail::DictTrie dict_;
+    detail::HMModel model_;
 };
 
 } // namespace neo_cppjieba

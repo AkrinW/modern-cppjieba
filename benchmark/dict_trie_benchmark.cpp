@@ -181,14 +181,14 @@ static auto bench_old(const std::string &dict_path, const std::vector<std::strin
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Benchmark: Neo DictTrie (neo_cppjieba::DictTrie)
+// Benchmark: Neo DictTrie (neo_cppjieba::detail::DictTrie)
 // ─────────────────────────────────────────────────────────────────────────────
 static auto bench_neo(const std::string &dict_path, const std::vector<std::string> &words, size_t rounds)
     -> BenchResult {
     namespace neo = neo_cppjieba;
 
     // Build DictTrie (not timed)
-    auto dict_trie = neo::DictTrie{dict_path};
+    auto dict_trie = neo::detail::DictTrie{dict_path};
 
     // ── Pre-decode all query keys (excluded from timing) ─────────────────
     auto n = words.size();
