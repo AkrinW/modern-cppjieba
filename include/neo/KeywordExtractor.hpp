@@ -8,10 +8,12 @@
 #include "neo/detail/FileIO.hpp"
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/Output.hpp"
+#include "neo/detail/PosTag.hpp"
 #include "neo/detail/StringUtil.hpp"
 #include "neo/third_party/gtl.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <functional>
@@ -24,20 +26,33 @@
 
 namespace neo_cppjieba {
 
-// One keyword in the input encoding with its score and every occurrence, in input order.
+// One keyword in the input encoding with its score, its tag as Jieba::lookup_tag reports it,
+// and every occurrence in input order.
 // Positions use the same coordinates as Jieba::cut: source code units and runes, both half-open.
 template <CharType CharT>
 struct Keyword {
     std::basic_string<CharT> word;
     double weight{0.0};
+    PosTag tag;
     std::vector<TokenPosition> positions;
 };
 
-// CppJieba's TextRank defaults. Each candidate word links to the next window - 1 candidate words.
+// Python jieba's default allowPOS for textrank: place names, nouns, verbal nouns and verbs.
+inline constexpr auto python_textrank_tags = std::array{pos::ns, pos::n, pos::vn, pos::v};
+
+// An empty allowed_tags keeps every word, as CppJieba does. Otherwise only words whose tag is listed
+// become candidates, like Python jieba's allowPOS; tags come from Jieba::lookup_tag.
+struct TfIdfOptions {
+    std::vector<PosTag> allowed_tags;
+};
+
+// CppJieba's TextRank defaults. Each candidate word links to the next window - 1 candidate words,
+// so words removed by allowed_tags, like stop words, do not take up window slots.
 struct TextRankOptions {
     size_t window{5};
     size_t iterations{10};
     double damping{0.85};
+    std::vector<PosTag> allowed_tags;
 };
 
 namespace detail {
@@ -102,6 +117,7 @@ inline auto load_idf(std::string_view path, IdfTable &table) -> double {
 struct KeywordCandidate {
     TokenPosition first;
     double weight;
+    PosTag tag;
 };
 
 struct KeywordOccurrence {
@@ -136,11 +152,12 @@ private:
     friend class TfIdfExtractor;
     friend class TextRankExtractor;
 
-    // Segment once, then keep candidate words and their occurrences after stop-word filtering.
+    // Segment once, then keep candidate words and their occurrences after stop-word and tag filtering.
+    // A word's tag is looked up once, when it first passes the other filters.
     // Candidate keys borrow decoded_, so the index is cleared before decoded_ is reused.
     template <CharType CharT>
-    auto collect(const Jieba &jieba, const detail::RuneStringSet &stop_words, std::basic_string_view<CharT> source)
-        -> void {
+    auto collect(const Jieba &jieba, const detail::RuneStringSet &stop_words, std::span<const PosTag> allowed_tags,
+                 std::basic_string_view<CharT> source) -> void {
         index_.clear();
         candidates_.clear();
         occurrences_.clear();
@@ -152,9 +169,14 @@ private:
                 continue;
             }
             const auto position = TokenPosition{range, detail::to_source_range(range, decoded_.offsets)};
-            const auto [it, inserted] = index_.try_emplace(word, candidates_.size());
-            if (inserted) {
-                candidates_.push_back({position, 0.0});
+            auto it = index_.find(word);
+            if (it == index_.end()) {
+                const auto tag = jieba.lookup_tag(range.slice(decoded_.runes));
+                if (!allowed_tags.empty() && std::ranges::find(allowed_tags, tag) == allowed_tags.end()) {
+                    continue;
+                }
+                it = index_.emplace(word, candidates_.size()).first;
+                candidates_.push_back({position, 0.0, tag});
             }
             occurrences_.push_back({it->second, position});
         }
@@ -188,6 +210,7 @@ private:
             slots_[order_[slot]] = slot;
             out[slot].word.assign(candidate.first.source.slice(source));
             out[slot].weight = candidate.weight;
+            out[slot].tag = candidate.tag;
             out[slot].positions.clear();
         }
         for (const auto &occurrence : occurrences_) {
@@ -212,16 +235,17 @@ private:
     std::vector<double> scores_;
 };
 
-// TF-IDF keywords, matching CppJieba's KeywordExtractor: segment with CutMode::MIX, drop one-rune words
-// and stop words, then weight each distinct word by occurrence count times IDF.
+// TF-IDF keywords, matching CppJieba's KeywordExtractor: segment with CutMode::MIX, drop one-rune words,
+// stop words and words outside options.allowed_tags, then weight each distinct word by occurrence count times IDF.
 // The extractor borrows jieba, which must outlive it; extraction is const and shares no mutable state.
 class TfIdfExtractor {
 public:
-    TfIdfExtractor(const Jieba &jieba, std::string_view idf_path, std::string_view stop_words_path)
-        : jieba_(&jieba), idf_average_(detail::load_idf(idf_path, idf_)), stop_words_(detail::load_stop_words(stop_words_path)) {
-        
+    TfIdfExtractor(const Jieba &jieba, std::string_view idf_path, std::string_view stop_words_path,
+                   TfIdfOptions options = {})
+        : jieba_(&jieba), idf_average_(detail::load_idf(idf_path, idf_)),
+          stop_words_(detail::load_stop_words(stop_words_path)), options_(std::move(options)) {
     }
-    TfIdfExtractor(const Jieba &&, std::string_view, std::string_view) = delete;
+    TfIdfExtractor(const Jieba &&, std::string_view, std::string_view, TfIdfOptions = {}) = delete;
 
     template <StringLike Input>
     [[nodiscard]] auto extract(const Input &input, size_t top_n) const
@@ -237,7 +261,7 @@ public:
     auto extract_into(const Input &input, size_t top_n, std::vector<Keyword<output_char_type_t<Input>>> &out,
                       KeywordWorkspace &workspace) const -> void {
         const auto source = as_view(input);
-        workspace.collect(*jieba_, stop_words_, source);
+        workspace.collect(*jieba_, stop_words_, options_.allowed_tags, source);
         for (const auto &occurrence : workspace.occurrences_) {
             workspace.candidates_[occurrence.candidate].weight += 1.0;
         }
@@ -253,11 +277,16 @@ public:
         return idf_average_;
     }
 
+    [[nodiscard]] auto options() const noexcept -> const TfIdfOptions & {
+        return options_;
+    }
+
 private:
     const Jieba *jieba_;
     detail::IdfTable idf_;
     double idf_average_{0.0};
     detail::RuneStringSet stop_words_;
+    TfIdfOptions options_;
 };
 
 // TextRank keywords, matching CppJieba's TextRankExtractor: candidates are filtered as in TfIdfExtractor,
@@ -266,7 +295,7 @@ private:
 class TextRankExtractor {
 public:
     TextRankExtractor(const Jieba &jieba, std::string_view stop_words_path, TextRankOptions options = {})
-        : jieba_(&jieba), stop_words_(detail::load_stop_words(stop_words_path)), options_(options) {
+        : jieba_(&jieba), stop_words_(detail::load_stop_words(stop_words_path)), options_(std::move(options)) {
         check(options_.damping >= 0.0 && options_.damping <= 1.0, "TextRankExtractor: damping {} is outside [0, 1]",
               options_.damping);
     }
@@ -286,7 +315,7 @@ public:
     auto extract_into(const Input &input, size_t top_n, std::vector<Keyword<output_char_type_t<Input>>> &out,
                       KeywordWorkspace &workspace) const -> void {
         const auto source = as_view(input);
-        workspace.collect(*jieba_, stop_words_, source);
+        workspace.collect(*jieba_, stop_words_, options_.allowed_tags, source);
         rank(workspace);
         workspace.select(source, top_n, out);
     }

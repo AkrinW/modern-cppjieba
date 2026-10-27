@@ -113,8 +113,8 @@ Python jieba 的 `posseg` 使用独立的词性 HMM 模型，本库不提供该�
 | `TextRankExtractor(jieba, stop_words_path, options)` | 在窗口内共现的词之间连边，按类似 PageRank 的迭代打分，最高分归一为 1 | [`stop_words.utf8`](../dict/stop_words.utf8) |
 
 两者先用 `CutMode::MIX` 分词，丢弃单字词和停用词，再对剩下的不同词打分，按分数从高到低取前 `top_n` 个；
-分数相同时先出现的词在前。结果是 `std::vector<Keyword<CharT>>`，每项含独立的 `word`、`weight`
-和该词每次出现的 `positions`（坐标与分词结果一致）。
+分数相同时先出现的词在前。结果是 `std::vector<Keyword<CharT>>`，每项含独立的 `word`、`weight`、
+`tag`（与 `lookup_tag` 相同）和该词每次出现的 `positions`（坐标与分词结果一致）。
 
 ```cpp
 #include "neo/KeywordExtractor.hpp"
@@ -125,6 +125,28 @@ for (const auto &keyword : extractor.extract("我是拖拉机学院手扶拖拉�
 }
 // CEO 11.7392 @93 / 升职 10.8562 @72 / 加薪 10.6426 @78 / 手扶拖拉机 10.0089 @21 / 巅峰 9.4940 @111
 ```
+
+### 按词性过滤
+
+`TfIdfOptions` 和 `TextRankOptions` 的 `allowed_tags` 对应 Python jieba 的 `allowPOS`：非空时，
+只有词性在列表中的词才成为候选词。默认为空，不过滤，与 CppJieba 一致。
+`python_textrank_tags`（`ns`、`n`、`vn`、`v`）是 Python jieba `textrank` 的默认值。
+
+```cpp
+using namespace neo_cppjieba;
+const auto nouns = TfIdfExtractor{jieba, "dict/idf.utf8", "dict/stop_words.utf8",
+                                  {.allowed_tags = {pos::n, pos::nz, pos::vn}}};
+// 手扶拖拉机/n 巅峰/n 拖拉机/n 人生/n 学院/n
+
+const auto textrank = TextRankExtractor{
+    jieba, "dict/stop_words.utf8",
+    {.allowed_tags = {python_textrank_tags.begin(), python_textrank_tags.end()}}};
+```
+
+TF-IDF 对每个词独立打分，过滤只删去不符合的词，其余分数不变。TextRank 中被过滤的词与停用词一样
+不进入词图，也不占窗口位置，剩下的词之间重新打分。
+词性来自词典，而非 Python jieba `posseg` 的词性模型，例如主词典把"加薪"标为 `nr`，
+因此过滤结果与 Python jieba 不完全相同。
 
 连续处理文本时，用 `extract_into(text, top_n, out, keyword_workspace)` 复用 `KeywordWorkspace` 和输出数组；
 同一工作区可在两种提取器之间共用。`TextRankOptions` 的 `window`、`iterations`、`damping`

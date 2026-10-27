@@ -33,7 +33,7 @@
 - [x] 新增独立的可选头文件 `neo/KeywordExtractor.hpp`，提供 TF-IDF 和 TextRank。
 - [x] 复用 `Workspace` 和借用结果，不给核心分词入口增加依赖。
 - [x] 与原版 `KeywordExtractor` / `TextRankExtractor` 的结果做比较测试。
-- [ ] 可选的词性过滤（Python jieba 的 `allowPOS`），基于已有的词性标注。
+- [x] 可选的词性过滤（Python jieba 的 `allowPOS`），基于已有的词性标注。
 
 ### 词典加载与运行时加词
 

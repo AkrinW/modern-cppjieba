@@ -13,6 +13,8 @@
   输入支持 UTF-8 / UTF-16 / UTF-32，结果含每次出现的位置，可通过 `KeywordWorkspace` 复用缓冲。
   分数与 CppJieba `KeywordExtractor` / `TextRankExtractor` 逐位一致，legacy 测试在语料上逐项比较。
   见 [关键词提取](docs/usage.md#关键词提取)。
+- 关键词提取支持按词性过滤：`TfIdfOptions` / `TextRankOptions` 的 `allowed_tags` 对应 Python jieba 的 `allowPOS`，
+  默认不过滤；`Keyword::tag` 返回每个关键词的词性。
 
 ### Changed
 
