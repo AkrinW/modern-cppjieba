@@ -81,4 +81,13 @@ using output_char_type_t =
 template <typename T>
 concept StringViewSource = StringLike<T> && (std::is_lvalue_reference_v<T> || std::ranges::borrowed_range<T>);
 
+namespace detail {
+
+// Parses one loaded dictionary, model, IDF or stop-word text as parse(text, name); name labels diagnostics.
+// The text is borrowed only for the duration of the call.
+template <typename Parse>
+concept SourceTextParser = std::invocable<Parse, std::string_view, std::string_view>;
+
+} // namespace detail
+
 } // namespace neo_cppjieba

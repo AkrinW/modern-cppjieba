@@ -1,6 +1,7 @@
 #pragma once
 
 #include "neo/Fwd.hpp"
+#include "neo/concept/Text.hpp"
 #include "neo/util/FileIO.hpp"
 
 #include <string>
@@ -10,7 +11,7 @@
 namespace neo_cppjieba {
 
 namespace detail {
-template <typename Parse>
+template <SourceTextParser Parse>
 auto with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto);
 } // namespace detail
 
@@ -42,7 +43,7 @@ private:
         : is_file_(is_file), name_(std::move(name)), text_(text) {
     }
 
-    template <typename Parse>
+    template <detail::SourceTextParser Parse>
     friend auto detail::with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto);
 
     bool is_file_;
@@ -53,7 +54,7 @@ private:
 namespace detail {
 
 // Loaders call parse(text, name). File contents live only for the duration of the call.
-template <typename Parse>
+template <SourceTextParser Parse>
 auto with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto) {
     if (source.is_file_) {
         const auto file = read_file(source.name_);

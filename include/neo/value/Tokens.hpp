@@ -77,9 +77,15 @@ private:
     typename std::vector<Position>::const_iterator position_{};
 };
 
+// Results store a borrowed view of the input or the moved-in input string.
+template <typename Storage>
+concept TokenStorage = requires { typename Storage::value_type; } && CharType<typename Storage::value_type>
+                       && (std::same_as<Storage, std::basic_string_view<typename Storage::value_type>>
+                           || std::same_as<Storage, std::basic_string<typename Storage::value_type>>);
+
 // Owns positions and stores either borrowed or owned source text; no cached pointers into owned strings.
 // Tagged results store TaggedPosition records and iterate as TaggedTokenView.
-template <typename Storage, TokenRecord Position = TokenPosition>
+template <TokenStorage Storage, TokenRecord Position = TokenPosition>
 class BasicTokens {
 public:
     using char_type = typename Storage::value_type;

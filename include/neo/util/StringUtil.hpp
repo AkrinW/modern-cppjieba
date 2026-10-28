@@ -4,6 +4,7 @@
 
 #include <array>
 #include <charconv>
+#include <concepts>
 #include <cstddef>
 #include <limits>
 #include <string>
@@ -11,9 +12,13 @@
 #include <system_error>
 namespace neo_cppjieba::detail {
 
+// Dictionary, model and IDF fields hold integers and floating-point numbers, parsed with from_chars.
+template <typename T>
+concept TextNumber = (std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>;
+
 // decode_value is a helper function that decodes a value of type T from a string_view using std::from_chars.
 // it add error checking and throws an exception if parsing fails.
-template <typename T>
+template <TextNumber T>
 constexpr auto decode_value(std::string_view sv) -> T {
     check(!sv.empty(), "cannot parse a value from an empty string");
     auto val = T{};
@@ -23,7 +28,7 @@ constexpr auto decode_value(std::string_view sv) -> T {
 }
 
 // encode_value is a helper function that converts a value of type T to a string using std::to_chars.
-template <typename T>
+template <TextNumber T>
 constexpr auto encode_value(const T &val) -> std::string {
     auto buf = std::array<char, 32>{};
     auto &&[ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), val);
