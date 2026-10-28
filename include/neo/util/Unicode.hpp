@@ -586,9 +586,4 @@ inline auto encode(std::basic_string_view<CharT> source, std::span<const SourceO
 
 } // namespace detail
 
-template <CharType CharT>
-auto WordRange::to_string(std::span<const Rune> runes) const -> std::basic_string<CharT> {
-    return detail::encode<CharT>(slice(runes));
-}
-
 } // namespace neo_cppjieba

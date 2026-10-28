@@ -4,6 +4,7 @@
 #include "neo/concept/Text.hpp"
 #include "neo/util/FileIO.hpp"
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -22,15 +23,15 @@ auto with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto)
 class DictSource {
 public:
     [[nodiscard]] static auto file(std::string_view path) -> DictSource {
-        return DictSource{true, std::string{path}, {}};
+        return DictSource{Kind::File, std::string{path}, {}};
     }
 
     [[nodiscard]] static auto memory(std::string_view text, std::string_view name = "<memory>") -> DictSource {
-        return DictSource{false, std::string{name}, text};
+        return DictSource{Kind::Memory, std::string{name}, text};
     }
 
     [[nodiscard]] auto is_file() const noexcept -> bool {
-        return is_file_;
+        return kind_ == Kind::File;
     }
 
     // The file path, or the diagnostic name of a memory source.
@@ -39,14 +40,16 @@ public:
     }
 
 private:
-    DictSource(bool is_file, std::string name, std::string_view text)
-        : is_file_(is_file), name_(std::move(name)), text_(text) {
+    // Where the text comes from; a named value keeps the factory calls readable.
+    enum class Kind : uint8_t { File, Memory };
+
+    DictSource(Kind kind, std::string name, std::string_view text) : kind_(kind), name_(std::move(name)), text_(text) {
     }
 
     template <detail::SourceTextParser Parse>
     friend auto detail::with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto);
 
-    bool is_file_;
+    Kind kind_;
     std::string name_;
     std::string_view text_;
 };
@@ -56,7 +59,7 @@ namespace detail {
 // Loaders call parse(text, name). File contents live only for the duration of the call.
 template <SourceTextParser Parse>
 auto with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto) {
-    if (source.is_file_) {
+    if (source.is_file()) {
         const auto file = read_file(source.name_);
         return std::forward<Parse>(parse)(file.content(), source.name());
     }

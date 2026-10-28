@@ -2,12 +2,10 @@
 
 #include "neo/Config.hpp"
 #include "neo/Fwd.hpp"
-#include "neo/concept/Text.hpp"
 #include "neo/util/Logging.hpp"
 
 #include <cstddef>
 #include <span>
-#include <string>
 #include <vector>
 
 namespace neo_cppjieba {
@@ -43,6 +41,7 @@ struct UnicodeWithOffset {
 };
 
 /// A half-open range [begin, end) of rune positions within the input.
+/// Value types carry no encoding: encode the selected runes with Utf::encode<CharT>(range.slice(runes)).
 struct WordRange {
     RuneIndex begin;
     RuneIndex end;
@@ -60,10 +59,6 @@ struct WordRange {
     }
 
     constexpr auto operator==(const WordRange &) const noexcept -> bool = default;
-
-    // Include neo/util/Unicode.hpp for this encoding operation; every facade header already does.
-    template <CharType CharT>
-    [[nodiscard]] auto to_string(std::span<const Rune> runes) const -> std::basic_string<CharT>;
 };
 
 } // namespace neo_cppjieba

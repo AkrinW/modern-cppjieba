@@ -241,16 +241,17 @@ TYPED_TEST(UnicodeCharacterTest, ScalarBoundariesRoundTrip) {
     EXPECT_EQ(decode(encoded), runes);
 }
 
-TYPED_TEST(UnicodeCharacterTest, WordRangeEncodesSelectedRunes) {
+TYPED_TEST(UnicodeCharacterTest, WordRangeSliceEncodesSelectedRunes) {
     const auto runes = std::array{U'A', U'\0', U'中', U'😀'};
     const auto range = WordRange{1, 4};
-    EXPECT_EQ(range.to_string<TypeParam>(runes), (std::basic_string<TypeParam>{sample_text<TypeParam>().substr(1)}));
+    EXPECT_EQ(Utf::encode<TypeParam>(range.slice(runes)),
+              (std::basic_string<TypeParam>{sample_text<TypeParam>().substr(1)}));
 }
 
-TYPED_TEST(UnicodeCharacterTest, EmptyWordRangeEncodesToEmptyString) {
+TYPED_TEST(UnicodeCharacterTest, EmptyWordRangeSliceEncodesToEmptyString) {
     const auto runes = std::array{U'中', U'😀'};
     const auto range = WordRange{1, 1};
-    EXPECT_TRUE(range.to_string<TypeParam>(runes).empty());
+    EXPECT_TRUE(Utf::encode<TypeParam>(range.slice(runes)).empty());
 }
 
 TYPED_TEST(UnicodeCharacterTest, InvalidScalarsThrowConfiguredException) {

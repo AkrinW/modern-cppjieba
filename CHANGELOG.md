@@ -27,6 +27,7 @@
 - **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 只持有 IDF 和停用词，构造函数去掉选项参数；
   `TfIdfOptions`、`TextRankOptions` 改为 `extract` / `extract_into` 在 `top_n` 之后的参数，按 `const &` 传入且不被保存，
   `options()` 移除。`TextRankOptions::damping` 改为在每次调用入口检查。见 [关键词提取](docs/usage.md#关键词提取)。
+- **不兼容**：移除 `WordRange::to_string`，值类型不再携带编码操作；改用 `Utf::encode<CharT>(range.slice(runes))`。
 - **不兼容**：头文件按角色重新组织。`include/neo/` 一级目录只保留门面 `Jieba.hpp`、`KeywordExtractor.hpp`、
   `Utf.hpp`（原 `Unicode.hpp`），编译期配置 `Config.hpp`，以及新增的前向声明头 `Fwd.hpp`；其余头文件按角色移入
   `value/`、`options/`、`workspace/`、`concept/`、`resource/`、`algorithm/`、`util/`，原 `detail/` 目录取消，
