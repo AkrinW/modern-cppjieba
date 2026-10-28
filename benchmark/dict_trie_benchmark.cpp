@@ -15,6 +15,7 @@
 
 // ── Neo DictTrie (neo_cppjieba namespace) ──
 #include "neo/Utf.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
 
 #include "BenchmarkUtils.hpp"
@@ -189,7 +190,7 @@ static auto bench_neo(const std::string &dict_path, const std::vector<std::strin
     namespace neo = neo_cppjieba;
 
     // Build DictTrie (not timed)
-    auto dict_trie = neo::detail::DictTrie{dict_path};
+    auto dict_trie = neo::detail::DictTrie{dict_path, "", neo::detail::UserWordWeightOption::WordWeightMedian};
 
     // ── Pre-decode all query keys (excluded from timing) ─────────────────
     auto n = words.size();

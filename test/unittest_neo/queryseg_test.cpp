@@ -4,6 +4,7 @@
 #include "neo/Config.hpp"
 #include "neo/algorithm/QuerySegment.hpp"
 #include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
@@ -63,7 +64,7 @@ protected:
 } // namespace
 
 TEST_F(QuerySegmentHmmWordsTest, IncludesDictionarySubwordsOutsideTheSelectedMpPath) {
-    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{dictionary_path(), "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto runes = decode(std::string_view{"abcd"});
     ASSERT_EQ(cut<QuerySegment<false>>(dict, model, runes), (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}, {3, 4}}));
@@ -75,7 +76,7 @@ TEST_F(QuerySegmentHmmWordsTest, IncludesDictionarySubwordsOutsideTheSelectedMpP
 }
 
 TEST_F(QuerySegmentHmmWordsTest, PreservesSubwordRuneOffsetsAfterSeparators) {
-    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{dictionary_path(), "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto runes = decode(std::string_view{"前𠮷， abcd后"});
     const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
@@ -89,7 +90,7 @@ TEST_F(QuerySegmentHmmWordsTest, PreservesSubwordRuneOffsetsAfterSeparators) {
 
 TEST_F(QuerySegmentHmmWordsTest, OmitsMissingSubwordsWhenLongerDictionaryMatchesExist) {
     ASSERT_NO_FATAL_FAILURE(write_dictionary("ab 1 n\nabc 1 n\nabcd 1 n\nbcd 1 n\ncdef 1 n\n"));
-    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{dictionary_path(), "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto runes = decode(std::string_view{"abcd"});
     const auto result = cut<QuerySegment<true>>(dict, model, runes);
@@ -99,7 +100,7 @@ TEST_F(QuerySegmentHmmWordsTest, OmitsMissingSubwordsWhenLongerDictionaryMatches
 }
 
 TEST_F(QuerySegmentHmmWordsTest, ReusedScratchPreservesWordsAcrossDifferentInputsAndModes) {
-    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{dictionary_path(), "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto long_input = decode("abcd");
     const auto short_input = decode("dcb");
@@ -122,7 +123,7 @@ TEST_F(QuerySegmentHmmWordsTest, ReusedScratchPreservesWordsAcrossDifferentInput
 TEST_F(QuerySegmentHmmWordsTest, NonBmpSubwordsUseRuneOffsetsAfterASeparator) {
     ASSERT_NO_FATAL_FAILURE(
         write_dictionary("𠮷甲😀乙 100000 n\n𠮷甲 1 n\n甲😀 1 n\n😀乙 1 n\n𠮷甲😀 1 n\n甲😀乙 1 n\n"));
-    const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{dictionary_path(), "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto runes = decode("前，𠮷甲😀乙");
     const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {3, 5}, {4, 6}, {2, 5}, {3, 6}, {2, 6}};
@@ -132,7 +133,7 @@ TEST_F(QuerySegmentHmmWordsTest, NonBmpSubwordsUseRuneOffsetsAfterASeparator) {
 }
 
 TEST(QuerySegmentNeoTest, HmmWordsSurroundingDictionaryWordsPreserveOrder) {
-    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto runes = decode("杭研中国科学院杭研");
     const auto result = cut<QuerySegment<true>>(dict, model, runes);
@@ -143,7 +144,7 @@ TEST(QuerySegmentNeoTest, HmmWordsSurroundingDictionaryWordsPreserveOrder) {
 }
 
 TEST(QuerySegmentNeoTest, EmptyInput) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = Unicode{};
     auto result = cut<QuerySegment<>>(dict, model, runes);
@@ -151,7 +152,7 @@ TEST(QuerySegmentNeoTest, EmptyInput) {
 }
 
 TEST(QuerySegmentNeoTest, SingleChar) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"我"});
     auto result = cut<QuerySegment<>>(dict, model, runes);
@@ -161,7 +162,7 @@ TEST(QuerySegmentNeoTest, SingleChar) {
 }
 
 TEST(QuerySegmentNeoTest, SpanSubrangeUsesLocalOffsets) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"甲中国科学院乙"});
     auto span = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
@@ -175,7 +176,7 @@ TEST(QuerySegmentNeoTest, SpanSubrangeUsesLocalOffsets) {
 }
 
 TEST(QuerySegmentNeoTest, TwoCharWord) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"亲口交代"});
     auto result = cut<QuerySegment<>>(dict, model, runes);
@@ -184,7 +185,7 @@ TEST(QuerySegmentNeoTest, TwoCharWord) {
 }
 
 TEST(QuerySegmentNeoTest, ClassicSentence) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"小明硕士毕业于中国科学院计算所，后在日本京都大学深造"});
     auto result = cut<QuerySegment<>>(dict, model, runes);
@@ -195,7 +196,7 @@ TEST(QuerySegmentNeoTest, ClassicSentence) {
 }
 
 TEST(QuerySegmentNeoTest, SubWordExtraction) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"他心理健康"});
     auto result = cut<QuerySegment<>>(dict, model, runes);
@@ -204,7 +205,7 @@ TEST(QuerySegmentNeoTest, SubWordExtraction) {
 }
 
 TEST(QuerySegmentNeoTest, ChineseAcademy) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"中国科学院"});
     auto result = cut<QuerySegment<>>(dict, model, runes);
@@ -213,7 +214,7 @@ TEST(QuerySegmentNeoTest, ChineseAcademy) {
 }
 
 TEST(QuerySegmentNeoTest, UnicodeOverloadWithSeparators) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto sentence = std::string_view{"中国科学院，后在日本京都大学深造"};
     auto runes = decode(sentence);
@@ -226,7 +227,7 @@ TEST(QuerySegmentNeoTest, UnicodeOverloadWithSeparators) {
 }
 
 TEST(QuerySegmentNeoTest, NoHmm) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"中国科学院"});
     auto result_hmm = cut<QuerySegment<>>(dict, model, runes);
@@ -236,7 +237,7 @@ TEST(QuerySegmentNeoTest, NoHmm) {
 }
 
 TEST(QuerySegmentNeoTest, ReuseDagMatchesRequery) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"小明硕士毕业于中国科学院计算所，后在日本京都大学深造"});
 
@@ -251,7 +252,7 @@ TEST(QuerySegmentNeoTest, ReuseDagMatchesRequery) {
 }
 
 TEST(QuerySegmentNeoTest, ReuseDagMatchesRequeryWithoutHmm) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"他来到了网易杭研大厦"});
 

@@ -4,6 +4,7 @@
 #include "neo/Config.hpp"
 #include "neo/algorithm/MPSegment.hpp"
 #include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/util/Unicode.hpp"
 #include "neo/workspace/SegmentScratch.hpp"
@@ -22,14 +23,14 @@ using namespace neo_cppjieba::detail;
 inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
 
 TEST(MPSegmentTest, EmptyInput) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = Unicode{};
     auto result = cut<MPSegment>(dict, unused_model(), runes);
     EXPECT_TRUE(result.empty());
 }
 
 TEST(MPSegmentTest, SingleChar) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"我"});
     auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
@@ -38,7 +39,7 @@ TEST(MPSegmentTest, SingleChar) {
 }
 
 TEST(MPSegmentTest, ClassicSentence) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto sentence = std::string_view{"我来自北京邮电大学"};
     auto runes = decode(sentence);
     auto result = cut<MPSegment>(dict, unused_model(), runes);
@@ -49,7 +50,7 @@ TEST(MPSegmentTest, ClassicSentence) {
 }
 
 TEST(MPSegmentTest, NanjingBridge) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"南京市长江大桥"});
     auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
@@ -59,7 +60,7 @@ TEST(MPSegmentTest, NanjingBridge) {
 }
 
 TEST(MPSegmentTest, HunanChangsha) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"湖南长沙市天心区"});
     auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
@@ -68,7 +69,7 @@ TEST(MPSegmentTest, HunanChangsha) {
 }
 
 TEST(MPSegmentTest, SeparatorsAndPunctuation) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto sentence = std::string_view{"我来自北京邮电大学。"};
     auto runes = decode(sentence);
     auto result = cut<MPSegment>(dict, unused_model(), runes);
@@ -79,7 +80,7 @@ TEST(MPSegmentTest, SeparatorsAndPunctuation) {
 }
 
 TEST(MPSegmentTest, AppendsIndependentSegmentsWithRuneOffsets) {
-    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode(std::string_view{"甲 \t南京市长江大桥，，𠮷😀\n的了是。乙"});
     const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
     const auto result = cut<MPSegment>(dict, unused_model(), input);
@@ -102,7 +103,7 @@ TEST(MPSegmentTest, AppendsIndependentSegmentsWithRuneOffsets) {
 }
 
 TEST(MPSegmentTest, PreservesExistingOutputWhenAppendingAtTheRuneOffsetLimit) {
-    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode(std::string_view{"𠮷😀"});
     const auto pos = std::numeric_limits<RuneIndex>::max() - RuneIndex{2};
     auto result = std::vector<WordRange>{{7, 8}};
@@ -113,7 +114,7 @@ TEST(MPSegmentTest, PreservesExistingOutputWhenAppendingAtTheRuneOffsetLimit) {
 }
 
 TEST(MPSegmentTest, MixedAsciiAndChinese) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"B超 T恤"});
     auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
@@ -122,7 +123,7 @@ TEST(MPSegmentTest, MixedAsciiAndChinese) {
 }
 
 TEST(MPSegmentTest, UnicodeEmojiAndPunctuation) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"天气很好，🙋 我们去郊游。"});
     auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
@@ -131,7 +132,7 @@ TEST(MPSegmentTest, UnicodeEmojiAndPunctuation) {
 }
 
 TEST(MPSegmentTest, WordRangeContiguous) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"小明硕士毕业于中国科学院计算所"});
     auto result = cut<MPSegment>(dict, unused_model(), runes);
 
@@ -145,7 +146,7 @@ TEST(MPSegmentTest, WordRangeContiguous) {
 }
 
 TEST(MPSegmentTest, AllSingleChars) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"的了是"});
     auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
@@ -157,7 +158,7 @@ TEST(MPSegmentTest, AllSingleChars) {
 }
 
 TEST(MPSegmentTest, ReusedOutputReplacesPreviousWordsIncludingEmptyInput) {
-    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto scratch = detail::SegmentScratch{};
     auto words = std::vector<WordRange>{{7, 8}};
 

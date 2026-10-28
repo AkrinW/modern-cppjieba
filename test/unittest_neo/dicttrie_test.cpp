@@ -7,6 +7,7 @@
 #include "neo/algorithm/MixSegment.hpp"
 #include "neo/algorithm/QuerySegment.hpp"
 #include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/Dag.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
@@ -74,46 +75,42 @@ protected:
 TEST_F(DictTrieInputTest, RejectsMainDictionaryLinesWithMissingFields) {
     for (const auto line : {"词\n", "词 10\n"}) {
         ASSERT_NO_FATAL_FAILURE(write_file("main.dict", line));
-        EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
+        EXPECT_THROW((DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian}),
                      LogConfig::Exception);
     }
 }
 
 TEST_F(DictTrieInputTest, RejectsMainDictionaryLinesWithExtraFields) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词 10 n extra\n"));
-    EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
-                 LogConfig::Exception);
+    EXPECT_THROW((DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian}), LogConfig::Exception);
 }
 
 TEST_F(DictTrieInputTest, RejectsNonPositiveMainFrequenciesEvenWhenSumIsPositive) {
     for (const auto content : {"词 0 n\n基础 20 n\n", "词 -1 n\n基础 20 n\n"}) {
         ASSERT_NO_FATAL_FAILURE(write_file("main.dict", content));
-        EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
+        EXPECT_THROW((DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian}),
                      LogConfig::Exception);
     }
 }
 
 TEST_F(DictTrieInputTest, RejectsMainFrequencyWithTrailingCharacters) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词 10oops n\n基础 20 n\n"));
-    EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
-                 LogConfig::Exception);
+    EXPECT_THROW((DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian}), LogConfig::Exception);
 }
 
 TEST_F(DictTrieInputTest, RejectsEmptyMainFrequency) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词  n\n基础 20 n\n"));
-    EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
-                 LogConfig::Exception);
+    EXPECT_THROW((DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian}), LogConfig::Exception);
 }
 
 TEST_F(DictTrieInputTest, RejectsEmptyMainDictionary) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", ""));
-    EXPECT_THROW((DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian}),
-                 LogConfig::Exception);
+    EXPECT_THROW((DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian}), LogConfig::Exception);
 }
 
 TEST_F(DictTrieInputTest, AcceptsEmptyTagAndWindowsLineEndings) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "主词 10 \r\n\r\n基础 20 n\r\n"));
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto word = trie.find("主词");
     ASSERT_TRUE(word.has_value());
     EXPECT_TRUE(word.tag.empty());
@@ -124,30 +121,26 @@ TEST_F(DictTrieInputTest, AcceptsEmptyTagAndWindowsLineEndings) {
 
 TEST_F(DictTrieInputTest, RejectsExtraUserDictionaryFields) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 5 n extra\n"));
-    EXPECT_THROW(
-        (DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian}),
-        LogConfig::Exception);
+    EXPECT_THROW((DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian}),
+                 LogConfig::Exception);
 }
 
 TEST_F(DictTrieInputTest, RejectsNegativeUserFrequency) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 -1 n\n"));
-    EXPECT_THROW(
-        (DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian}),
-        LogConfig::Exception);
+    EXPECT_THROW((DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian}),
+                 LogConfig::Exception);
 }
 
 TEST_F(DictTrieInputTest, RejectsUserFrequencyWithTrailingCharacters) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 5oops n\n"));
-    EXPECT_THROW(
-        (DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian}),
-        LogConfig::Exception);
+    EXPECT_THROW((DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian}),
+                 LogConfig::Exception);
 }
 
 TEST_F(DictTrieInputTest, ZeroUserFrequencyUsesDefaultWeight) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 0 n\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
-    const auto word = trie.find("新词");
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
+    const auto word = trie.find(decode("新词"));
     ASSERT_TRUE(word.has_value());
     EXPECT_FLOAT_EQ(word.weight, trie.user_word_default_weight());
 }
@@ -155,8 +148,8 @@ TEST_F(DictTrieInputTest, ZeroUserFrequencyUsesDefaultWeight) {
 TEST_F(DictTrieInputTest, RuntimeWordWithFreqMatchesUserDictionaryEntry) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 5 nz\n"));
     const auto loaded =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
-    auto edited = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+        DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
+    auto edited = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
 
     edited.add_word_with_freq(decode(std::string_view{"新词"}), 5, PosTag{"nz"});
 
@@ -168,7 +161,7 @@ TEST_F(DictTrieInputTest, RuntimeWordWithFreqMatchesUserDictionaryEntry) {
 }
 
 TEST_F(DictTrieInputTest, RuntimeWordWithoutFreqUsesDefaultWeight) {
-    auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
 
     trie.add_word(decode(std::string_view{"新词"}), PosTag{"n"});
 
@@ -179,7 +172,7 @@ TEST_F(DictTrieInputTest, RuntimeWordWithoutFreqUsesDefaultWeight) {
 }
 
 TEST_F(DictTrieInputTest, RuntimeWordRejectsNonPositiveFrequencyWithoutChange) {
-    auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
 
     EXPECT_THROW(trie.add_word_with_freq(decode(std::string_view{"新词"}), 0, PosTag{"n"}), LogConfig::Exception);
     EXPECT_THROW(trie.add_word_with_freq(decode(std::string_view{"新词"}), -1, PosTag{"n"}), LogConfig::Exception);
@@ -187,7 +180,7 @@ TEST_F(DictTrieInputTest, RuntimeWordRejectsNonPositiveFrequencyWithoutChange) {
 }
 
 TEST_F(DictTrieInputTest, RuntimeEditsRejectEmptyWords) {
-    auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
 
     EXPECT_THROW(trie.add_word(Unicode{}, PosTag{"n"}), LogConfig::Exception);
     EXPECT_THROW(trie.add_word_with_freq(Unicode{}, 5, PosTag{"n"}), LogConfig::Exception);
@@ -196,8 +189,7 @@ TEST_F(DictTrieInputTest, RuntimeEditsRejectEmptyWords) {
 
 TEST_F(DictTrieInputTest, RemoveWordDoesNotRestoreMainDictionaryWeight) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "主词 3 v\n"));
-    auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
 
     EXPECT_TRUE(trie.remove_word(decode(std::string_view{"主词"})));
 
@@ -207,7 +199,7 @@ TEST_F(DictTrieInputTest, RemoveWordDoesNotRestoreMainDictionaryWeight) {
 }
 
 TEST_F(DictTrieInputTest, SingleRuneRuntimeWordTogglesUserWordMarker) {
-    auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto word = decode(std::string_view{"龙"});
 
     trie.add_word(word, PosTag{"n"});
@@ -218,7 +210,7 @@ TEST_F(DictTrieInputTest, SingleRuneRuntimeWordTogglesUserWordMarker) {
 }
 
 TEST_F(DictTrieInputTest, CloneKeepsRuntimeEditsIndependent) {
-    auto original = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto original = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto word = decode(std::string_view{"龙"});
     original.add_word(word, PosTag{"n"});
 
@@ -233,7 +225,7 @@ TEST_F(DictTrieInputTest, CloneKeepsRuntimeEditsIndependent) {
 }
 
 TEST_F(DictTrieInputTest, RejectsUnknownWeightOptionBeforeOpeningDictionary) {
-    const auto invalid = static_cast<DictTrie::UserWordWeightOption>(255);
+    const auto invalid = static_cast<UserWordWeightOption>(255);
     try {
         const auto trie = DictTrie{file_path("missing.dict"), "", invalid};
         FAIL() << "Expected an invalid weight option error";
@@ -243,7 +235,7 @@ TEST_F(DictTrieInputTest, RejectsUnknownWeightOptionBeforeOpeningDictionary) {
 }
 
 TEST_F(DictTrieInputTest, MatchTraversalPropagatesVisitorExceptions) {
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("主词");
     const auto fail = [](RuneIndex, const DictUnit &) {
         throw std::runtime_error{"visitor failure"};
@@ -253,13 +245,13 @@ TEST_F(DictTrieInputTest, MatchTraversalPropagatesVisitorExceptions) {
 }
 
 TEST_F(DictTrieInputTest, RejectsUnknownWeightOption) {
-    const auto invalid = static_cast<DictTrie::UserWordWeightOption>(255);
+    const auto invalid = static_cast<UserWordWeightOption>(255);
     EXPECT_THROW((DictTrie{file_path("main.dict"), "", invalid}), LogConfig::Exception);
 }
 
 TEST_F(DictTrieInputTest, SingleEntryDictionaryRetainsItsZeroWeightWord) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词条 10 n\n"));
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto word = trie.find("词条");
     ASSERT_TRUE(word.has_value());
     EXPECT_FLOAT_EQ(word.weight, 0.0f);
@@ -271,7 +263,7 @@ TEST_F(DictTrieInputTest, SingleEntryDictionaryRetainsItsZeroWeightWord) {
 
 TEST_F(DictTrieInputTest, LastMainDictionaryEntryWins) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词条 10 n\n词条 20 v\n"));
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto word = trie.find("词条");
     ASSERT_TRUE(word.has_value());
     EXPECT_FLOAT_EQ(word.weight, std::log(20.0f / 30.0f));
@@ -281,9 +273,8 @@ TEST_F(DictTrieInputTest, LastMainDictionaryEntryWins) {
 
 TEST_F(DictTrieInputTest, UserDictionaryCanOverrideMainWordWithZeroWeight) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "主词 30 v\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
-    const auto word = trie.find("主词");
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
+    const auto word = trie.find(decode("主词"));
     ASSERT_TRUE(word.has_value());
     EXPECT_FLOAT_EQ(word.weight, 0.0f);
     EXPECT_EQ(word.tag, PosTag{"v"});
@@ -292,9 +283,8 @@ TEST_F(DictTrieInputTest, UserDictionaryCanOverrideMainWordWithZeroWeight) {
 
 TEST_F(DictTrieInputTest, LastUserDictionaryEntryWins) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 5 n\n新词 30 v\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
-    const auto word = trie.find("新词");
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
+    const auto word = trie.find(decode("新词"));
     ASSERT_TRUE(word.has_value());
     EXPECT_FLOAT_EQ(word.weight, 0.0f);
     EXPECT_EQ(word.tag, PosTag{"v"});
@@ -304,15 +294,14 @@ TEST_F(DictTrieInputTest, LastUserDictionaryEntryWins) {
 TEST_F(DictTrieInputTest, MpSegmentationUsesZeroWeightWithoutFallbackPenalty) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲 9 n\n乙 9 n\n稀 1 n\n"));
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 19 n\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
     const auto words = cut<MPSegment>(trie, unused_model(), runes);
     EXPECT_EQ(to_strings(runes, words), (std::vector<std::string>{"甲乙"}));
 }
 
 TEST_F(DictTrieInputTest, MpSegmentationStillEmitsUnknownRunes) {
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("𠮷外");
     const auto words = cut<MPSegment>(trie, unused_model(), runes);
     EXPECT_EQ(to_strings(runes, words), (std::vector<std::string>{"𠮷", "外"}));
@@ -320,7 +309,7 @@ TEST_F(DictTrieInputTest, MpSegmentationStillEmitsUnknownRunes) {
 
 TEST_F(DictTrieInputTest, SingleEntryWordSurvivesAllSegmentationModes) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲乙 1 n\n"));
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{DICT_DIR "/hmm_model.utf8"};
     const auto runes = decode("𠮷，甲乙甲乙。");
     const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {4, 6}, {6, 7}};
@@ -336,8 +325,7 @@ TEST_F(DictTrieInputTest, SingleEntryWordSurvivesAllSegmentationModes) {
 TEST_F(DictTrieInputTest, MpSegmentationKeepsLowFrequencyUserWordWithSingleEntryMainDictionary) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "主词 10 n\n"));
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 1 n\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
     EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲乙"}));
 }
@@ -345,8 +333,7 @@ TEST_F(DictTrieInputTest, MpSegmentationKeepsLowFrequencyUserWordWithSingleEntry
 TEST_F(DictTrieInputTest, MpSegmentationPrefersDictionaryWordOverUnknownRunesOnEqualScores) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "主词 2 n\n基础 2 n\n"));
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 1 n\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
     EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲乙"}));
 }
@@ -354,8 +341,7 @@ TEST_F(DictTrieInputTest, MpSegmentationPrefersDictionaryWordOverUnknownRunesOnE
 TEST_F(DictTrieInputTest, MpSegmentationPreservesEqualScoreOrderBetweenKnownWords) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲 2 n\n乙 2 n\n"));
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 1 n\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
     EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲", "乙"}));
 }
@@ -363,7 +349,7 @@ TEST_F(DictTrieInputTest, MpSegmentationPreservesEqualScoreOrderBetweenKnownWord
 TEST_F(DictTrieInputTest, MpSegmentationSelectsHigherProbabilityWhenFloatScoresWouldTie) {
     // The competing frequency products differ by one; float weights collapse their scores into a tie.
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲 9999 n\n乙丙 10001 n\n甲乙 10000 n\n丙 10000 n\n"));
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙丙");
 
     EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲乙", "丙"}));
@@ -371,14 +357,13 @@ TEST_F(DictTrieInputTest, MpSegmentationSelectsHigherProbabilityWhenFloatScoresW
 
 TEST_F(DictTrieInputTest, MpSegmentationAcceptsPositiveUserWordWeights) {
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "甲乙 60 n\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
     EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲乙"}));
 }
 
 TEST_F(DictTrieInputTest, MpSegmentationPreservesOffsetsAtWordRangeLimit) {
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("外，𠮷");
     constexpr auto limit = std::numeric_limits<RuneIndex>::max();
     auto words = std::vector<WordRange>{};
@@ -389,7 +374,7 @@ TEST_F(DictTrieInputTest, MpSegmentationPreservesOffsetsAtWordRangeLimit) {
 
 TEST_F(DictTrieInputTest, MatchTraversalReturnsPrefixesInIncreasingRuneEndOrder) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "𠮷 1 n\n𠮷甲 2 v\n𠮷甲乙 3 nt\n"));
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("外𠮷甲乙外");
     auto ends = std::vector<RuneIndex>{};
     auto values = std::vector<DictUnit>{};
@@ -410,7 +395,7 @@ TEST_F(DictTrieInputTest, MatchTraversalReturnsPrefixesInIncreasingRuneEndOrder)
 
 TEST_F(DictTrieInputTest, MatchTraversalSkipsNonWordPrefixesAndKeepsZeroWeights) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲乙 10 n\n"));
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
     auto ends = std::vector<RuneIndex>{};
     trie.for_each_match_from(runes, 0, [&](RuneIndex end, const DictUnit &word) {
@@ -422,7 +407,7 @@ TEST_F(DictTrieInputTest, MatchTraversalSkipsNonWordPrefixesAndKeepsZeroWeights)
 }
 
 TEST_F(DictTrieInputTest, MatchTraversalDoesNotEmitUnknownRuneFallbacks) {
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("𠮷外");
     auto matches = 0;
     trie.for_each_match_from(runes, 0, [&](RuneIndex, const DictUnit &) { ++matches; });
@@ -431,7 +416,7 @@ TEST_F(DictTrieInputTest, MatchTraversalDoesNotEmitUnknownRuneFallbacks) {
 
 TEST_F(DictTrieInputTest, MatchTraversalStopsAtMissingContinuation) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "甲 1 n\n甲乙 1 n\n"));
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲外乙");
     auto ends = std::vector<RuneIndex>{};
     trie.for_each_match_from(runes, 0, [&](RuneIndex end, const DictUnit &) { ends.push_back(end); });
@@ -439,7 +424,7 @@ TEST_F(DictTrieInputTest, MatchTraversalStopsAtMissingContinuation) {
 }
 
 TEST_F(DictTrieInputTest, MatchTraversalEmitsNothingAtTheInputEnd) {
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     auto matches = 0;
     const auto emit = [&](RuneIndex, const DictUnit &) {
         ++matches;
@@ -453,8 +438,7 @@ TEST_F(DictTrieInputTest, MatchTraversalEmitsNothingAtTheInputEnd) {
 TEST_F(DictTrieInputTest, MixUserSingleWordBoundsHmmRunsBetweenDictionaryWords) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "北京 100 n\n上海 100 n\n"));
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "研 1 n\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{DICT_DIR "/hmm_model.utf8"};
     const auto runes = decode("北京杭研杭上海");
     const auto result = cut<MixSegment<true>>(trie, model, runes);
@@ -466,8 +450,7 @@ TEST_F(DictTrieInputTest, MixUserSingleWordBoundsHmmRunsBetweenDictionaryWords) 
 TEST_F(DictTrieInputTest, QueryDagIncludesFinalBigramAndTrigramAfterASeparator) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "abcd 1000 eng\n"));
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "ab 1 eng\nbc 1 eng\ncd 1 eng\nabc 1 eng\nbcd 1 eng\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{DICT_DIR "/hmm_model.utf8"};
     const auto runes = decode("𠮷，abcd");
     const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {3, 5}, {4, 6}, {2, 5}, {3, 6}, {2, 6}};
@@ -479,8 +462,7 @@ TEST_F(DictTrieInputTest, QueryDagIncludesFinalBigramAndTrigramAfterASeparator) 
 TEST_F(DictTrieInputTest, QueryHmmIncludesFinalBigramAndTrigramAfterASeparator) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "a 100 eng\nb 100 eng\nc 100 eng\nd 100 eng\n"));
     ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "ab 1 eng\nbc 1 eng\ncd 1 eng\nabc 1 eng\nbcd 1 eng\n"));
-    const auto trie =
-        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), file_path("user.dict"), UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{DICT_DIR "/hmm_model.utf8"};
     const auto runes = decode("𠮷，abcd");
     const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {3, 5}, {4, 6}, {2, 5}, {3, 6}, {2, 6}};
@@ -491,7 +473,7 @@ TEST_F(DictTrieInputTest, QueryHmmIncludesFinalBigramAndTrigramAfterASeparator) 
 // ─── Construction ────────────────────────────────────────────────────────────
 
 TEST(DictTrieTest, ConstructMainDictOnly) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     // smoke test: the trie should be non-empty and have sensible statistics
     EXPECT_LT(trie.min_weight(), 0.0f);
     EXPECT_LT(trie.max_weight(), 0.0f);
@@ -499,45 +481,45 @@ TEST(DictTrieTest, ConstructMainDictOnly) {
 }
 
 TEST(DictTrieTest, ConstructWithUserDict) {
-    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMedian};
     EXPECT_GT(trie.freq_sum(), 0.0f);
 }
 
 // ─── Weight statistics ───────────────────────────────────────────────────────
 
 TEST(DictTrieTest, WeightOrdering) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     // min ≤ median ≤ max  (all negative since log(freq/sum) < 0)
     EXPECT_LE(trie.min_weight(), trie.median_weight());
     EXPECT_LE(trie.median_weight(), trie.max_weight());
 }
 
 TEST(DictTrieTest, MinWeightValue) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     // The old test checked: GetMinWeight() ≈ -15.6479  (within 0.001)
     // float precision: allow slightly wider tolerance
     EXPECT_NEAR(trie.min_weight(), -15.6479f, 0.01f);
 }
 
 TEST(DictTrieTest, DefaultWeightIsMedian) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     EXPECT_FLOAT_EQ(trie.user_word_default_weight(), trie.median_weight());
 }
 
 TEST(DictTrieTest, UserWordWeightMin) {
-    auto trie = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMin};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMin};
     EXPECT_FLOAT_EQ(trie.user_word_default_weight(), trie.min_weight());
 }
 
 TEST(DictTrieTest, UserWordWeightMax) {
-    auto trie = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMax};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMax};
     EXPECT_FLOAT_EQ(trie.user_word_default_weight(), trie.max_weight());
 }
 
 // ─── Find: main dictionary ──────────────────────────────────────────────────
 
 TEST(DictTrieTest, FindExistingWord) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
 
     auto unit = trie.find("来到");
     ASSERT_TRUE(unit.has_value());
@@ -546,7 +528,7 @@ TEST(DictTrieTest, FindExistingWord) {
 }
 
 TEST(DictTrieTest, FindMultiCharWord) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
 
     auto unit = trie.find("清华大学");
     ASSERT_TRUE(unit.has_value());
@@ -555,7 +537,7 @@ TEST(DictTrieTest, FindMultiCharWord) {
 }
 
 TEST(DictTrieTest, FindSingleChar) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
 
     auto unit = trie.find("的");
     ASSERT_TRUE(unit.has_value());
@@ -563,14 +545,14 @@ TEST(DictTrieTest, FindSingleChar) {
 }
 
 TEST(DictTrieTest, FindNonExistentWord) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
 
     auto unit = trie.find("不存在的词xyz");
     EXPECT_FALSE(unit.has_value());
 }
 
 TEST(DictTrieTest, FindEmptyString) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     EXPECT_FALSE(trie.find("").has_value());
 }
 
@@ -578,7 +560,7 @@ TEST(DictTrieTest, FindEmptyString) {
 
 TEST(DictTrieTest, FindUserDictWordNoFreqNoTag) {
     // userdict.utf8 line: "云计算"  (1 field → default weight, empty tag)
-    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMedian};
 
     auto unit = trie.find("云计算");
     ASSERT_TRUE(unit.has_value());
@@ -589,7 +571,7 @@ TEST(DictTrieTest, FindUserDictWordNoFreqNoTag) {
 
 TEST(DictTrieTest, FindUserDictWordWithTag) {
     // userdict.utf8 line: "蓝翔 nz"  (2 fields → default weight, tag = "nz")
-    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMedian};
 
     auto unit = trie.find("蓝翔");
     ASSERT_TRUE(unit.has_value());
@@ -599,7 +581,7 @@ TEST(DictTrieTest, FindUserDictWordWithTag) {
 
 TEST(DictTrieTest, FindUserDictWordWithFreqAndTag) {
     // userdict.utf8 line: "区块链 10 nz"  (3 fields → freq=10, tag="nz")
-    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMedian};
 
     auto unit = trie.find("区块链");
     ASSERT_TRUE(unit.has_value());
@@ -610,7 +592,7 @@ TEST(DictTrieTest, FindUserDictWordWithFreqAndTag) {
 }
 
 TEST(DictTrieTest, UserDictMaxWeight) {
-    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, DictTrie::UserWordWeightOption::WordWeightMax};
+    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMax};
 
     // "云计算" has no freq → should use max weight as default
     auto unit = trie.find("云计算");
@@ -622,7 +604,7 @@ TEST(DictTrieTest, UserDictMaxWeight) {
 
 TEST(DictTrieTest, UserDictSingleChineseWord) {
     // userdict.utf8 contains "A" and "B" as single-char entries
-    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMedian};
 
     // 'A' and 'B' are single characters in the user dict
     EXPECT_TRUE(trie.is_user_dict_single_chinese_word(U'A'));
@@ -637,7 +619,7 @@ TEST(DictTrieTest, UserDictSingleChineseWord) {
 // ─── Find with rune span ────────────────────────────────────────────────────
 
 TEST(DictTrieTest, FindByRuneSpan) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
 
     auto runes = decode(std::string_view{"来到"});
     auto unit = trie.find(std::span<const Rune>{runes});
@@ -648,7 +630,7 @@ TEST(DictTrieTest, FindByRuneSpan) {
 // ─── Find DAG ───────────────────────────────────────────────────────────────
 
 TEST(DictTrieTest, FindDag) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto text = std::string_view{"来到华中科技大学"};
     auto runes = decode(text);
     auto dag = trie.trie().find_dag(runes);
@@ -812,7 +794,7 @@ TEST(DagTest, CustomSeparator) {
 // ─── Dag: to_string with real dictionary ─────────────────────────────────────
 
 TEST(DagTest, ToStringWithDict) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto text = std::string_view{"来到北京清华大学"};
     auto runes = decode(text);
     auto dag = trie.trie().find_dag(runes);
@@ -826,7 +808,7 @@ TEST(DagTest, ToStringWithDict) {
 }
 
 TEST(DagTest, ToStringHeSayJump) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto text = std::string_view{"他来到了网易杭研大厦"};
     auto runes = decode(text);
     auto dag = trie.trie().find_dag(runes);
@@ -837,7 +819,7 @@ TEST(DagTest, ToStringHeSayJump) {
 }
 
 TEST(DagTest, ToStringPrint) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto text = std::string_view{"南京市长江大桥"};
     auto runes = decode(text);
     auto dag = trie.trie().find_dag(runes);
@@ -851,14 +833,14 @@ TEST(DagTest, ToStringPrint) {
 // ─── Trie accessor ──────────────────────────────────────────────────────────
 
 TEST(DictTrieTest, TrieAccessor) {
-    auto trie = DictTrie{DICT_FILE};
+    auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto &t = trie.trie();
     EXPECT_FALSE(t.empty());
     EXPECT_GT(t.node_count(), 0u);
 }
 
 TEST_F(DictTrieInputTest, ReusedDagReplacesPreviousMatchesIncludingEmptyInput) {
-    const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     auto dag = Dag{};
     for (const auto text : {"甲乙甲乙甲乙", "外", "", "甲乙"}) {
         const auto runes = decode(std::string_view{text});

@@ -2,6 +2,7 @@
 
 #include "neo/Config.hpp"
 #include "neo/concept/Text.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/Dag.hpp"
 #include "neo/resource/Trie.hpp"
 #include "neo/third_party/gtl.hpp"
@@ -26,16 +27,14 @@ namespace neo_cppjieba::detail {
 
 class DictTrie {
 public:
-    enum class UserWordWeightOption : uint8_t { WordWeightMin, WordWeightMedian, WordWeightMax };
-
     /// Construct from a main dictionary file and an optional user dictionary file.
     ///
     /// @param dict_path             path to the main dictionary (3-column: "word freq tag")
     /// @param user_dict_path        path to a single user dictionary file (empty = none)
     /// @param user_word_weight_opt  strategy for default weight of user words without freq
-    explicit DictTrie(std::string_view dict_path, std::string_view user_dict_path = "",
-                      UserWordWeightOption user_word_weight_opt = UserWordWeightOption::WordWeightMedian) {
-        check_weight_option(user_word_weight_opt);
+    explicit DictTrie(std::string_view dict_path, std::string_view user_dict_path,
+                      UserWordWeightOption user_word_weight_opt) {
+        check_user_word_weight_option(user_word_weight_opt);
         auto user_dicts = std::vector<DictSource>{};
         if (!user_dict_path.empty()) {
             user_dicts.push_back(DictSource::file(user_dict_path));
@@ -45,9 +44,9 @@ public:
 
     /// Construct from file or memory sources. User dictionaries load in order; for a repeated word
     /// the last entry wins. Weight statistics come from the main dictionary only.
-    explicit DictTrie(const DictSource &dict, std::span<const DictSource> user_dicts = {},
-                      UserWordWeightOption user_word_weight_opt = UserWordWeightOption::WordWeightMedian) {
-        check_weight_option(user_word_weight_opt);
+    explicit DictTrie(const DictSource &dict, std::span<const DictSource> user_dicts,
+                      UserWordWeightOption user_word_weight_opt) {
+        check_user_word_weight_option(user_word_weight_opt);
         init(dict, user_dicts, user_word_weight_opt);
     }
 
@@ -195,12 +194,6 @@ private:
         if (word.size() == 1) {
             user_dict_single_chinese_word_.insert(word.front());
         }
-    }
-
-    static auto check_weight_option(UserWordWeightOption opt) -> void {
-        check(opt == UserWordWeightOption::WordWeightMin || opt == UserWordWeightOption::WordWeightMedian
-                  || opt == UserWordWeightOption::WordWeightMax,
-              "DictTrie: invalid user word weight option {}", static_cast<uint8_t>(opt));
     }
 
     // ── Core initialisation ──────────────────────────────────────────────

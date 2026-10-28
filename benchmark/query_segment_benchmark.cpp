@@ -8,6 +8,7 @@
 #include "neo/Utf.hpp"
 #include "neo/algorithm/QuerySegment.hpp"
 #include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
 
@@ -120,7 +121,7 @@ auto main(int argc, char *argv[]) -> int {
 
     std::printf("Loading Neo dictionary/model ...\n");
     auto t0 = Clock::now();
-    auto dict = neo::detail::DictTrie{dict_path};
+    auto dict = neo::detail::DictTrie{dict_path, "", neo::detail::UserWordWeightOption::WordWeightMedian};
     auto model = neo::detail::HMModel{model_path};
     auto t1 = Clock::now();
     std::printf("Loaded in %.2f ms\n\n", Ms(t1 - t0).count());

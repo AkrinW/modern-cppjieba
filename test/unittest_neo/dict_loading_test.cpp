@@ -2,6 +2,7 @@
 #include "neo/Config.hpp"
 #include "neo/Jieba.hpp"
 #include "neo/KeywordExtractor.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
@@ -105,7 +106,7 @@ TEST(DictLoadingTest, UserDictionariesLoadInOrderAndLaterEntriesWin) {
     const auto main = DictSource::memory("主词 10 n\n基础 20 n\n");
     const auto user_dicts = std::array{DictSource::memory("新词 v\n字\n"), DictSource::file(TEST_USER_DICT_FILE),
                                        DictSource::memory("新词 n\n")};
-    const auto trie = DictTrie{main, user_dicts};
+    const auto trie = DictTrie{main, user_dicts, UserWordWeightOption::WordWeightMedian};
     EXPECT_EQ(trie.find("新词").tag, PosTag{"n"});
     EXPECT_TRUE(trie.find("云计算").has_value());
     EXPECT_TRUE(trie.is_user_dict_single_chinese_word(decode("字")[0]));
@@ -114,12 +115,13 @@ TEST(DictLoadingTest, UserDictionariesLoadInOrderAndLaterEntriesWin) {
 
 TEST(DictLoadingTest, MemoryErrorsNameTheSource) {
     try {
-        const auto trie = DictTrie{DictSource::memory("词 10\n", "embedded.dict"), {}};
+        const auto trie =
+            DictTrie{DictSource::memory("词 10\n", "embedded.dict"), {}, UserWordWeightOption::WordWeightMedian};
         FAIL() << "Expected a dictionary error";
     } catch (const LogConfig::Exception &error) {
         EXPECT_NE(std::string_view{error.what()}.find("embedded.dict"), std::string_view::npos) << error.what();
     }
-    EXPECT_THROW((DictTrie{DictSource::memory(""), {}}), LogConfig::Exception);
+    EXPECT_THROW((DictTrie{DictSource::memory(""), {}, UserWordWeightOption::WordWeightMedian}), LogConfig::Exception);
     EXPECT_THROW(HMModel{DictSource::memory("0 0 0 0\n")}, LogConfig::Exception);
 }
 

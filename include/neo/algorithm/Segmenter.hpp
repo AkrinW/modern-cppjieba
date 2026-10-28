@@ -28,26 +28,6 @@
 
 namespace neo_cppjieba::detail {
 
-// Public entry points accept only named segmentation modes.
-constexpr auto valid_cut_mode(CutMode mode) noexcept -> bool {
-    switch (mode) {
-        case CutMode::MIX:
-        case CutMode::MIX_NO_HMM:
-        case CutMode::FULL:
-        case CutMode::SEARCH:
-        case CutMode::SEARCH_NO_HMM:
-        case CutMode::HMM:
-        case CutMode::MP:
-            return true;
-    }
-    return false;
-}
-
-// Mode values supplied by callers are configuration errors, not internal invariants.
-inline auto check_cut_mode(CutMode mode) -> void {
-    check(valid_cut_mode(mode), "Unknown Jieba cut mode {}", std::to_underlying(mode));
-}
-
 // Rune indices must fit WordRange, with room for the trailing offset sentinel.
 inline auto assert_rune_count(size_t rune_count) noexcept -> void {
     assert_check(

@@ -6,6 +6,7 @@
 #include "neo/algorithm/MixSegment.hpp"
 #include "neo/algorithm/QuerySegment.hpp"
 #include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
@@ -474,7 +475,7 @@ TEST_F(HMModelTest, UnknownRunesPreserveLegacyStateInHmmMixAndSearch) {
         output.close();
         ASSERT_TRUE(output.good());
     }
-    const auto dict = DictTrie{dict_path.string(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{dict_path.string(), "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙𠀀甲乙，外甲乙A12");
     const auto words = cut<HMMSegment>(unused_dict(), model, runes);

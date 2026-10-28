@@ -12,6 +12,7 @@
 
 // ── Neo headers ──
 #include "neo/Utf.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/Dag.hpp"
 #include "neo/resource/DictTrie.hpp"
 
@@ -109,7 +110,7 @@ static auto bench_neo_dag(const std::string &dict_path, const std::vector<std::s
     -> BenchResult {
     namespace neo = neo_cppjieba;
 
-    auto dict_trie = neo::detail::DictTrie{dict_path};
+    auto dict_trie = neo::detail::DictTrie{dict_path, "", neo::detail::UserWordWeightOption::WordWeightMedian};
     const auto &trie = dict_trie.trie();
 
     // Pre-decode all lines to Unicode (excluded from timing)

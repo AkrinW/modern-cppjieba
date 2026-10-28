@@ -3,6 +3,7 @@
 #include "neo/Config.hpp"
 #include "neo/algorithm/MixSegment.hpp"
 #include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
@@ -22,7 +23,7 @@ inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
 inline constexpr auto HMM_MODEL_FILE = std::string_view{DICT_DIR "/hmm_model.utf8"};
 
 TEST(MixSegmentNeoTest, EmptyInput) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = Unicode{};
     auto result = cut<MixSegment<true>>(dict, model, runes);
@@ -30,7 +31,7 @@ TEST(MixSegmentNeoTest, EmptyInput) {
 }
 
 TEST(MixSegmentNeoTest, SingleChar) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"我"});
     auto result = cut<MixSegment<>>(dict, model, runes);
@@ -40,7 +41,7 @@ TEST(MixSegmentNeoTest, SingleChar) {
 }
 
 TEST(MixSegmentNeoTest, SpanSubrangeUsesLocalOffsets) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"甲我来自北京邮电大学乙"});
     auto span = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
@@ -54,7 +55,7 @@ TEST(MixSegmentNeoTest, SpanSubrangeUsesLocalOffsets) {
 }
 
 TEST(MixSegmentNeoTest, ClassicSentence) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"我来自北京邮电大学"});
     auto result = cut<MixSegment<>>(dict, model, runes);
@@ -65,7 +66,7 @@ TEST(MixSegmentNeoTest, ClassicSentence) {
 }
 
 TEST(MixSegmentNeoTest, HangyanBuilding) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"他来到了网易杭研大厦"});
     auto result = cut<MixSegment<>>(dict, model, runes);
@@ -75,7 +76,7 @@ TEST(MixSegmentNeoTest, HangyanBuilding) {
 }
 
 TEST(MixSegmentNeoTest, HangyanBuildingNoHMM) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"他来到了网易杭研大厦"});
     auto result = cut<MixSegment<false>>(dict, model, runes);
@@ -85,7 +86,7 @@ TEST(MixSegmentNeoTest, HangyanBuildingNoHMM) {
 }
 
 TEST(MixSegmentNeoTest, HmmRunsResumeTheMpRouteAcrossDictionaryWords) {
-    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto runes = decode("杭研北京杭研上海杭研");
     const auto result = cut<MixSegment<true>>(dict, model, runes);
@@ -95,7 +96,7 @@ TEST(MixSegmentNeoTest, HmmRunsResumeTheMpRouteAcrossDictionaryWords) {
 }
 
 TEST(MixSegmentNeoTest, NoHmmPreservesRuneOffsetsAroundConsecutiveSeparators) {
-    const auto dict = DictTrie{DICT_FILE};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto runes = decode(std::string_view{"甲 \t杭研，，北京。𠮷😀\n乙"});
     const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
@@ -119,7 +120,7 @@ TEST(MixSegmentNeoTest, NoHmmPreservesRuneOffsetsAroundConsecutiveSeparators) {
 }
 
 TEST(MixSegmentNeoTest, NoHmmEmptyInputClearsReusedOutput) {
-    const auto dict = DictTrie{DICT_FILE};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     auto result = std::vector<WordRange>{{0, 1}};
     auto scratch = detail::SegmentScratch{};
@@ -130,7 +131,7 @@ TEST(MixSegmentNeoTest, NoHmmEmptyInputClearsReusedOutput) {
 }
 
 TEST(MixSegmentNeoTest, SharedScratchPreservesOutputsWhenHmmModeChanges) {
-    const auto dict = DictTrie{DICT_FILE};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto runes = decode(std::string_view{"杭研。杭研"});
     const auto with_hmm = std::vector<WordRange>{{0, 2}, {2, 3}, {3, 5}};
@@ -147,7 +148,7 @@ TEST(MixSegmentNeoTest, SharedScratchPreservesOutputsWhenHmmModeChanges) {
 }
 
 TEST(MixSegmentNeoTest, UnicodeOverloadWithSeparators) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto sentence = std::string_view{"我来自北京邮电大学。。。学号123456，用AK47"};
     auto runes = decode(sentence);
@@ -159,7 +160,7 @@ TEST(MixSegmentNeoTest, UnicodeOverloadWithSeparators) {
 }
 
 TEST(MixSegmentNeoTest, HmmRunsPreserveRuneOffsetsAroundConsecutiveSeparators) {
-    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{HMM_MODEL_FILE};
     const auto runes = decode(std::string_view{"甲 \t杭研qzx987，，3.14。\n𠮷乙"});
     const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
@@ -182,7 +183,7 @@ TEST(MixSegmentNeoTest, HmmRunsPreserveRuneOffsetsAroundConsecutiveSeparators) {
 }
 
 TEST(MixSegmentNeoTest, BChaoTShirt) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"B超 T恤"});
     auto result = cut<MixSegment<>>(dict, model, runes);
@@ -192,7 +193,7 @@ TEST(MixSegmentNeoTest, BChaoTShirt) {
 }
 
 TEST(MixSegmentNeoTest, Unicode32Emoji) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"天气很好，🙋 我们去郊游。"});
     auto result = cut<MixSegment<>>(dict, model, runes);
@@ -202,7 +203,7 @@ TEST(MixSegmentNeoTest, Unicode32Emoji) {
 }
 
 TEST(MixSegmentNeoTest, WordRangeContiguous) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"小明硕士毕业于中国科学院计算所"});
     auto result = cut<MixSegment<>>(dict, model, runes);
@@ -217,7 +218,7 @@ TEST(MixSegmentNeoTest, WordRangeContiguous) {
 }
 
 TEST(MixSegmentNeoTest, ReconstructsOriginal) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto sentence = std::string{"南京市长江大桥，欢迎你来参观游览。"};
     auto runes = decode(sentence);
@@ -232,7 +233,7 @@ TEST(MixSegmentNeoTest, ReconstructsOriginal) {
 }
 
 TEST(MixSegmentNeoTest, NanjingBridge) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"南京市长江大桥"});
     auto result = cut<MixSegment<>>(dict, model, runes);
@@ -242,7 +243,7 @@ TEST(MixSegmentNeoTest, NanjingBridge) {
 }
 
 TEST(MixSegmentNeoTest, PureASCII) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"IBM,3.14"});
     auto result = cut<MixSegment<>>(dict, model, runes);
