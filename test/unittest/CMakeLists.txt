@@ -12,6 +12,9 @@ add_executable(test.run
 )
 
 target_compile_definitions(test.run PRIVATE LOGGING_LEVEL=LL_WARNING)
+# Comparison tests expect bit-identical scores from both libraries; FMA contraction on FMA-capable targets
+# (for example x86-64-v3 toolchain defaults) would round the two implementations differently.
+target_compile_options(test.run PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffp-contract=off>)
 # Add include directories
 target_link_libraries(test.run PRIVATE cppjieba::cppjieba neo_cppjieba::neo_cppjieba cppjieba_test_support)
 add_test(NAME legacy_unit_tests COMMAND test.run)
