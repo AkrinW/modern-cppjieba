@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 /// Emit probability map: maps a single Unicode code point (Rune) to its log-probability.
 using EmitProbMap = std::unordered_map<Rune, double>;
@@ -62,7 +62,7 @@ struct HMModel {
 
     /// Construct and load the model from a file or memory source.
     explicit HMModel(const DictSource &source) {
-        with_source_text(source, [this](std::string_view text, std::string_view name) { load(text, name); });
+        detail::with_source_text(source, [this](std::string_view text, std::string_view name) { load(text, name); });
     }
 
     constexpr auto get_start_prob(HMMState state) const noexcept -> double {
@@ -80,9 +80,7 @@ struct HMModel {
 
     // ── Query interface ──────────────────────────────────────────────────
 
-    /// Look up the emission probability of `key` from the given emit-prob map.
-    /// Returns `default_val` when the key is absent.
-    /// The rune row supplies the state value; missing entries retain MIN_DOUBLE.
+    /// Look up one state's emission probability of `key`; absent entries return MIN_DOUBLE.
     [[nodiscard]] auto get_emit_prob(HMMState state, Rune key) const noexcept -> double {
         assert_check([=] { return static_cast<size_t>(state) < kHMMStatesNum; }, "HMModel: invalid emission state");
         return get_emit_probs(key)[static_cast<size_t>(state)];
@@ -99,11 +97,11 @@ struct HMModel {
         return it != supplementary_emit_probs_.end() ? it->second : kMissingEmitProbs;
     }
 
-    // ── Model parameters (public for direct access by HMSegment) ─────────
+    // ── Model parameters (public for direct inspection by tests) ─────────
 
     std::array<double, kHMMStatesNum> start_prob{};
     std::array<std::array<double, kHMMStatesNum>, kHMMStatesNum> trans_prob{};
-    // std::array<EmitProbMap, kHMMStatesNum> emit_prob_maps; // indexed access to emit_prob maps
+
 private:
     using EmitTable = gtl::flat_hash_map<Rune, EmitProbabilities>;
     static constexpr auto kMissingEmitProbs = EmitProbabilities{MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE};
@@ -254,4 +252,4 @@ private:
     }
 }; // struct HMModel
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

@@ -25,6 +25,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 TEST(StringUtilTest, DecodeValueConsumesTheEntireInteger) {
     const auto invalid = std::array<std::string_view, 4>{"12abc", "12 ", "12.5", std::string_view{"12\0", 3}};

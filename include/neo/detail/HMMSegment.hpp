@@ -4,9 +4,9 @@
 #include "neo/Unicode.hpp"
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/Logging.hpp"
+#include "neo/detail/SegmentCommon.hpp"
 #include "neo/detail/SegmentPolicy.hpp"
 #include "neo/detail/SegmentScratch.hpp"
-#include "neo/detail/StringUtil.hpp"
 
 #include <array>
 #include <cassert>
@@ -16,9 +16,7 @@
 #include <span>
 #include <vector>
 
-namespace neo_cppjieba {
-
-namespace detail {
+namespace neo_cppjieba::detail {
 
 // A reference HMM transition retains the selected predecessor along with its score.
 struct HMMTransition {
@@ -39,7 +37,7 @@ struct HMMTransition {
     return first > second ? HMMTransition{first, states[0]} : HMMTransition{second, states[1]};
 }
 
-/// Run the Viterbi algorithm on runes[begin..end) and append segmented WordRanges to result.
+/// Run the Viterbi algorithm on runes[begin..end) and emit each word with global offset pos.
 template <typename Emit>
 inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, RuneIndex begin, RuneIndex end,
                              const Emit &emit_word, RuneIndex pos, SegmentScratch &scratch) -> void {
@@ -53,9 +51,7 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     assert_check([&] { return X <= std::numeric_limits<size_t>::max() / Y; },
                  "HMMSegment: input exceeds the Viterbi table size limit");
 
-    // Flat 2D arrays laid out as [state * X + position] for cache-friendly access.
-    // Only paths retain this layout; scores need the previous and current columns.
-    // These layout notes are historical; paths now use contiguous [position][state] rows.
+    // Scores need only the previous and current columns; paths keep one contiguous [position][state] row each.
     auto previous_weight = std::array<double, Y>{};
     auto current_weight = std::array<double, Y>{};
     // Every active row is overwritten before backtrace; retain the high-water size between HMM runs.
@@ -78,13 +74,9 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
         const auto emit_probs = model.get_emit_probs(runes[begin + x]);
         for (auto y = size_t{0}; y < Y; ++y) {
             const auto emit = emit_probs[y];
+            // CppJieba floors scores at MIN_DOUBLE and defaults to the E predecessor. When every candidate
+            // ties at the floor, as for runes absent from the emission table, this default decides the path.
             auto best_weight = MIN_DOUBLE;
-            // Default to E (End) state — matches the original cppjieba behavior.
-            // When all transition weights tie at MIN_DOUBLE (e.g., for characters absent
-            // from emit_prob_map), this default determines the backtrace path.
-
-            // Missing runes are now emitted before Viterbi; the historical default no longer floors path scores.
-            // That policy is retired: preserve the legacy score floor and E predecessor for compatibility.
             auto best_prev = HMMState::E;
 
             if constexpr (compile_config::segmentation_style == SegmentationStyle::CPP) {
@@ -197,9 +189,6 @@ inline auto hmm_internal_cut(const HMModel &model, std::span<const Rune> runes, 
     return pos;
 }
 
-/// Distinguish absent runes from explicitly stored probabilities, including MIN_DOUBLE.
-// The separate missing-rune classifier is retired; legacy Viterbi handles those runes directly.
-
 // Emit the reference HMM's alternating alphanumeric matches and non-Chinese gaps.
 template <typename Emit>
 inline auto style_hmm_emit_non_han(std::span<const Rune> runes, const Emit &emit_word, RuneIndex pos) -> void {
@@ -280,8 +269,7 @@ inline auto hmm_emit_one_segment(const HMModel &model, const Emit &emit_word, st
                 right = end;
                 left = right;
             } else {
-                // An absent rune is a single-token boundary, independent of accumulated model scores.
-                // That policy is retired: unknown runes remain inside the current Viterbi span.
+                // Runes absent from the model stay inside the current Viterbi span, as in CppJieba.
                 ++right;
             }
         }
@@ -293,7 +281,7 @@ inline auto hmm_emit_one_segment(const HMModel &model, const Emit &emit_word, st
     }
 }
 
-/// Collect emitted HMM words in a caller-owned vector without changing its existing prefix.
+/// Append emitted HMM words to a caller-owned vector without changing its existing prefix.
 inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &range, std::span<const Rune> runes,
                                 RuneIndex pos, SegmentScratch &scratch) -> void {
     const auto emit_word = [&](WordRange word) {
@@ -302,7 +290,7 @@ inline auto hmm_cut_one_segment(const HMModel &model, std::vector<WordRange> &ra
     hmm_emit_one_segment(model, emit_word, runes, pos, scratch);
 }
 
-/// Append HMM segmentation results while preserving separator runes as standalone tokens.
+/// Append HMM segmentation results; the CPP style also keeps separator runes as standalone tokens.
 inline auto hmm_cut_append(const HMModel &model, std::span<const Rune> runes, std::vector<WordRange> &range,
                            RuneIndex pos, SegmentScratch &scratch) -> void {
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
@@ -310,25 +298,16 @@ inline auto hmm_cut_append(const HMModel &model, std::span<const Rune> runes, st
     if constexpr (compile_config::segmentation_style != SegmentationStyle::CPP) {
         hmm_cut_one_segment(model, range, runes, pos, scratch);
     } else {
-        get_pre_filter_separators(runes, scratch.separators);
-        const auto &segments = scratch.separators;
-        auto segment_pos = pos;
-        // First text segment before the first separator.
-        hmm_cut_one_segment(model, range, runes.subspan(0, segments[0]), segment_pos, scratch);
-        for (auto i = size_t{0}; i < segments.size() - 1; ++i) {
-            // Emit the separator rune itself.
-            range.push_back(
-                WordRange{static_cast<RuneIndex>(pos + segments[i]), static_cast<RuneIndex>(pos + segments[i] + 1)});
-            auto next_begin = segments[i] + 1;
-            segment_pos = pos + next_begin;
-            // Continue with the following text segment.
-            hmm_cut_one_segment(model, range, runes.subspan(next_begin, segments[i + 1] - next_begin), segment_pos,
-                                scratch);
-        }
+        for_each_separated(
+            runes, scratch.separators,
+            [&](std::span<const Rune> segment, RuneIndex offset) {
+                hmm_cut_one_segment(model, range, segment, static_cast<RuneIndex>(pos + offset), scratch);
+            },
+            [&](RuneIndex separator) {
+                range.push_back({static_cast<RuneIndex>(pos + separator), static_cast<RuneIndex>(pos + separator + 1)});
+            });
     }
 }
-
-} // namespace detail
 
 /// Stateless HMM-based segmentation operator.
 ///
@@ -361,4 +340,4 @@ struct HMMSegment {
     }
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

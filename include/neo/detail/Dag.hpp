@@ -13,10 +13,7 @@
 #include <string_view>
 #include <vector>
 
-namespace neo_cppjieba {
-
-// Missing entries use a value outside finite dictionary weights, so log(1) == 0 remains valid.
-inline constexpr auto kMissingWordWeight = -std::numeric_limits<detail::WordWeight>::infinity();
+namespace neo_cppjieba::detail {
 
 struct DagEdge {
     RuneIndex next_pos; // The index of the next rune after the matched word
@@ -24,6 +21,7 @@ struct DagEdge {
 };
 
 /// A flat compressed Directed Acyclic Graph (DAG) using a CSR-like format.
+/// Diagnostics and comparison tests materialize it with Trie::find_dag; segmentation matches the trie directly.
 ///
 /// For a sentence of N runes, `offsets` has N+1 elements.
 /// `offsets[i] .. offsets[i+1]` is the half-open range in `edges` for vertex i.
@@ -84,4 +82,4 @@ struct Dag {
     }
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

@@ -8,6 +8,13 @@
 
 namespace neo_cppjieba {
 
+class DictSource;
+
+namespace detail {
+template <typename Parse>
+auto with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto);
+} // namespace detail
+
 // One dictionary, model, IDF or stop-word input: a file read at load time, or UTF-8 text already in memory.
 // Memory sources serve embedded resources and platforms without a usable file system, such as WASM.
 // The file path is copied. Memory text is borrowed and must stay valid until the loader that reads it returns;
@@ -37,14 +44,16 @@ private:
     }
 
     template <typename Parse>
-    friend auto with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto);
+    friend auto detail::with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto);
 
     bool is_file_;
     std::string name_;
     std::string_view text_;
 };
 
-// Calls parse(text, name). File contents live only for the duration of the call.
+namespace detail {
+
+// Loaders call parse(text, name). File contents live only for the duration of the call.
 template <typename Parse>
 auto with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto) {
     if (source.is_file_) {
@@ -53,5 +62,7 @@ auto with_source_text(const DictSource &source, Parse &&parse) -> decltype(auto)
     }
     return std::forward<Parse>(parse)(source.text_, source.name());
 }
+
+} // namespace detail
 
 } // namespace neo_cppjieba

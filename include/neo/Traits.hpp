@@ -1,7 +1,5 @@
 #pragma once
 
-#include "neo/detail/Logging.hpp"
-
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +9,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+
 namespace neo_cppjieba {
 static_assert(std::numeric_limits<unsigned char>::digits == 8, "Unicode byte input requires 8-bit bytes");
 

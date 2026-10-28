@@ -1,26 +1,20 @@
 #pragma once
 
 #include "neo/Config.hpp"
+#include "neo/CutMode.hpp"
 #include "neo/DictSource.hpp"
 #include "neo/Token.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/Workspace.hpp"
 #include "neo/detail/DictTrie.hpp"
-#include "neo/detail/FullSegment.hpp"
-#include "neo/detail/HMMSegment.hpp"
 #include "neo/detail/HMModel.hpp"
 #include "neo/detail/Logging.hpp"
-#include "neo/detail/MPSegment.hpp"
-#include "neo/detail/MixSegment.hpp"
 #include "neo/detail/Output.hpp"
-#include "neo/detail/QuerySegment.hpp"
-#include "neo/detail/StyledSegment.hpp"
+#include "neo/detail/Segmenter.hpp"
 #include "neo/detail/Tagging.hpp"
 
-#include <algorithm>
 #include <cstddef>
-#include <cstdint>
 #include <limits>
 #include <span>
 #include <string>
@@ -30,78 +24,27 @@
 
 namespace neo_cppjieba {
 
-// Each mode names a complete behavior, including the modes that disable HMM.
-enum class CutMode : uint8_t { MIX, MIX_NO_HMM, FULL, SEARCH, SEARCH_NO_HMM, HMM, MP };
-
 namespace detail {
 
-// Public entry points accept only named segmentation modes.
-constexpr auto valid_cut_mode(CutMode mode) noexcept -> bool {
-    switch (mode) {
-        case CutMode::MIX:
-        case CutMode::MIX_NO_HMM:
-        case CutMode::FULL:
-        case CutMode::SEARCH:
-        case CutMode::SEARCH_NO_HMM:
-        case CutMode::HMM:
-        case CutMode::MP:
-            return true;
-    }
-    return false;
-}
-
-// Mode values supplied by callers are configuration errors, not internal invariants.
-inline auto check_cut_mode(CutMode mode) -> void {
-    check(valid_cut_mode(mode), "Unknown Jieba cut mode {}", std::to_underlying(mode));
-}
-
-// Rune indices must fit WordRange, with room for the trailing DAG offset.
+// Rune indices must fit WordRange, with room for the trailing offset sentinel.
 inline auto assert_rune_count(size_t rune_count) noexcept -> void {
     assert_check(
         [&] { return size_fits_capacity<RuneIndex>(rune_count) && rune_count < std::numeric_limits<size_t>::max(); },
         "Jieba: input has {} runes, exceeding the configured index range", rune_count);
 }
 
-// Partition modes cover every rune once; full and search modes may emit overlapping words.
-[[nodiscard]] inline auto valid_jieba_result(CutMode mode, std::span<const WordRange> words, size_t rune_count) noexcept
-    -> bool {
-    if (mode == CutMode::MIX || mode == CutMode::MIX_NO_HMM || mode == CutMode::HMM || mode == CutMode::MP) {
-        return valid_segment_partition(words, rune_count);
-    }
-    if (rune_count == 0) {
-        return words.empty();
-    }
-    if (words.empty()) {
-        if constexpr (compile_config::segmentation_style == SegmentationStyle::RUST) {
-            return mode == CutMode::FULL;
-        } else {
-            return false;
-        }
-    }
-    return std::ranges::all_of(words, [=](const WordRange &word) {
-        if constexpr (compile_config::segmentation_style == SegmentationStyle::PYTHON) {
-            return (word.begin < word.end || (mode == CutMode::FULL && word.begin == word.end))
-                   && word.end <= rune_count;
-        } else {
-            return word.begin < word.end && word.end <= rune_count;
-        }
-    });
-}
-
 } // namespace detail
 
-/// Jieba is the top-level facade for Chinese word segmentation.
+/// Jieba is the top-level facade for Chinese word segmentation. It owns the immutable dictionary and HMM model;
+/// every entry point is const and keeps per-call state in a Workspace.
 ///
-/// It supports two usage styles:
-///
-///   1. Direct string input: pass any StringLike input and get
-///      std::vector<std::basic_string<CharT>> back.
-///
-///   2. Manual Unicode pipeline: decode to Unicode or UnicodeWithOffset, cut to
-///      WordRange, then encode manually. The UnicodeWithOffset path can reuse
-///      source offsets for faster re-encoding.
-// These usage notes describe the former facade. Named output operations now distinguish
-// borrowed tokens, owned text, strings, and ranges; Unicode utilities live in Unicode.hpp.
+/// Entry points differ only in how results are delivered:
+///   - cut / cut_with_workspace: positions plus a borrowed view of the input (Tokens).
+///   - cut_owned: positions plus the moved-in input (OwnedTokens).
+///   - cut_strings: independent strings in the input's encoding.
+///   - cut_into / cut_each: caller-owned output vectors or a visitor, reusing a Workspace.
+///   - cut_runes / cut_runes_into: predecoded runes in, rune ranges out.
+/// The algorithm behind each CutMode is selected in detail/Segmenter.hpp.
 class Jieba {
 public:
     // An empty user dictionary path explicitly disables user dictionary loading.
@@ -139,7 +82,7 @@ public:
     // Replaces output while retaining its capacity. Output records contain no decoding-buffer pointers.
     // Caller-owned decoding buffers can be reused across inputs; results never borrow this storage.
     // Input must not alias the output array or either decoding buffer.
-    // The workspace also retains DAG, DP, HMM, separator, and rune-result storage.
+    // The workspace also retains route, HMM, separator, and rune-result storage.
     // TaggedPosition and TaggedWord outputs select tagging; other outputs are untagged.
     template <StringLike Input, typename Output>
         requires detail::OutputValue<Output, output_char_type_t<Input>>
@@ -156,7 +99,7 @@ public:
         }
     }
 
-    // No public token array is built; the current segmenters still compute rune ranges first.
+    // No public token array is built; segmenters still compute rune ranges first.
     // Visitors may throw, but must not reuse this decoding buffer or invalidate the input text.
     template <Tagging tagging = Tagging::None, StringLike Input, typename Emit>
         requires detail::ViewVisitor<Emit, detail::token_view_t<tagging, output_char_type_t<Input>>>
@@ -173,8 +116,7 @@ public:
 
     // Move the source into its final owner before building positions, including for small strings.
     template <Tagging tagging = Tagging::None, CharType CharT>
-    [[nodiscard]] auto cut_owned(std::basic_string<CharT> source, CutMode mode) const
-        -> OwnedTokens<CharT, tagging> {
+    [[nodiscard]] auto cut_owned(std::basic_string<CharT> source, CutMode mode) const -> OwnedTokens<CharT, tagging> {
         auto result = OwnedTokens<CharT, tagging>{std::move(source), {}};
         auto workspace = Workspace{};
         cut_into(result.source_, mode, result.positions_, workspace);
@@ -201,14 +143,13 @@ public:
     }
 
     // Fill the caller's rune output directly; decoding storage is unused for predecoded input.
+    // A failure propagates and may leave partial output.
     auto cut_runes_into(std::span<const Rune> runes, CutMode mode, std::vector<WordRange> &out,
                         Workspace &workspace) const -> void {
         out.clear();
         detail::check_cut_mode(mode);
         detail::assert_rune_count(runes.size());
-        // Former policy: Preserve the previous empty-output guarantee when segmentation fails.
-        // Failures now propagate directly and may leave partial output.
-        cut_impl(runes, mode, out, workspace.scratch_);
+        detail::segment_into(dict_, model_, runes, mode, out, workspace.scratch_);
     }
 
     // Tag one complete word without segmenting it, like CppJieba's LookupTag.
@@ -231,73 +172,12 @@ private:
         // Decoding bounds source offsets; the rune count cannot exceed the source code-unit count.
         // Rune and source capacities may be configured independently.
         detail::assert_rune_count(workspace.decoded_.runes.size());
-        cut_impl(workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
+        detail::segment_into(dict_, model_, workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
         return workspace.ranges_;
     }
 
-    auto cut_impl(std::span<const Rune> runes, CutMode mode, std::vector<WordRange> &result,
-                  detail::SegmentScratch &scratch) const -> void {
-        if constexpr (compile_config::segmentation_style != SegmentationStyle::CPP) {
-            switch (mode) {
-                case CutMode::MIX:
-                    detail::style_cut_mix<true>(dict_, model_, runes, result, scratch);
-                    break;
-                case CutMode::MIX_NO_HMM:
-                case CutMode::MP:
-                    detail::style_cut_mix<false>(dict_, model_, runes, result, scratch);
-                    break;
-                case CutMode::FULL:
-                    detail::style_cut_full(dict_, runes, result, scratch);
-                    break;
-                case CutMode::SEARCH:
-                    detail::style_cut_search<true>(dict_, model_, runes, result, scratch);
-                    break;
-                case CutMode::SEARCH_NO_HMM:
-                    detail::style_cut_search<false>(dict_, model_, runes, result, scratch);
-                    break;
-                case CutMode::HMM:
-                    HMMSegment::cut_into(model_, runes, result, scratch);
-                    break;
-                default:
-                    assert_check([] { return false; }, "Unchecked Jieba cut mode reached internal dispatch");
-                    std::unreachable();
-            }
-            assert_check([&] { return detail::valid_jieba_result(mode, result, runes.size()); },
-                         "Jieba: invalid segmentation result for {} runes", runes.size());
-        } else {
-            switch (mode) {
-                case CutMode::MIX:
-                    MixSegment<true>::cut_into(dict_, model_, runes, result, scratch);
-                    break;
-                case CutMode::MIX_NO_HMM:
-                    MixSegment<false>::cut_into(dict_, model_, runes, result, scratch);
-                    break;
-                case CutMode::FULL:
-                    FullSegment::cut_into(dict_, runes, result, scratch);
-                    break;
-                case CutMode::SEARCH:
-                    QuerySegment<true>::cut_into(dict_, model_, runes, result, scratch);
-                    break;
-                case CutMode::SEARCH_NO_HMM:
-                    QuerySegment<false>::cut_into(dict_, model_, runes, result, scratch);
-                    break;
-                case CutMode::HMM:
-                    HMMSegment::cut_into(model_, runes, result, scratch);
-                    break;
-                case CutMode::MP:
-                    MPSegment::cut_into(dict_, runes, result, scratch);
-                    break;
-                default:
-                    assert_check([] { return false; }, "Unchecked Jieba cut mode reached internal dispatch");
-                    std::unreachable();
-            }
-            assert_check([&] { return detail::valid_jieba_result(mode, result, runes.size()); },
-                         "Jieba: invalid segmentation result for {} runes", runes.size());
-        }
-    }
-
-    DictTrie dict_;
-    HMModel model_;
+    detail::DictTrie dict_;
+    detail::HMModel model_;
 };
 
 } // namespace neo_cppjieba

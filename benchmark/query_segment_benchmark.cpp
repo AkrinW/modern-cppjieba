@@ -119,8 +119,8 @@ auto main(int argc, char *argv[]) -> int {
 
     std::printf("Loading Neo dictionary/model ...\n");
     auto t0 = Clock::now();
-    auto dict = neo::DictTrie{dict_path};
-    auto model = neo::HMModel{model_path};
+    auto dict = neo::detail::DictTrie{dict_path};
+    auto model = neo::detail::HMModel{model_path};
     auto t1 = Clock::now();
     std::printf("Loaded in %.2f ms\n\n", Ms(t1 - t0).count());
 
@@ -129,7 +129,7 @@ auto main(int argc, char *argv[]) -> int {
     for (auto i = size_t{0}; i < all_unicodes.size(); ++i) {
         auto baseline_result = neo::test::query_cut_requery(dict, model, all_unicodes[i]);
         auto buffered_result = neo::test::query_cut_buffered_dag(dict, model, all_unicodes[i]);
-        auto inline_result = neo::QuerySegment<>::cut(dict, model, all_unicodes[i]);
+        auto inline_result = neo::detail::QuerySegment<>::cut(dict, model, all_unicodes[i]);
         if (baseline_result != buffered_result || baseline_result != inline_result) {
             ++mismatch;
             if (mismatch <= 3) {
@@ -159,7 +159,7 @@ auto main(int argc, char *argv[]) -> int {
 
     auto inline_reuse = bench(
         "QuerySegment DAG reuse (inline segment consume)",
-        [&](const neo::Unicode &runes) { return neo::QuerySegment<>::cut(dict, model, runes); }, all_unicodes,
+        [&](const neo::Unicode &runes) { return neo::detail::QuerySegment<>::cut(dict, model, runes); }, all_unicodes,
         total_runes, ROUNDS);
     print_report(inline_reuse);
 

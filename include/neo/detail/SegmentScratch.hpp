@@ -1,8 +1,7 @@
 #pragma once
 
 #include "neo/Config.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/detail/Dag.hpp"
+#include "neo/UnicodeTypes.hpp"
 #include "neo/detail/HMModel.hpp"
 
 #include <array>
@@ -23,14 +22,15 @@ struct SearchSubwords {
 };
 
 // Per-call algorithm storage; only the caller's workspace owns and mutates these buffers.
+// Buffers keep their high-water size, so each algorithm overwrites the rows it reads.
 struct SegmentScratch {
-    Dag dag;
     std::vector<MPNode> route;
     std::vector<RuneIndex> separators;
-    std::vector<WordRange> mp_words;
     std::vector<SearchSubwords> search_subwords;
     // Typed one-byte states avoid unsigned-char aliasing of model and vector metadata.
     std::vector<std::array<HMMState, kHMMStatesNum>> hmm_path;
+    // Python-style FULL collects the dictionary matches at one start position.
+    std::vector<WordRange> full_matches;
 };
 
 } // namespace neo_cppjieba::detail

@@ -2,7 +2,7 @@
 ///
 /// Loads a Chinese text file, decodes each line to runes, then compares
 /// the DAG-building throughput of the old cppjieba::Trie::Find(begin, end, dags)
-/// versus the new neo_cppjieba::Trie::find_dag(runes).
+/// versus the new neo_cppjieba::detail::Trie::find_dag(runes).
 ///
 /// Both use the same underlying dictionary (jieba.dict.utf8).
 
@@ -101,13 +101,13 @@ static auto bench_old_dag(const std::string &dict_path, const std::vector<std::s
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Benchmark: Neo DAG construction (neo_cppjieba::Trie::find_dag → Dag)
+// Benchmark: Neo DAG construction (neo_cppjieba::detail::Trie::find_dag → Dag)
 // ─────────────────────────────────────────────────────────────────────────────
 static auto bench_neo_dag(const std::string &dict_path, const std::vector<std::string> &lines, size_t rounds)
     -> BenchResult {
     namespace neo = neo_cppjieba;
 
-    auto dict_trie = neo::DictTrie{dict_path};
+    auto dict_trie = neo::detail::DictTrie{dict_path};
     const auto &trie = dict_trie.trie();
 
     // Pre-decode all lines to Unicode (excluded from timing)

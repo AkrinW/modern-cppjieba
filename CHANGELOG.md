@@ -22,6 +22,18 @@
 ### Changed
 
 - 词性标记表移至 [docs/pos_tags.md](docs/pos_tags.md)。
+- 整理内部架构，分词结果不变：`CutMode` 移至 `neo/CutMode.hpp`（`neo/Jieba.hpp` 仍包含它）；
+  运行时 `CutMode` 与编译期 `SegmentationStyle` 只在 `detail/Segmenter.hpp` 中分派，`Jieba` 不再分支；
+  CPP 风格的分隔符切分、MIX / SEARCH 共用的路由遍历各收敛为一处实现。见 [架构](docs/architecture.md)。
+- `SegmentScratch` 不再携带 DAG：分词直接匹配 Trie，`Trie::find_dag` 仅用于诊断和对照测试。
+  移除仅被测试使用的 `detail::mp_cut_segment`、`mp_cut_dag`、`mp_trace_route` 和 `mp_cut_one_segment`。
+- **不兼容**：`detail/` 目录下的内部类型和函数移入 `neo_cppjieba::detail`，包括 `DictTrie`、`DictUnit`、`Trie`、
+  `TrieStats`、`Dag`、`HMModel`、`HMMState`、`MIN_DOUBLE`、各 `*Segment`、`FileBuffer`、`read_file` 和
+  `StringUtil.hpp` 中的解析与分隔符函数。只使用 `Jieba`、结果类型和关键词提取的代码不受影响；
+  直接使用内部类型的代码需加 `detail::` 限定。见 [公开边界](docs/architecture.md#公开边界)。
+- `PosTag` 和 `pos::` 常量移至公开头文件 `neo/PosTag.hpp`，命名空间不变；`neo/TaggedToken.hpp` 仍包含它。
+- `with_source_text` 移入 `neo_cppjieba::detail`；用户词典单字集合改用 `gtl::flat_hash_set`，
+  且无单字时跳过查询。
 
 ## 1.2.0 - 2026-10-23
 

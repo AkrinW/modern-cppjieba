@@ -211,13 +211,13 @@ static auto bench_old_trie(const std::vector<RawEntry> &entries, size_t query_ro
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Benchmark: Neo Trie (using neo_cppjieba::Trie from neo/Trie.hpp)
+// Benchmark: Neo Trie (using neo_cppjieba::detail::Trie from neo/Trie.hpp)
 // ─────────────────────────────────────────────────────────────────────────────
 static auto bench_neo_trie(const std::vector<RawEntry> &entries, size_t query_rounds) -> BenchResult {
     namespace neo = neo_cppjieba;
 
     auto keys = std::vector<neo::Unicode>(entries.size());
-    auto values = std::vector<neo::DictUnit>(entries.size());
+    auto values = std::vector<neo::detail::DictUnit>(entries.size());
 
     auto freq_sum = 0.0;
     for (const auto &e : entries) {
@@ -244,7 +244,7 @@ static auto bench_neo_trie(const std::vector<RawEntry> &entries, size_t query_ro
     }
 
     // ── Build ────────────────────────────────────────────────────────────
-    auto trie = neo::Trie{};
+    auto trie = neo::detail::Trie{};
     auto t0 = Clock::now();
     trie.build(keys, values);
     auto t1 = Clock::now();

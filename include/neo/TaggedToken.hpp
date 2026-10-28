@@ -1,8 +1,8 @@
 #pragma once
 
+#include "neo/PosTag.hpp"
 #include "neo/TokenView.hpp"
 #include "neo/Traits.hpp"
-#include "neo/detail/PosTag.hpp"
 
 #include <cstdint>
 #include <string>

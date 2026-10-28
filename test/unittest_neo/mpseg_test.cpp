@@ -15,6 +15,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
 
@@ -104,7 +105,7 @@ TEST(MPSegmentTest, PreservesExistingOutputWhenAppendingAtTheRuneOffsetLimit) {
     const auto pos = std::numeric_limits<RuneIndex>::max() - RuneIndex{2};
     auto result = std::vector<WordRange>{{7, 8}};
     auto scratch = detail::SegmentScratch{};
-    detail::mp_cut_one_segment(dict, result, runes, pos, scratch);
+    detail::mp_cut_append(dict, runes, result, pos, scratch);
 
     EXPECT_EQ(result, (std::vector<WordRange>{{7, 8}, {pos, pos + 1}, {pos + 1, pos + 2}}));
 }

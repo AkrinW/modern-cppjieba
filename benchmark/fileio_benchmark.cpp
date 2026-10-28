@@ -16,6 +16,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 // ─── Performance comparison: old (ifstream+getline) vs new (read+views) ──────
 

@@ -13,7 +13,7 @@
 #include <system_error>
 #include <utility>
 
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 // FileBuffer exposes file contents from owned storage for read-only access.
 // It provides an RAII wrapper around a complete read(2) of a regular file.
@@ -124,4 +124,4 @@ inline auto read_file(std::string_view path) -> FileBuffer {
     return FileBuffer{path};
 }
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

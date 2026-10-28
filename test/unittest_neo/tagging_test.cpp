@@ -1,10 +1,10 @@
 #include "gtest/gtest.h"
 #include "neo/Jieba.hpp"
+#include "neo/PosTag.hpp"
 #include "neo/TaggedToken.hpp"
 #include "neo/Token.hpp"
 #include "neo/Unicode.hpp"
 #include "neo/Workspace.hpp"
-#include "neo/detail/PosTag.hpp"
 #include "neo/detail/Tagging.hpp"
 
 #include "test_paths.h"

@@ -251,7 +251,7 @@ inline auto style_python_full_block(const DictTrie &dict, std::span<const Rune> 
             english = {0, 0};
         }
     };
-    auto &matches = scratch.mp_words;
+    auto &matches = scratch.full_matches;
     for (auto i = RuneIndex{0}; i < runes.size(); ++i) {
         if (!is_ascii_alphanumeric(runes[i])) {
             flush_english();

@@ -1,11 +1,11 @@
 #pragma once
 
+#include "neo/PosTag.hpp"
 #include "neo/TaggedToken.hpp"
 #include "neo/Traits.hpp"
 #include "neo/UnicodeTypes.hpp"
 #include "neo/detail/DictTrie.hpp"
 #include "neo/detail/Output.hpp"
-#include "neo/detail/PosTag.hpp"
 
 #include <concepts>
 #include <cstddef>

@@ -5,6 +5,7 @@
 #include "neo/detail/Logging.hpp"
 #include "neo/detail/StringUtil.hpp"
 #include "neo/detail/Trie.hpp"
+#include "neo/third_party/gtl.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -13,11 +14,10 @@
 #include <limits>
 #include <span>
 #include <string_view>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 class DictTrie {
 public:
@@ -82,8 +82,9 @@ public:
     }
 
     /// Check if a single Chinese character comes from the user dictionary.
+    /// MIX and SEARCH ask this for every single-rune route word, and most user dictionaries add none.
     [[nodiscard]] auto is_user_dict_single_chinese_word(Rune word) const noexcept -> bool {
-        return user_dict_single_chinese_word_.contains(word);
+        return !user_dict_single_chinese_word_.empty() && user_dict_single_chinese_word_.contains(word);
     }
 
     [[nodiscard]] auto min_weight() const noexcept -> detail::WordWeight {
@@ -126,30 +127,16 @@ private:
 
     // ── Core initialisation ──────────────────────────────────────────────
     //
-    // Pipeline:  load dicts → stats on int freqs → convert → build trie
-    //
-    // Key performance improvements over the original DictTrie::Init:
-    //
-    //   1. buffered reads + zero-copy parsing (FileBuffer / lines_view / split_view)
-    //      instead of ifstream + getline + limonp::Split.
-    //
-    //   2. Weight statistics computed on raw int frequencies:
-    //        • min/max via std::ranges::minmax_element  — O(n)
-    //        • median via std::ranges::nth_element       — O(n) average
-    //      The original code sorted a *copy* of all DictUnit by double weight
-    //      (O(n log n) + heavy copy), then picked min/max/median.
-    //      Since log() is strictly monotonic, the results are identical.
-    //
-    //   3. No external DictUnit storage — the Trie owns everything inline.
-    //      Eliminates std::vector<DictUnit> + std::deque<DictUnit> + pointer
-    //      indirections that the original design required.
+    // Pipeline: load dicts → stats on int freqs → convert → build trie.
+    // Statistics use integer frequencies (minmax_element, nth_element) in O(n);
+    // log() is strictly monotonic, so they equal CppJieba's sorted-weight results.
 
     auto init(const DictSource &dict, std::span<const DictSource> user_dicts, UserWordWeightOption opt) -> void {
 
         // ── Phase 1: Load main dictionary ────────────────────────────────
         auto entries = std::vector<RawEntry>{};
         auto freqs = std::vector<int>{}; // parallel to entries (main dict only)
-        with_source_text(
+        detail::with_source_text(
             dict, [&](std::string_view text, std::string_view name) { load_main_dict(text, name, entries, freqs); });
         check(!entries.empty(), "DictTrie: main dictionary is empty: {}", dict.name());
         assert_check([&] { return entries.size() == freqs.size(); },
@@ -179,7 +166,7 @@ private:
 
         // Convert selected int frequencies to log-weights
         auto to_weight = [&](int f) -> detail::WordWeight {
-            assert_check([&] { return f > 0 && std::isfinite(freq_sum_) && freq_sum_ > 0.0f; },
+            assert_check([&] { return f > 0 && std::isfinite(freq_sum_) && freq_sum_ > 0.0; },
                          "DictTrie: invalid frequency normalization");
             if constexpr (compile_config::segmentation_style == SegmentationStyle::CPP) {
                 return std::log(f / freq_sum_);
@@ -197,8 +184,8 @@ private:
 
         // ── Phase 3: Load user dictionary entries ────────────────────────
         for (const auto &user_dict : user_dicts) {
-            with_source_text(user_dict,
-                             [&](std::string_view text, std::string_view) { load_user_dict(text, entries); });
+            detail::with_source_text(user_dict,
+                                     [&](std::string_view text, std::string_view) { load_user_dict(text, entries); });
         }
 
         // ── Phase 4: Build Trie from all entries ─────────────────────────
@@ -346,18 +333,15 @@ private:
     }
 
     // ── Data members ─────────────────────────────────────────────────────
-    //
-    // No external DictUnit storage: the Trie stores all values inline.
-    // The only heap state is the Trie's node vector, the single-char set,
-    // and the handful of scalar statistics below.
+    // The Trie stores every DictUnit inline; no separate entry storage is kept.
 
     Trie trie_;
-    detail::WordWeight freq_sum_{0.0f};
-    detail::WordWeight min_weight_{0.0f};
-    detail::WordWeight max_weight_{0.0f};
-    detail::WordWeight median_weight_{0.0f};
-    detail::WordWeight user_word_default_weight_{0.0f};
-    std::unordered_set<Rune> user_dict_single_chinese_word_;
+    detail::WordWeight freq_sum_{0.0};
+    detail::WordWeight min_weight_{0.0};
+    detail::WordWeight max_weight_{0.0};
+    detail::WordWeight median_weight_{0.0};
+    detail::WordWeight user_word_default_weight_{0.0};
+    gtl::flat_hash_set<Rune> user_dict_single_chinese_word_;
 };
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

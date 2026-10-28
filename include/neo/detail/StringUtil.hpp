@@ -13,7 +13,7 @@
 #include <string_view>
 #include <system_error>
 #include <vector>
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 
 // decode_value is a helper function that decodes a value of type T from a string_view using std::from_chars.
 // it add error checking and throws an exception if parsing fails.
@@ -290,26 +290,14 @@ inline auto get_pre_filter_separators(std::span<const char32_t> runes, std::vect
             out.push_back(i);
         }
     }
-    // add a sentinel index for the end of data, so downstream slicing can use [prev_index, next_index) without special
-    // handling for the last segment. maybe helperful for some algorithms that process segments between separators.
-    out.push_back(n); // sentinel index for end of data
+    // The end sentinel lets callers slice [previous + 1, next) without special-casing the last segment.
+    out.push_back(n);
 }
 
-// overload that returns a new vector instead of taking an output parameter.
-// so I think as a parameter input is more efficient because it maybe reuse same memory avoiding allocations when call
-// many time. but in some case maybe more convenient to return a new vector directly, so provide both interface anyway.
+// Convenience overload; segmenters use the output-parameter form to reuse workspace storage.
 inline auto get_pre_filter_separators(std::span<const char32_t> runes) -> std::vector<RuneIndex> {
-    assert_check([&] { return detail::size_fits_capacity<RuneIndex>(runes.size()); },
-                 "Separator input has {} runes, exceeding the supported index range", runes.size());
     auto out = std::vector<RuneIndex>{};
-    auto n = static_cast<RuneIndex>(runes.size());
-    out.reserve(n / 8); // heuristic: ~12.5% separators
-    for (auto i = RuneIndex{0}; i < n; ++i) {
-        if (is_default_separator_unlikely(runes[i])) {
-            out.push_back(i);
-        }
-    }
-    out.push_back(n); // sentinel index for end of data
+    get_pre_filter_separators(runes, out);
     return out;
 }
 
@@ -323,4 +311,4 @@ constexpr auto trim(std::string_view sv) noexcept -> std::string_view {
     return sv.substr(start, end - start + 1);
 }
 
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

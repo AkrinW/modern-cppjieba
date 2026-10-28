@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace neo_cppjieba {
+namespace neo_cppjieba::detail {
 /// Structural statistics of a Trie, capturing the key factors that affect
 /// query performance: branching factor distribution, depth profile, memory
 /// layout, and load-factor characteristics of the internal hash maps.
@@ -169,4 +169,4 @@ struct TrieStats {
         return s;
     }
 };
-} // namespace neo_cppjieba
+} // namespace neo_cppjieba::detail

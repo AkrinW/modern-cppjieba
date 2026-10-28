@@ -20,6 +20,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 TEST(DictUnitTest, DefaultValueIsMissing) {
     EXPECT_FALSE(DictUnit{}.has_value());
