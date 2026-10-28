@@ -46,7 +46,7 @@
 - [x] 确定并发模型：库内部不加锁。分词入口为 `const`，增删词为非 `const`，需要独占访问；
   调用方按场景选择加锁、写时复制或单线程使用，分词热路径不加锁。
 - [x] 提供 `Jieba::clone()` 支持写时复制，并提供 `compact()` 回收删词和加词留下的无效节点、恢复紧凑存储。
-- [ ] `KeywordExtractor` 改为无状态接口，每次调用显式传入 `const Jieba &`。
+- [x] 关键词提取器不再保存 `Jieba`，每次调用显式传入 `const Jieba &`。
 - [ ] 支持 Python jieba 的 `suggest_freq`。
 
 ## 1.4 — 扩展 C ABI v1

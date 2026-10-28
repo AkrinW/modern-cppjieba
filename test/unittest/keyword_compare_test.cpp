@@ -118,13 +118,13 @@ TEST_P(KeywordCompareTest, TfIdfMatchesCppJieba) {
                                                      std::string{IDF_FILE}, std::string{STOP_WORDS_FILE},
                                                      std::string{user_dict()}};
     const auto jieba = neo_cppjieba::Jieba{DICT_FILE, HMM_MODEL_FILE, user_dict()};
-    const auto extractor = neo_cppjieba::TfIdfExtractor{jieba, IDF_FILE, STOP_WORDS_FILE};
+    const auto extractor = neo_cppjieba::TfIdfExtractor{IDF_FILE, STOP_WORDS_FILE, neo_cppjieba::TfIdfOptions{}};
     auto workspace = neo_cppjieba::KeywordWorkspace{};
     auto keywords = std::vector<neo_cppjieba::Keyword<char>>{};
     for (const auto &text : corpus()) {
         auto expected = std::vector<cppjieba::KeywordExtractor::Word>{};
         upstream.Extract(text, expected, all);
-        extractor.extract_into(text, all, keywords, workspace);
+        extractor.extract_into(jieba, text, all, keywords, workspace);
         ASSERT_EQ(from_neo(keywords), from_upstream(expected)) << text;
     }
 }
@@ -133,13 +133,13 @@ TEST_P(KeywordCompareTest, TextRankMatchesCppJieba) {
     const auto upstream = cppjieba::TextRankExtractor{std::string{DICT_FILE}, std::string{HMM_MODEL_FILE},
                                                       std::string{STOP_WORDS_FILE}, std::string{user_dict()}};
     const auto jieba = neo_cppjieba::Jieba{DICT_FILE, HMM_MODEL_FILE, user_dict()};
-    const auto extractor = neo_cppjieba::TextRankExtractor{jieba, STOP_WORDS_FILE};
+    const auto extractor = neo_cppjieba::TextRankExtractor{STOP_WORDS_FILE, neo_cppjieba::TextRankOptions{}};
     auto workspace = neo_cppjieba::KeywordWorkspace{};
     auto keywords = std::vector<neo_cppjieba::Keyword<char>>{};
     for (const auto &text : corpus()) {
         auto upstream_words = std::vector<cppjieba::TextRankExtractor::Word>{};
         upstream.Extract(text, upstream_words, all);
-        extractor.extract_into(text, all, keywords, workspace);
+        extractor.extract_into(jieba, text, all, keywords, workspace);
         const auto actual = from_neo(keywords);
         auto expected = from_upstream(upstream_words);
         fill_isolated_words(expected, actual);
@@ -153,11 +153,12 @@ TEST_P(KeywordCompareTest, TextRankOptionsMatchCppJieba) {
     const auto jieba = neo_cppjieba::Jieba{DICT_FILE, HMM_MODEL_FILE, user_dict()};
     const auto text = read_text(TEST_DATA_DIR "/weicheng.utf8");
     for (const auto [window, iterations] : std::array{std::pair<size_t, size_t>{2, 1}, std::pair<size_t, size_t>{8, 30}}) {
-        const auto extractor =
-            neo_cppjieba::TextRankExtractor{jieba, STOP_WORDS_FILE, {.window = window, .iterations = iterations}};
+        const auto extractor = neo_cppjieba::TextRankExtractor{
+            STOP_WORDS_FILE, neo_cppjieba::TextRankOptions{.window = window, .iterations = iterations}};
         auto expected = std::vector<cppjieba::TextRankExtractor::Word>{};
         upstream.Extract(text, expected, all, window, iterations);
-        ASSERT_EQ(from_neo(extractor.extract(text, all)), from_upstream(expected)) << window << ' ' << iterations;
+        ASSERT_EQ(from_neo(extractor.extract(jieba, text, all)), from_upstream(expected))
+            << window << ' ' << iterations;
     }
 }
 

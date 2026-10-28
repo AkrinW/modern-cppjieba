@@ -244,36 +244,34 @@ private:
 
 // TF-IDF keywords, matching CppJieba's KeywordExtractor: segment with CutMode::MIX, drop one-rune words,
 // stop words and words outside options.allowed_tags, then weight each distinct word by occurrence count times IDF.
-// The extractor borrows jieba, which must outlive it; extraction is const and shares no mutable state.
+// The extractor owns only its keyword resources. Each call takes the Jieba to segment with, so any instance,
+// including a clone() with runtime edits, can be used; extraction is const and shares no mutable state.
 class TfIdfExtractor {
 public:
-    TfIdfExtractor(const Jieba &jieba, std::string_view idf_path, std::string_view stop_words_path,
-                   TfIdfOptions options = {})
-        : TfIdfExtractor(jieba, DictSource::file(idf_path), DictSource::file(stop_words_path), std::move(options)) {
+    TfIdfExtractor(std::string_view idf_path, std::string_view stop_words_path, TfIdfOptions options)
+        : TfIdfExtractor(DictSource::file(idf_path), DictSource::file(stop_words_path), std::move(options)) {
     }
-    TfIdfExtractor(const Jieba &&, std::string_view, std::string_view, TfIdfOptions = {}) = delete;
 
-    TfIdfExtractor(const Jieba &jieba, const DictSource &idf, const DictSource &stop_words, TfIdfOptions options = {})
-        : jieba_(&jieba), idf_average_(detail::load_idf(idf, idf_)), stop_words_(detail::load_stop_words(stop_words)),
+    TfIdfExtractor(const DictSource &idf, const DictSource &stop_words, TfIdfOptions options)
+        : idf_average_(detail::load_idf(idf, idf_)), stop_words_(detail::load_stop_words(stop_words)),
           options_(std::move(options)) {
     }
-    TfIdfExtractor(const Jieba &&, const DictSource &, const DictSource &, TfIdfOptions = {}) = delete;
 
     template <StringLike Input>
-    [[nodiscard]] auto extract(const Input &input, size_t top_n) const
+    [[nodiscard]] auto extract(const Jieba &jieba, const Input &input, size_t top_n) const
         -> std::vector<Keyword<output_char_type_t<Input>>> {
         auto workspace = KeywordWorkspace{};
         auto result = std::vector<Keyword<output_char_type_t<Input>>>{};
-        extract_into(input, top_n, result, workspace);
+        extract_into(jieba, input, top_n, result, workspace);
         return result;
     }
 
     // Replaces out, reusing its elements' capacity. Input must not alias out.
     template <StringLike Input>
-    auto extract_into(const Input &input, size_t top_n, std::vector<Keyword<output_char_type_t<Input>>> &out,
-                      KeywordWorkspace &workspace) const -> void {
+    auto extract_into(const Jieba &jieba, const Input &input, size_t top_n,
+                      std::vector<Keyword<output_char_type_t<Input>>> &out, KeywordWorkspace &workspace) const -> void {
         const auto source = as_view(input);
-        workspace.collect(*jieba_, stop_words_, options_.allowed_tags, source);
+        workspace.collect(jieba, stop_words_, options_.allowed_tags, source);
         for (const auto &occurrence : workspace.occurrences_) {
             workspace.candidates_[occurrence.candidate].weight += 1.0;
         }
@@ -294,7 +292,6 @@ public:
     }
 
 private:
-    const Jieba *jieba_;
     detail::IdfTable idf_;
     double idf_average_{0.0};
     detail::RuneStringSet stop_words_;
@@ -303,36 +300,35 @@ private:
 
 // TextRank keywords, matching CppJieba's TextRankExtractor: candidates are filtered as in TfIdfExtractor,
 // co-occurrence within the window adds undirected edges, and scores are normalized so the best is 1.
-// The extractor borrows jieba, which must outlive it; extraction is const and shares no mutable state.
+// The extractor owns only its keyword resources. Each call takes the Jieba to segment with, so any instance,
+// including a clone() with runtime edits, can be used; extraction is const and shares no mutable state.
 class TextRankExtractor {
 public:
-    TextRankExtractor(const Jieba &jieba, std::string_view stop_words_path, TextRankOptions options = {})
-        : TextRankExtractor(jieba, DictSource::file(stop_words_path), std::move(options)) {
+    TextRankExtractor(std::string_view stop_words_path, TextRankOptions options)
+        : TextRankExtractor(DictSource::file(stop_words_path), std::move(options)) {
     }
-    TextRankExtractor(const Jieba &&, std::string_view, TextRankOptions = {}) = delete;
 
-    TextRankExtractor(const Jieba &jieba, const DictSource &stop_words, TextRankOptions options = {})
-        : jieba_(&jieba), stop_words_(detail::load_stop_words(stop_words)), options_(std::move(options)) {
+    TextRankExtractor(const DictSource &stop_words, TextRankOptions options)
+        : stop_words_(detail::load_stop_words(stop_words)), options_(std::move(options)) {
         check(options_.damping >= 0.0 && options_.damping <= 1.0, "TextRankExtractor: damping {} is outside [0, 1]",
               options_.damping);
     }
-    TextRankExtractor(const Jieba &&, const DictSource &, TextRankOptions = {}) = delete;
 
     template <StringLike Input>
-    [[nodiscard]] auto extract(const Input &input, size_t top_n) const
+    [[nodiscard]] auto extract(const Jieba &jieba, const Input &input, size_t top_n) const
         -> std::vector<Keyword<output_char_type_t<Input>>> {
         auto workspace = KeywordWorkspace{};
         auto result = std::vector<Keyword<output_char_type_t<Input>>>{};
-        extract_into(input, top_n, result, workspace);
+        extract_into(jieba, input, top_n, result, workspace);
         return result;
     }
 
     // Replaces out, reusing its elements' capacity. Input must not alias out.
     template <StringLike Input>
-    auto extract_into(const Input &input, size_t top_n, std::vector<Keyword<output_char_type_t<Input>>> &out,
-                      KeywordWorkspace &workspace) const -> void {
+    auto extract_into(const Jieba &jieba, const Input &input, size_t top_n,
+                      std::vector<Keyword<output_char_type_t<Input>>> &out, KeywordWorkspace &workspace) const -> void {
         const auto source = as_view(input);
-        workspace.collect(*jieba_, stop_words_, options_.allowed_tags, source);
+        workspace.collect(jieba, stop_words_, options_.allowed_tags, source);
         rank(workspace);
         workspace.select(source, top_n, out);
     }
@@ -431,7 +427,6 @@ private:
         }
     }
 
-    const Jieba *jieba_;
     detail::RuneStringSet stop_words_;
     TextRankOptions options_;
 };
