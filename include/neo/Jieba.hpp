@@ -94,12 +94,11 @@ public:
     auto cut_into(const Input &input, CutMode mode, std::vector<Output> &out, Workspace &workspace) const -> void {
         out.clear();
         const auto source = detail::as_view(input);
-        const auto ranges = prepare_and_cut(source, mode, workspace);
+        const auto &state = segment_source(source, mode, workspace);
         if constexpr (detail::TaggedOutputValue<Output, output_char_type_t<Input>>) {
-            detail::fill_tagged_output(dict_, source, workspace.decoded_.runes, ranges, workspace.decoded_.offsets,
-                                       out);
+            detail::fill_tagged_output(dict_, source, state.decoded.runes, state.ranges, state.decoded.offsets, out);
         } else {
-            detail::fill_output(source, ranges, workspace.decoded_.offsets, out);
+            detail::fill_output(source, state.ranges, state.decoded.offsets, out);
         }
     }
 
@@ -109,12 +108,11 @@ public:
         requires detail::ViewVisitor<Emit, detail::token_view_t<tagging, output_char_type_t<Input>>>
     auto cut_each(const Input &input, CutMode mode, Emit &&emit, Workspace &workspace) const -> void {
         const auto source = detail::as_view(input);
-        const auto ranges = prepare_and_cut(source, mode, workspace);
+        const auto &state = segment_source(source, mode, workspace);
         if constexpr (tagging == Tagging::Pos) {
-            detail::emit_tagged_tokens(dict_, source, workspace.decoded_.runes, ranges, workspace.decoded_.offsets,
-                                       emit);
+            detail::emit_tagged_tokens(dict_, source, state.decoded.runes, state.ranges, state.decoded.offsets, emit);
         } else {
-            detail::emit_tokens(source, ranges, workspace.decoded_.offsets, emit);
+            detail::emit_tokens(source, state.ranges, state.decoded.offsets, emit);
         }
     }
 
@@ -153,7 +151,7 @@ public:
         out.clear();
         detail::check_cut_mode(mode);
         detail::assert_rune_count(runes.size());
-        detail::segment_into(dict_, model_, runes, mode, out, workspace.scratch_);
+        detail::segment_into(dict_, model_, runes, mode, out, detail::segment_state(workspace).scratch);
     }
 
     // Tag one complete word without segmenting it, like CppJieba's LookupTag.
@@ -194,16 +192,18 @@ public:
     }
 
 private:
+    // Decode and segment into the workspace; the returned state holds the runes, offsets and word ranges.
     template <CharType CharT>
-    auto prepare_and_cut(std::basic_string_view<CharT> source, CutMode mode, Workspace &workspace) const
-        -> std::span<const WordRange> {
+    auto segment_source(std::basic_string_view<CharT> source, CutMode mode, Workspace &workspace) const
+        -> const detail::SegmentState & {
         detail::check_cut_mode(mode);
-        detail::decode_with_offset_into(source, workspace.decoded_);
+        auto &state = detail::segment_state(workspace);
+        detail::decode_with_offset_into(source, state.decoded);
         // Decoding bounds source offsets; the rune count cannot exceed the source code-unit count.
         // Rune and source capacities may be configured independently.
-        detail::assert_rune_count(workspace.decoded_.runes.size());
-        detail::segment_into(dict_, model_, workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
-        return workspace.ranges_;
+        detail::assert_rune_count(state.decoded.runes.size());
+        detail::segment_into(dict_, model_, state.decoded.runes, mode, state.ranges, state.scratch);
+        return state;
     }
 
     // Copying is reserved for clone() so whole-dictionary copies stay explicit at call sites.

@@ -8,6 +8,19 @@
 
 namespace neo_cppjieba {
 
+namespace detail {
+
+// Per-call segmentation buffers behind the opaque Workspace: the decoded input, algorithm scratch and word ranges.
+struct SegmentState {
+    UnicodeWithOffset decoded;
+    SegmentScratch scratch;
+    std::vector<WordRange> ranges;
+};
+
+auto segment_state(Workspace &workspace) noexcept -> SegmentState &;
+
+} // namespace detail
+
 // Caller-owned decoding and segmentation storage. One active call owns the workspace;
 // results never borrow its buffers, and capacity is retained until release or destruction.
 class Workspace {
@@ -23,11 +36,18 @@ public:
     }
 
 private:
-    friend class Jieba;
+    friend auto detail::segment_state(Workspace &workspace) noexcept -> detail::SegmentState &;
 
-    UnicodeWithOffset decoded_;
-    detail::SegmentScratch scratch_;
-    std::vector<WordRange> ranges_;
+    detail::SegmentState state_;
 };
+
+namespace detail {
+
+// The single access point to a workspace's buffers; facades unpack it before calling algorithms.
+inline auto segment_state(Workspace &workspace) noexcept -> SegmentState & {
+    return workspace.state_;
+}
+
+} // namespace detail
 
 } // namespace neo_cppjieba
