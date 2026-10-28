@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- 新增词性标注：`cut`、`cut_with_workspace`、`cut_owned`、`cut_strings`、`cut_each` 接受模板参数
+  `Tagging::Pos`（默认 `Tagging::None`），`cut_into` 接受 `TaggedPosition` 与 `TaggedWord` 输出，另增 `lookup_tag`。
+  未登录词沿用 CppJieba 规则标为 `m`、`eng` 或 `x`；MIX 结果与 CppJieba `Tag` 一致。
+  默认的 `Tagging::None` 生成的代码不变。见 [词性标注](docs/usage.md#词性标注)。
+- `jieba_benchmark` 增加 TAG 项，与 CppJieba `Tag` 比较结果和吞吐。
+- 新增可选头文件 `neo/KeywordExtractor.hpp`：`TfIdfExtractor` 和 `TextRankExtractor`，
+  输入支持 UTF-8 / UTF-16 / UTF-32，结果含每次出现的位置，可通过 `KeywordWorkspace` 复用缓冲。
+  分数与 CppJieba `KeywordExtractor` / `TextRankExtractor` 逐位一致，legacy 测试在语料上逐项比较。
+  见 [关键词提取](docs/usage.md#关键词提取)。
+- 关键词提取支持按词性过滤：`TfIdfOptions` / `TextRankOptions` 的 `allowed_tags` 对应 Python jieba 的 `allowPOS`，
+  默认不过滤；`Keyword::tag` 返回每个关键词的词性。
+- 新增 `DictSource`：主词典、用户词典、HMM 模型、IDF 和停用词均可从文件或内存加载，
+  `Jieba`、`HMModel`、`TfIdfExtractor`、`TextRankExtractor` 增加对应构造函数；用户词典可有多个。
+  见 [从内存加载词典](docs/usage.md#从内存加载词典)。
+
+### Changed
+
+- 词性标记表移至 [docs/pos_tags.md](docs/pos_tags.md)。
+
 ## 1.2.0 - 2026-10-23
 
 本版增加适合 C 和其他语言绑定的 C ABI，以及可直接通过 `find_package` 使用的 C++ 安装包。

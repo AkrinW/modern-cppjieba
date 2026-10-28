@@ -2,14 +2,15 @@
 
 本目录保存 UTF-8 数据文件。`Jieba` 构造函数接收主词典、HMM 模型和用户词典路径，
 部署时将所需文件随应用提供。安装后的默认位置为 `share/cppjieba/dict/`。
+这些文件也可编译进程序，通过 `DictSource::memory` 从内存加载，见 [从内存加载词典](../docs/usage.md#从内存加载词典)。
 
 | 文件 | 用途 |
 | --- | --- |
 | `jieba.dict.utf8` | 主词典，每行包含词、词频和词性 |
 | `hmm_model.utf8` | HMM 未登录词识别模型 |
 | `user.dict.utf8` | 用户词典示例，按业务需要替换 |
-| `idf.utf8` | 原版 CppJieba 关键词提取使用的逆文档频率 |
-| `stop_words.utf8` | 原版 CppJieba 关键词提取使用的停用词 |
+| `idf.utf8` | `TfIdfExtractor` 使用的逆文档频率，每行为词和 IDF |
+| `stop_words.utf8` | 关键词提取使用的停用词，每行一个 |
 | `pos_dict/` | 词性模型数据 |
 
 ## 用户词典
@@ -30,4 +31,4 @@
 ```
 
 构造时将用户词典参数设为 `""`，即可仅加载主词典。
-完整用法见 [C++ 指南](../docs/usage.md)，词性缩写可参考 [词性标记表](../词性标记.md)。
+完整用法见 [C++ 指南](../docs/usage.md)，词性缩写可参考 [词性标记表](../docs/pos_tags.md)。

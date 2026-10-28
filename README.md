@@ -3,7 +3,8 @@
 基于 [CppJieba](https://github.com/yanyiwu/cppjieba) 重写的 C++23 中文分词库，
 以头文件形式提供，使用 `neo_cppjieba` 命名空间；另提供适合 C 和其他语言绑定的 C ABI。
 
-- MIX、MP、HMM、FULL、SEARCH 分词，支持用户词典。
+- MIX、MP、HMM、FULL、SEARCH 分词，支持用户词典和词性标注。
+- TF-IDF 和 TextRank 关键词提取，结果与 CppJieba 一致。
 - UTF-8、UTF-16、UTF-32 输入，返回词语、原文位置和 Unicode 码点位置。
 - 借用视图、独立字符串、持有原文的结果，以及可复用的工作区。
 - 可选 ICU 适配器，支持 GBK / GB18030 转换及原始字节映射。
@@ -117,7 +118,8 @@ target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 ## 开发
 
 [构建与测试](docs/building.md#测试) · [依赖和离线配置](deps/README.md) ·
-[性能测量与 CI 更新](benchmark/README.md) · [仓库布局](docs/building.md#仓库布局)
+[性能测量与 CI 更新](benchmark/README.md) · [仓库布局](docs/building.md#仓库布局) ·
+[路线图](ROADMAP.md)
 
 ## 许可证
 

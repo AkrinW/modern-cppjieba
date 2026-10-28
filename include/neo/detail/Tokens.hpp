@@ -1,9 +1,11 @@
 #pragma once
 
+#include "neo/TaggedToken.hpp"
 #include "neo/TokenView.hpp"
 #include "neo/Traits.hpp"
 #include "neo/detail/Logging.hpp"
 
+#include <concepts>
 #include <cstddef>
 #include <iterator>
 #include <span>
@@ -18,23 +20,39 @@ class Jieba;
 
 namespace detail {
 
-// Iteration materializes views on demand instead of storing a text pointer in every token.
+// Untagged and tagged results share storage and iteration; only the stored record and its view differ.
 template <CharType CharT>
+[[nodiscard]] constexpr auto make_token_view(std::basic_string_view<CharT> source,
+                                             const TokenPosition &position) noexcept -> TokenView<CharT> {
+    return {position.source.slice(source), position};
+}
+
+template <CharType CharT>
+[[nodiscard]] constexpr auto make_token_view(std::basic_string_view<CharT> source,
+                                             const TaggedPosition &tagged) noexcept -> TaggedTokenView<CharT> {
+    return {tagged.position.source.slice(source), tagged.position, tagged.tag};
+}
+
+template <typename Position>
+concept TokenRecord = std::same_as<Position, TokenPosition> || std::same_as<Position, TaggedPosition>;
+
+// Iteration materializes views on demand instead of storing a text pointer in every token.
+template <CharType CharT, TokenRecord Position = TokenPosition>
 class TokenIterator {
 public:
     using iterator_concept = std::forward_iterator_tag;
     using iterator_category = std::forward_iterator_tag;
-    using value_type = TokenView<CharT>;
+    using value_type = decltype(make_token_view(std::basic_string_view<CharT>{}, std::declval<const Position &>()));
     using difference_type = std::ptrdiff_t;
     using reference = value_type;
 
     TokenIterator() noexcept = default;
-    TokenIterator(std::basic_string_view<CharT> source, std::vector<TokenPosition>::const_iterator position) noexcept
+    TokenIterator(std::basic_string_view<CharT> source, typename std::vector<Position>::const_iterator position) noexcept
         : source_(source), position_(position) {
     }
 
     [[nodiscard]] auto operator*() const noexcept -> value_type {
-        return {position_->source.slice(source_), *position_};
+        return make_token_view(source_, *position_);
     }
 
     auto operator++() noexcept -> TokenIterator & {
@@ -54,16 +72,18 @@ public:
 
 private:
     std::basic_string_view<CharT> source_{};
-    std::vector<TokenPosition>::const_iterator position_{};
+    typename std::vector<Position>::const_iterator position_{};
 };
 
 // Owns positions and stores either borrowed or owned source text; no cached pointers into owned strings.
-template <typename Storage>
+// Tagged results store TaggedPosition records and iterate as TaggedTokenView.
+template <typename Storage, TokenRecord Position = TokenPosition>
 class BasicTokens {
 public:
     using char_type = typename Storage::value_type;
-    using value_type = TokenView<char_type>;
-    using const_iterator = TokenIterator<char_type>;
+    using position_type = Position;
+    using const_iterator = TokenIterator<char_type, Position>;
+    using value_type = typename const_iterator::value_type;
 
     [[nodiscard]] auto size() const noexcept -> size_t {
         return positions_.size();
@@ -78,15 +98,14 @@ public:
     }
     auto source() const && noexcept -> std::basic_string_view<char_type> = delete;
 
-    [[nodiscard]] auto positions() const & noexcept -> std::span<const TokenPosition> {
+    [[nodiscard]] auto positions() const & noexcept -> std::span<const Position> {
         return positions_;
     }
-    auto positions() const && noexcept -> std::span<const TokenPosition> = delete;
+    auto positions() const && noexcept -> std::span<const Position> = delete;
 
     [[nodiscard]] auto operator[](size_t index) const & noexcept -> value_type {
         assert_check([&] { return index < positions_.size(); }, "Token index exceeds the result size");
-        const auto &position = positions_[index];
-        return {position.source.slice(source()), position};
+        return make_token_view(source(), positions_[index]);
     }
     auto operator[](size_t) const && noexcept -> value_type = delete;
 
@@ -104,12 +123,12 @@ private:
     friend class ::neo_cppjieba::Jieba;
 
     BasicTokens(Storage source,
-                std::vector<TokenPosition> positions) noexcept(std::is_nothrow_move_constructible_v<Storage>)
+                std::vector<Position> positions) noexcept(std::is_nothrow_move_constructible_v<Storage>)
         : source_(std::move(source)), positions_(std::move(positions)) {
     }
 
     Storage source_;
-    std::vector<TokenPosition> positions_;
+    std::vector<Position> positions_;
 };
 
 } // namespace detail

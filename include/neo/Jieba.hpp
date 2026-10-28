@@ -1,6 +1,7 @@
 #pragma once
 
 #include "neo/Config.hpp"
+#include "neo/DictSource.hpp"
 #include "neo/Token.hpp"
 #include "neo/Traits.hpp"
 #include "neo/Unicode.hpp"
@@ -15,6 +16,7 @@
 #include "neo/detail/Output.hpp"
 #include "neo/detail/QuerySegment.hpp"
 #include "neo/detail/StyledSegment.hpp"
+#include "neo/detail/Tagging.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -107,62 +109,85 @@ public:
         : dict_(dict_path, user_dict_path), model_(model_path) {
     }
 
+    // Load from files or memory; user dictionaries load in order and a repeated word takes the last entry.
+    explicit Jieba(const DictSource &dict, const DictSource &model, std::span<const DictSource> user_dicts = {})
+        : dict_(dict, user_dicts), model_(model) {
+    }
+
+    // Tagging::Pos makes an entry point attach each word's part-of-speech tag without changing segmentation:
+    // the dictionary tag when the word has one, otherwise CppJieba's rule ("m", "eng" or "x").
+    // Tags are looked up only after segmentation, so Tagging::None instantiations do no tagging work.
+
     // Borrowing rejects owning temporaries; callers keep the original text alive and stable.
-    template <StringViewSource Input>
-    [[nodiscard]] auto cut(Input &&input, CutMode mode) const -> Tokens<output_char_type_t<Input>> {
+    template <Tagging tagging = Tagging::None, StringViewSource Input>
+    [[nodiscard]] auto cut(Input &&input, CutMode mode) const -> Tokens<output_char_type_t<Input>, tagging> {
         auto workspace = Workspace{};
-        return cut_with_workspace(std::forward<Input>(input), mode, workspace);
+        return cut_with_workspace<tagging>(std::forward<Input>(input), mode, workspace);
     }
 
     // Caller-owned workspace may be reused; each result owns its positions and borrows only the input.
     // Convert the input once so decoding and the returned view refer to the same source.
-    template <StringViewSource Input>
+    template <Tagging tagging = Tagging::None, StringViewSource Input>
     [[nodiscard]] auto cut_with_workspace(Input &&input, CutMode mode, Workspace &workspace) const
-        -> Tokens<output_char_type_t<Input>> {
+        -> Tokens<output_char_type_t<Input>, tagging> {
         const auto source = as_view(std::forward<Input>(input));
-        auto positions = std::vector<TokenPosition>{};
+        auto positions = std::vector<detail::token_record_t<tagging>>{};
         cut_into(source, mode, positions, workspace);
-        return Tokens<output_char_type_t<Input>>{source, std::move(positions)};
+        return Tokens<output_char_type_t<Input>, tagging>{source, std::move(positions)};
     }
 
     // Replaces output while retaining its capacity. Output records contain no decoding-buffer pointers.
     // Caller-owned decoding buffers can be reused across inputs; results never borrow this storage.
     // Input must not alias the output array or either decoding buffer.
     // The workspace also retains DAG, DP, HMM, separator, and rune-result storage.
+    // TaggedPosition and TaggedWord outputs select tagging; other outputs are untagged.
     template <StringLike Input, typename Output>
         requires detail::OutputValue<Output, output_char_type_t<Input>>
+                 || detail::TaggedOutputValue<Output, output_char_type_t<Input>>
     auto cut_into(const Input &input, CutMode mode, std::vector<Output> &out, Workspace &workspace) const -> void {
         out.clear();
         const auto source = as_view(input);
         const auto ranges = prepare_and_cut(source, mode, workspace);
-        detail::fill_output(source, ranges, workspace.decoded_.offsets, out);
+        if constexpr (detail::TaggedOutputValue<Output, output_char_type_t<Input>>) {
+            detail::fill_tagged_output(dict_, source, workspace.decoded_.runes, ranges, workspace.decoded_.offsets,
+                                       out);
+        } else {
+            detail::fill_output(source, ranges, workspace.decoded_.offsets, out);
+        }
     }
 
     // No public token array is built; the current segmenters still compute rune ranges first.
     // Visitors may throw, but must not reuse this decoding buffer or invalidate the input text.
-    template <StringLike Input, typename Emit>
-        requires detail::TokenVisitor<Emit, output_char_type_t<Input>>
+    template <Tagging tagging = Tagging::None, StringLike Input, typename Emit>
+        requires detail::ViewVisitor<Emit, detail::token_view_t<tagging, output_char_type_t<Input>>>
     auto cut_each(const Input &input, CutMode mode, Emit &&emit, Workspace &workspace) const -> void {
         const auto source = as_view(input);
         const auto ranges = prepare_and_cut(source, mode, workspace);
-        detail::emit_tokens(source, ranges, workspace.decoded_.offsets, emit);
+        if constexpr (tagging == Tagging::Pos) {
+            detail::emit_tagged_tokens(dict_, source, workspace.decoded_.runes, ranges, workspace.decoded_.offsets,
+                                       emit);
+        } else {
+            detail::emit_tokens(source, ranges, workspace.decoded_.offsets, emit);
+        }
     }
 
     // Move the source into its final owner before building positions, including for small strings.
-    template <CharType CharT>
-    [[nodiscard]] auto cut_owned(std::basic_string<CharT> source, CutMode mode) const -> OwnedTokens<CharT> {
-        auto result = OwnedTokens<CharT>{std::move(source), {}};
+    template <Tagging tagging = Tagging::None, CharType CharT>
+    [[nodiscard]] auto cut_owned(std::basic_string<CharT> source, CutMode mode) const
+        -> OwnedTokens<CharT, tagging> {
+        auto result = OwnedTokens<CharT, tagging>{std::move(source), {}};
         auto workspace = Workspace{};
         cut_into(result.source_, mode, result.positions_, workspace);
         return result;
     }
 
     // UTF-8 byte buffers produce std::string words; character inputs retain their native string type.
-    template <StringLike Input>
+    // Tagging::Pos returns word/tag pairs, like CppJieba's Tag and Python jieba's posseg.lcut.
+    template <Tagging tagging = Tagging::None, StringLike Input>
     [[nodiscard]] auto cut_strings(const Input &input, CutMode mode) const
-        -> std::vector<std::basic_string<output_char_type_t<Input>>> {
+        -> std::vector<detail::word_t<tagging, output_char_type_t<Input>>> {
         auto workspace = Workspace{};
-        auto result = std::vector<std::basic_string<output_char_type_t<Input>>>{};
+        auto result = std::vector<detail::word_t<tagging, output_char_type_t<Input>>>{};
         cut_into(input, mode, result, workspace);
         return result;
     }
@@ -184,6 +209,17 @@ public:
         // Former policy: Preserve the previous empty-output guarantee when segmentation fails.
         // Failures now propagate directly and may leave partial output.
         cut_impl(runes, mode, out, workspace.scratch_);
+    }
+
+    // Tag one complete word without segmenting it, like CppJieba's LookupTag.
+    [[nodiscard]] auto lookup_tag(std::span<const Rune> word) const noexcept -> PosTag {
+        return detail::word_tag(dict_, word);
+    }
+
+    template <StringLike Input>
+    [[nodiscard]] auto lookup_tag(const Input &word) const -> PosTag {
+        const auto runes = decode(word);
+        return lookup_tag(std::span<const Rune>{runes});
     }
 
 private:
