@@ -93,7 +93,7 @@ TEST(IcuCodecTest, MalformedSequencesRaiseErrorsWithoutReplacement) {
     auto decoded = UnicodeWithOffset{};
     const auto expect_invalid = [&](std::string_view input, EncodingId encoding) {
         EXPECT_THROW(IcuCodec::decode_with_offset_into(input, encoding, decoded), LogConfig::Exception);
-        EXPECT_THROW(IcuCodec::to_utf8(input, encoding), LogConfig::Exception);
+        EXPECT_THROW(static_cast<void>(IcuCodec::to_utf8(input, encoding)), LogConfig::Exception);
     };
     expect_invalid("\xFF"sv, EncodingId::UTF8);
     expect_invalid("\x81"sv, EncodingId::GBK);
@@ -191,20 +191,40 @@ TEST(IcuCodecTest, MalformedUtf8CannotBeEncoded) {
         std::array{"\xFF"sv, "A\xC0\x80"sv, "\xED\xA0\x80"sv, "\xF4\x90\x80\x80"sv, "Z\xF0\x9F\x98"sv, "A\0\xFF"sv};
     for (const auto encoding : encodings) {
         for (const auto input : malformed) {
-            EXPECT_THROW(IcuCodec::from_utf8(input, encoding), LogConfig::Exception);
-            EXPECT_THROW(IcuCodec::from_utf8_with_offset(input, encoding), LogConfig::Exception);
+            EXPECT_THROW(static_cast<void>(IcuCodec::from_utf8(input, encoding)), LogConfig::Exception);
+            EXPECT_THROW(static_cast<void>(IcuCodec::from_utf8_with_offset(input, encoding)), LogConfig::Exception);
         }
     }
 }
 
 TEST(IcuCodecTest, UnrepresentableScalarsRaiseErrorsWithoutSubstitution) {
-    EXPECT_THROW(IcuCodec::from_utf8("中A😀"sv, EncodingId::GBK), LogConfig::Exception);
-    EXPECT_THROW(IcuCodec::from_utf8_with_offset("中A😀"sv, EncodingId::GBK), LogConfig::Exception);
+    EXPECT_THROW(static_cast<void>(IcuCodec::from_utf8("中A😀"sv, EncodingId::GBK)), LogConfig::Exception);
+    EXPECT_THROW(static_cast<void>(IcuCodec::from_utf8_with_offset("中A😀"sv, EncodingId::GBK)), LogConfig::Exception);
 }
 
 TEST(IcuCodecTest, UnrepresentableDefaultIgnorableIsNotSkipped) {
-    EXPECT_THROW(IcuCodec::from_utf8("A\u200DB"sv, EncodingId::GBK), LogConfig::Exception);
-    EXPECT_THROW(IcuCodec::from_utf8_with_offset("A\u200DB"sv, EncodingId::GBK), LogConfig::Exception);
+    EXPECT_THROW(static_cast<void>(IcuCodec::from_utf8("A\u200DB"sv, EncodingId::GBK)), LogConfig::Exception);
+    EXPECT_THROW(static_cast<void>(IcuCodec::from_utf8_with_offset("A\u200DB"sv, EncodingId::GBK)),
+                 LogConfig::Exception);
+}
+
+TEST(IcuCodecTest, SkippedDefaultIgnorableReportsScalarAndUtf8ByteOffset) {
+    try {
+        const auto encoded = IcuCodec::from_utf8("A\u200DB"sv, EncodingId::GBK);
+        FAIL() << "Expected GBK encoding to fail, got " << encoded.size() << " bytes";
+    } catch (const LogConfig::Exception &error) {
+        const auto message = std::string_view{error.what()};
+        EXPECT_NE(message.find("GBK"), std::string_view::npos);
+        EXPECT_NE(message.find("U+200D"), std::string_view::npos);
+        EXPECT_NE(message.find("UTF-8 byte offset 1"), std::string_view::npos);
+    }
+}
+
+TEST(IcuCodecTest, RepresentableDefaultIgnorableIsEncoded) {
+    const auto input = "A\u200DB"sv;
+    const auto encoded = IcuCodec::from_utf8_with_offset(input, EncodingId::GB18030);
+    EXPECT_EQ(encoded.offsets, (std::vector<SourceOffset>{0, 1, 5, 6}));
+    EXPECT_EQ(IcuCodec::to_utf8(encoded.bytes, EncodingId::GB18030), input);
 }
 
 TEST(IcuCodecTest, EncodingFailureReportsTargetAndUtf8ByteOffset) {
@@ -235,7 +255,7 @@ TEST(IcuCodecTest, TemporaryUtf8ProducesOwnedEncodedBytesAndOffsets) {
 }
 
 TEST(IcuCodecTest, EncodingAfterFailureSucceeds) {
-    EXPECT_THROW(IcuCodec::from_utf8("😀"sv, EncodingId::GBK), LogConfig::Exception);
+    EXPECT_THROW(static_cast<void>(IcuCodec::from_utf8("😀"sv, EncodingId::GBK)), LogConfig::Exception);
     EXPECT_EQ(IcuCodec::from_utf8("中国科学院"sv, EncodingId::GBK), gbk_academy);
 }
 
