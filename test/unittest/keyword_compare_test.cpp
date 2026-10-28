@@ -46,7 +46,7 @@ auto normalized(std::vector<Comparable> words) -> std::vector<Comparable> {
 }
 
 // Upstream TextRank sets Word::word only for graph nodes, so a word without edges comes back empty
-// with weight 0. modern-cppjieba reports the word; its weight and offsets must still match.
+// with weight 0. neo-cppjieba reports the word; its weight and offsets must still match.
 auto fill_isolated_words(std::vector<Comparable> &expected, const std::vector<Comparable> &actual) -> void {
     for (auto i = size_t{0}; i < std::min(expected.size(), actual.size()); ++i) {
         if (expected[i].word.empty() && expected[i].weight == 0.0) {

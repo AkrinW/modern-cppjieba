@@ -19,7 +19,7 @@ def draw(snapshot, output):
         "font.size": 11,
         "text.color": "#17233b",
         "axes.labelcolor": "#17233b",
-        "svg.hashsalt": "modern-cppjieba-benchmarks",
+        "svg.hashsalt": "neo-cppjieba-benchmarks",
     })
     figure, axes = plt.subplots(1, len(snapshot["corpora"]), figsize=(12, 6.5), sharey=True, squeeze=False)
     modes = snapshot["modes"]

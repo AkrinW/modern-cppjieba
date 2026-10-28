@@ -1,5 +1,5 @@
 [package]
-name = "modern-cppjieba-rust-bench"
+name = "neo-cppjieba-rust-bench"
 version = "0.1.0"
 edition = "2024"
 publish = false

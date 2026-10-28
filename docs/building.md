@@ -19,10 +19,10 @@
 
 ## 源码接入
 
-将仓库放入应用的 `external/modern-cppjieba`，在应用的 CMakeLists.txt 中链接接口目标：
+将仓库放入应用的 `external/neo-cppjieba`，在应用的 CMakeLists.txt 中链接接口目标：
 
 ```cmake
-add_subdirectory(external/modern-cppjieba)
+add_subdirectory(external/neo-cppjieba)
 target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 ```
 
@@ -49,11 +49,12 @@ target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 | 内容 | 安装前缀下的路径 |
 | --- | --- |
 | C++ 头文件 | `include/neo/` |
-| 词典和模型 | `share/cppjieba/dict/` |
+| 词典和模型 | `share/neo_cppjieba/dict/` |
 | C++ CMake 包 | `lib/cmake/neo_cppjieba/` |
 | C API CMake 包（启用时） | `lib/cmake/neo_cppjieba_c/` |
 
-部署时携带词典和模型，并将实际路径传给分词器。
+部署时携带词典和模型，并将实际路径传给分词器。`find_package` 之后，
+`neo_cppjieba_DICT_DIR` 给出安装包中的词典目录，可用于测试或复制到部署目录。
 手工集成时，把 `include/` 加入头文件搜索路径，并启用 C++23 和 MSVC 的 UTF-8 源码选项。
 
 ## 可选组件
@@ -85,6 +86,7 @@ target_link_libraries(my_app PRIVATE neo_cppjieba::icu)
 | `CPPJIEBA_BUILD_C_API` | OFF | 构建 C ABI 库 |
 | `CPPJIEBA_C_API_BUILD_SHARED` | ON | 启用 C API 后构建共享库 |
 | `CPPJIEBA_C_API_BUILD_STATIC` | ON | 启用 C API 后构建静态库 |
+| `CPPJIEBA_INSTALL_LEGACY_DICT_DIR` | OFF | 过渡选项：词典同时安装到 1.2 及更早版本的 `share/cppjieba/dict/` |
 
 C API 至少选择一种库形式。测试与比较依赖的版本、初始化和离线配置见 [依赖指南](../deps/README.md)。
 

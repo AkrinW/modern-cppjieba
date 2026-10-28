@@ -1,6 +1,6 @@
 # Roadmap
 
-本文记录 modern-cppjieba 在 1.2.0 之后的计划方向。版本划分表示优先级，不承诺发布日期；
+本文记录 neo-cppjieba 在 1.2.0 之后的计划方向。版本划分表示优先级，不承诺发布日期；
 各项完成后移入 [CHANGELOG](CHANGELOG.md)。
 
 ## 现状
@@ -109,11 +109,13 @@
   （"These usage notes describe the former facade"）；`cut_runes_into` 中的 "Former policy" 注释同理，改写为当前契约。
 - [x] 明确公开边界：`DictTrie`、`HMModel`、`Trie`、各 `*Segment` 位于 `detail/` 目录却在公开命名空间
   `neo_cppjieba` 中，`PosTag` 是公开类型却位于 `detail/`。见 [架构](docs/architecture.md#公开边界)。
-- [ ] 统一命名：项目名 modern-cppjieba、命名空间与包名 `neo_cppjieba`，词典却安装到 `share/cppjieba/dict`，
-  可能与上游 CppJieba 的安装冲突。改为 `share/neo_cppjieba/dict` 并保留过渡期，同时在 CMake 包中导出词典目录变量。
-- [ ] 删除 [`.github/workflows/cmake.yml`](.github/workflows/cmake.yml) 中的模板注释。
-- [ ] 清点 `test/testdata/` 中上游 server 时代的文件（`server.conf`、`load_test.urls`、`curl.res`），移除不再使用的部分。
-- [ ] 确认现代库不依赖 `deps/limonp`，在 [依赖说明](deps/README.md) 中注明它仅服务 legacy 测试。
+- [x] 统一命名：项目名改为 neo-cppjieba，与命名空间和包名 `neo_cppjieba` 一致。词典改为安装到
+  `share/neo_cppjieba/dict`，避免与上游 CppJieba 冲突；过渡选项 `CPPJIEBA_INSTALL_LEGACY_DICT_DIR` 保留旧位置，
+  CMake 包导出 `neo_cppjieba_DICT_DIR`。
+- [x] 删除 [`.github/workflows/cmake.yml`](.github/workflows/cmake.yml) 中的模板注释。
+- [x] 清点 `test/testdata/`：移除上游 server 时代的文件（`server.conf`、`load_test.urls`、`curl.res`）及未引用的
+  GBK 词典、分片词典、`review.100.res` 和 `testlines.gbk`。
+- [x] 确认现代库不依赖 `deps/limonp`：它仅服务 benchmark 中的 FileIO 对照和 legacy 加载测试，见 [依赖说明](deps/README.md)。
 
 ## 优先顺序
 

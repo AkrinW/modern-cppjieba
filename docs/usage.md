@@ -96,7 +96,7 @@ Python jieba 的 `posseg` 使用独立的词性 HMM 模型，本库不提供该�
 `PosTag` 最多 4 个 ASCII 字符，按值存储，可与字符串或 `neo_cppjieba::pos` 中的常量比较，
 例如 `token.tag == neo_cppjieba::pos::ns` 或 `token.tag == "ns"`。缩写含义见 [词性标记表](pos_tags.md)。
 
-| CppJieba / Python jieba | modern-cppjieba |
+| CppJieba / Python jieba | neo-cppjieba |
 | --- | --- |
 | `jieba.Tag(s, words)` | `jieba.cut_strings<Tagging::Pos>(s, CutMode::MIX)` |
 | `jieba.LookupTag(word)` | `jieba.lookup_tag(word)` |
@@ -158,7 +158,7 @@ CppJieba 对同分词的顺序未作规定；TextRank 中没有任何共现边�
 CppJieba 返回空的 `word`，本库返回该词本身，分数同为 0。
 Python jieba 的 `extract_tags` / `textrank` 采用不同的规则（词频归一化、IDF 中位数、按词性过滤等），分数与本库不同。
 
-| CppJieba | modern-cppjieba |
+| CppJieba | neo-cppjieba |
 | --- | --- |
 | `KeywordExtractor(dict, hmm, idf, stop_words, user_dict)` | `TfIdfExtractor{Jieba{dict, hmm, user_dict}, idf, stop_words}` |
 | `TextRankExtractor(dict, hmm, stop_words, user_dict)` | `TextRankExtractor{Jieba{dict, hmm, user_dict}, stop_words}` |

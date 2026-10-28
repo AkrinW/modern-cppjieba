@@ -18,7 +18,7 @@ CORPORA = {"testlines": "Short sentences", "weicheng": "Weicheng"}
 SERIES = [
     {"id": "cppjieba", "label": "CppJieba", "color": "#64748b", "marker": "s",
      "native_label": "Old C++ strings"},
-    {"id": "modern", "label": "modern-cppjieba", "color": "#2563eb", "marker": "o",
+    {"id": "modern", "label": "neo-cppjieba", "color": "#2563eb", "marker": "o",
      "native_label": "Neo C++ strings"},
     {"id": "rust", "label": "jieba-rs", "color": "#c77714", "marker": "D",
      "native_label": "Rust native owned strings"},
@@ -186,8 +186,8 @@ def update_readme(readme, snapshot, snapshot_path):
     lines = [
         f"数据来自 [GitHub Actions]({ci['run_url']})，测试日期：{snapshot['measured_on']}。",
         f"测量提交：[`{revision[:7]}`]({ci['repository_url']}/commit/{revision})。",
-        "各实现使用同一主词典和 HMM 模型，关闭用户词典；modern-cppjieba 使用 `CPP` 规则。", "",
-        "![CppJieba、modern-cppjieba、jieba-rs 和 Python jieba 的分词吞吐量，线性坐标](docs/benchmarks/comparison.svg)", "",
+        "各实现使用同一主词典和 HMM 模型，关闭用户词典；neo-cppjieba 使用 `CPP` 规则。", "",
+        "![CppJieba、neo-cppjieba、jieba-rs 和 Python jieba 的分词吞吐量，线性坐标](docs/benchmarks/comparison.svg)", "",
         "吞吐量单位为 MiB/s，越高越好。曲线取各样本的中位数，误差线表示最小、最大吞吐量。",
         "各路径均返回独立字符串，计时覆盖分词、字符串构造和释放；语料读取、词典加载和预热在计时前完成。", "",
         f"- 环境：GitHub 托管 `{ci['runner_image']}`，{env['cpu']}，绑定 CPU {env['cpu_affinity'][0]}。",

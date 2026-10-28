@@ -1,7 +1,7 @@
 # 词典与模型
 
 本目录保存 UTF-8 数据文件。`Jieba` 构造函数接收主词典、HMM 模型和用户词典路径，
-部署时将所需文件随应用提供。安装后的默认位置为 `share/cppjieba/dict/`。
+部署时将所需文件随应用提供。安装后的默认位置为 `share/neo_cppjieba/dict/`，CMake 包通过 `neo_cppjieba_DICT_DIR` 提供该目录。
 这些文件也可编译进程序，通过 `DictSource::memory` 从内存加载，见 [从内存加载词典](../docs/usage.md#从内存加载词典)。
 
 | 文件 | 用途 |
