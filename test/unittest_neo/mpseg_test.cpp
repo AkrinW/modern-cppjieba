@@ -108,7 +108,7 @@ TEST(MPSegmentTest, PreservesExistingOutputWhenAppendingAtTheRuneOffsetLimit) {
     const auto pos = std::numeric_limits<RuneIndex>::max() - RuneIndex{2};
     auto result = std::vector<WordRange>{{7, 8}};
     auto scratch = detail::SegmentScratch{};
-    detail::mp_cut_append(dict, runes, result, pos, scratch);
+    detail::mp_cut_append(dict, runes, pos, result, scratch);
 
     EXPECT_EQ(result, (std::vector<WordRange>{{7, 8}, {pos, pos + 1}, {pos + 1, pos + 2}}));
 }

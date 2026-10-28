@@ -4,8 +4,8 @@
 #include "neo/algorithm/SegmentCommon.hpp"
 #include "neo/concept/Segment.hpp"
 #include "neo/resource/DictTrie.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/HMModel.hpp"
-#include "neo/resource/Trie.hpp"
 #include "neo/value/Rune.hpp"
 #include "neo/workspace/SegmentScratch.hpp"
 
@@ -31,15 +31,16 @@ struct FullSegment {
         range.clear();
         range.reserve(runes.size() / 2);
         detail::for_each_separated(
-            runes, scratch.separators,
-            [&](std::span<const Rune> segment, RuneIndex offset) { cut_one_segment(dict, range, segment, offset); },
-            [&](RuneIndex separator) { range.push_back({separator, static_cast<RuneIndex>(separator + 1)}); });
+            runes,
+            [&](std::span<const Rune> segment, RuneIndex offset) { cut_one_segment(dict, segment, offset, range); },
+            [&](RuneIndex separator) { range.push_back({separator, static_cast<RuneIndex>(separator + 1)}); },
+            scratch.separators);
     }
 
 private:
     /// Emit all dictionary matches inside one separator-free segment, plus uncovered single-rune fallbacks.
-    static auto cut_one_segment(const DictTrie &dict, std::vector<WordRange> &result, std::span<const Rune> runes,
-                                RuneIndex pos) -> void {
+    static auto cut_one_segment(const DictTrie &dict, std::span<const Rune> runes, RuneIndex pos,
+                                std::vector<WordRange> &result) -> void {
         // max_covered tracks the furthest rune position covered by previously emitted dictionary words; used to decide
         // whether to emit single-char fallback tokens.
         auto max_covered = size_t{0};

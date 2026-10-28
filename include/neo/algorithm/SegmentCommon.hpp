@@ -37,9 +37,9 @@ namespace neo_cppjieba::detail {
 /// on_text(segment, offset) receives each separator-free span, possibly empty, with its offset in runes;
 /// on_separator(offset) receives each separator rune between them, in input order.
 /// The separator list is caller-owned scratch; the callbacks must not modify it.
-template <typename OnText, typename OnSeparator>
-inline auto for_each_separated(std::span<const Rune> runes, std::vector<RuneIndex> &separators, OnText &&on_text,
-                               OnSeparator &&on_separator) -> void {
+template <SegmentVisitor OnText, SeparatorVisitor OnSeparator>
+inline auto for_each_separated(std::span<const Rune> runes, OnText &&on_text, OnSeparator &&on_separator,
+                               std::vector<RuneIndex> &separators) -> void {
     get_pre_filter_separators(runes, separators);
     // The final entry is the runes.size() sentinel, so every separator is followed by one more text span.
     auto begin = RuneIndex{0};

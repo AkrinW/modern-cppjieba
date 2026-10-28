@@ -22,7 +22,7 @@ namespace neo_cppjieba::detail {
 /// Visit the MP route built for a separator-free segment as local word ranges, in input order.
 /// With HMM, each run of single-rune route words that are not user-dictionary singletons is
 /// re-segmented by HMM so out-of-vocabulary words can be recovered. MIX and SEARCH share this walk.
-template <bool hmm, typename Emit>
+template <bool hmm, WordEmitter Emit>
 inline auto mix_emit_route(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes, const Emit &emit,
                            SegmentScratch &scratch) -> void {
     if constexpr (!hmm) {
@@ -50,7 +50,7 @@ inline auto mix_emit_route(const DictTrie &dict, const HMModel &model, std::span
                 ++run_end;
             }
             // The outer cut already removed separators; HMM keeps its ASCII handling.
-            hmm_emit_one_segment(model, emit, runes.subspan(begin, run_end - begin), begin, scratch);
+            hmm_emit_one_segment(model, runes.subspan(begin, run_end - begin), begin, emit, scratch);
             begin = run_end;
         }
     }
@@ -58,15 +58,15 @@ inline auto mix_emit_route(const DictTrie &dict, const HMModel &model, std::span
 
 /// Append MIX results at global offset pos, keeping separator runes as standalone tokens.
 template <bool hmm>
-inline auto mix_cut_append(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
-                           std::vector<WordRange> &out, RuneIndex pos, SegmentScratch &scratch) -> void {
+inline auto mix_cut_append(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes, RuneIndex pos,
+                           std::vector<WordRange> &out, SegmentScratch &scratch) -> void {
     if constexpr (!hmm) {
-        mp_cut_append(dict, runes, out, pos, scratch);
+        mp_cut_append(dict, runes, pos, out, scratch);
     } else {
         assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                      "MixSegment: global word offsets overflow");
         for_each_separated(
-            runes, scratch.separators,
+            runes,
             [&](std::span<const Rune> segment, RuneIndex offset) {
                 if (segment.empty()) {
                     return;
@@ -83,7 +83,8 @@ inline auto mix_cut_append(const DictTrie &dict, const HMModel &model, std::span
             },
             [&](RuneIndex separator) {
                 out.push_back({static_cast<RuneIndex>(pos + separator), static_cast<RuneIndex>(pos + separator + 1)});
-            });
+            },
+            scratch.separators);
     }
 }
 
@@ -105,7 +106,7 @@ struct MixSegment {
                      "MixSegment: input exceeds the word-range limit");
         result.clear();
         result.reserve(runes.size() / 2);
-        detail::mix_cut_append<hmm>(dict, model, runes, result, 0, scratch);
+        detail::mix_cut_append<hmm>(dict, model, runes, 0, result, scratch);
     }
 };
 

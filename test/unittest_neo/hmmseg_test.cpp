@@ -495,7 +495,7 @@ TEST_F(HMModelTest, HmmSegmentationPreservesOffsetsAtWordRangeLimit) {
     constexpr auto limit = std::numeric_limits<RuneIndex>::max();
     auto words = std::vector<WordRange>{};
     auto scratch = detail::SegmentScratch{};
-    detail::hmm_cut_append(model, runes, words, limit - 4, scratch);
+    detail::hmm_cut_append(model, runes, limit - 4, words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{limit - 4, limit - 2}, {limit - 2, limit - 1}, {limit - 1, limit}}));
 }
 

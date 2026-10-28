@@ -133,8 +133,8 @@ inline auto append_mix_words(const DictTrie &dict, const HMModel &model, std::ve
         auto run_begin = mp_words[i].begin;
         auto run_end = mp_words[j - 1].end;
         auto scratch = neo_cppjieba::detail::SegmentScratch{};
-        neo_cppjieba::detail::hmm_cut_append(model, runes.subspan(run_begin, run_end - run_begin), result,
-                                             pos + run_begin, scratch);
+        neo_cppjieba::detail::hmm_cut_append(model, runes.subspan(run_begin, run_end - run_begin), pos + run_begin,
+                                             result, scratch);
 
         i = j;
     }

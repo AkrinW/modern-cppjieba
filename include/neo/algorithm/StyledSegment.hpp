@@ -5,8 +5,8 @@
 #include "neo/algorithm/HMMSegment.hpp"
 #include "neo/concept/Segment.hpp"
 #include "neo/resource/DictTrie.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/HMModel.hpp"
-#include "neo/resource/Trie.hpp"
 #include "neo/value/Rune.hpp"
 #include "neo/workspace/SegmentScratch.hpp"
 
@@ -63,7 +63,7 @@ inline auto style_build_route(const DictTrie &dict, std::span<const Rune> runes,
 }
 
 // HMM must not undo MP's single-character decomposition of a known dictionary word.
-template <bool hmm, typename Emit>
+template <bool hmm, WordEmitter Emit>
 inline auto style_emit_singletons(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
                                   WordRange run, const Emit &emit, SegmentScratch &scratch) -> void {
     assert(run.begin < run.end && run.end <= runes.size());
@@ -77,7 +77,7 @@ inline auto style_emit_singletons(const DictTrie &dict, const HMModel &model, st
     }
     const auto text = run.slice(runes);
     if (!dict.find(text).has_value()) {
-        hmm_emit_one_segment(model, emit, text, run.begin, scratch);
+        hmm_emit_one_segment(model, text, run.begin, emit, scratch);
         return;
     }
     for (auto i = run.begin; i < run.end; ++i) {
@@ -86,9 +86,9 @@ inline auto style_emit_singletons(const DictTrie &dict, const HMModel &model, st
 }
 
 // Consume the reusable MP route, joining ASCII without HMM and recognizing unknown runs with HMM.
-template <bool hmm, StyleMatchMode mode, typename Emit>
-inline auto style_emit_route(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes, const Emit &emit,
-                             WordWeight missing_weight, SegmentScratch &scratch) -> void {
+template <bool hmm, StyleMatchMode mode, WordEmitter Emit>
+inline auto style_emit_route(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
+                             WordWeight missing_weight, const Emit &emit, SegmentScratch &scratch) -> void {
     style_build_route<mode>(dict, runes, missing_weight, scratch);
     const auto &route = scratch.route;
     auto begin = RuneIndex{0};
@@ -109,6 +109,8 @@ inline auto style_emit_route(const DictTrie &dict, const HMModel &model, std::sp
 
 // Dictionary blocks use the selected character class; unmatched text preserves CRLF as one token.
 template <bool hmm, StyleMatchMode mode, typename Emit>
+    requires((mode == StyleMatchMode::PathOnly && WordEmitter<Emit>)
+             || (mode == StyleMatchMode::Search && BlockWordEmitter<Emit>))
 inline auto style_emit_blocks(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes, const Emit &emit,
                               SegmentScratch &scratch) -> void {
     // All dictionary blocks in this call share the same fallback weight.
@@ -130,7 +132,7 @@ inline auto style_emit_blocks(const DictTrie &dict, const HMModel &model, std::s
                     emit(global);
                 }
             };
-            style_emit_route<hmm, mode>(dict, model, runes.subspan(begin, end - begin), emit_local, missing_weight,
+            style_emit_route<hmm, mode>(dict, model, runes.subspan(begin, end - begin), missing_weight, emit_local,
                                         scratch);
         } else {
             while (begin < end) {

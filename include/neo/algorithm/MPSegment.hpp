@@ -4,8 +4,8 @@
 #include "neo/algorithm/SegmentCommon.hpp"
 #include "neo/concept/Segment.hpp"
 #include "neo/resource/DictTrie.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/HMModel.hpp"
-#include "neo/resource/Trie.hpp"
 #include "neo/util/Logging.hpp"
 #include "neo/value/Rune.hpp"
 #include "neo/workspace/SegmentScratch.hpp"
@@ -26,7 +26,7 @@ enum class MPMatchMode : uint8_t { PathOnly, Search };
 /// Build the maximum-probability route of an n-rune segment into scratch.route by reverse DP.
 /// for_each_edge(begin, emit) calls emit(end, weight) for every candidate word [begin, end);
 /// kMissingWordWeight marks an unknown single rune, which scores with the dictionary fallback.
-template <typename ForEachEdge>
+template <RouteEdges ForEachEdge>
 inline auto mp_build_route(const DictTrie &dict, size_t n, const ForEachEdge &for_each_edge, SegmentScratch &scratch)
     -> void {
     assert(size_fits_capacity<RuneIndex>(n));
@@ -117,7 +117,7 @@ inline auto mp_build_route_from_matches(const DictTrie &dict, std::span<const Ru
 }
 
 /// Visit the route built for an n-rune segment as local word ranges, in input order.
-template <typename Emit>
+template <WordEmitter Emit>
 inline auto mp_emit_route(size_t n, const Emit &emit, const SegmentScratch &scratch) -> void {
     assert(scratch.route.size() >= n);
     const auto &route = scratch.route;
@@ -130,13 +130,13 @@ inline auto mp_emit_route(size_t n, const Emit &emit, const SegmentScratch &scra
 }
 
 /// Append MP segmentation results at global offset pos, keeping separator runes as standalone tokens.
-inline auto mp_cut_append(const DictTrie &dict, std::span<const Rune> runes, std::vector<WordRange> &out, RuneIndex pos,
+inline auto mp_cut_append(const DictTrie &dict, std::span<const Rune> runes, RuneIndex pos, std::vector<WordRange> &out,
                           SegmentScratch &scratch) -> void {
     assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                  "MPSegment: global word offsets overflow");
     const auto appended_begin = out.size();
     for_each_separated(
-        runes, scratch.separators,
+        runes,
         [&](std::span<const Rune> segment, RuneIndex offset) {
             if (segment.empty()) {
                 return;
@@ -152,7 +152,8 @@ inline auto mp_cut_append(const DictTrie &dict, std::span<const Rune> runes, std
         },
         [&](RuneIndex separator) {
             out.push_back({static_cast<RuneIndex>(pos + separator), static_cast<RuneIndex>(pos + separator + 1)});
-        });
+        },
+        scratch.separators);
     assert_check(
         [&] {
             return valid_segment_partition_at(std::span<const WordRange>{out}.subspan(appended_begin), runes.size(),
@@ -174,7 +175,7 @@ struct MPSegment {
                      "MPSegment: input exceeds the word-range limit");
         range.clear();
         range.reserve(runes.size() / 2);
-        detail::mp_cut_append(dict, runes, range, 0, scratch);
+        detail::mp_cut_append(dict, runes, 0, range, scratch);
     }
 };
 

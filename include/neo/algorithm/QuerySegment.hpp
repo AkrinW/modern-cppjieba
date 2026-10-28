@@ -38,24 +38,25 @@ struct QuerySegment {
                      "QuerySegment: input exceeds the word-range limit");
         result.clear();
         result.reserve(runes.size());
-        cut_append(dict, model, runes, result, 0, scratch);
+        cut_append(dict, model, runes, 0, result, scratch);
     }
 
 private:
     /// Append query-mode segmentation results while preserving separator runes as standalone tokens.
-    static auto cut_append(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes,
-                           std::vector<WordRange> &result, RuneIndex pos, detail::SegmentScratch &scratch) -> void {
+    static auto cut_append(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes, RuneIndex pos,
+                           std::vector<WordRange> &result, detail::SegmentScratch &scratch) -> void {
         assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
                      "QuerySegment: global word offsets overflow");
         detail::for_each_separated(
-            runes, scratch.separators,
+            runes,
             [&](std::span<const Rune> segment, RuneIndex offset) {
                 cut_one_segment(dict, model, segment, static_cast<RuneIndex>(pos + offset), result, scratch);
             },
             [&](RuneIndex separator) {
                 result.push_back(
                     {static_cast<RuneIndex>(pos + separator), static_cast<RuneIndex>(pos + separator + 1)});
-            });
+            },
+            scratch.separators);
     }
 
     /// Check whether the dictionary contains the two- or three-rune word [begin, end) of the segment.

@@ -368,7 +368,7 @@ TEST_F(DictTrieInputTest, MpSegmentationPreservesOffsetsAtWordRangeLimit) {
     constexpr auto limit = std::numeric_limits<RuneIndex>::max();
     auto words = std::vector<WordRange>{};
     auto scratch = detail::SegmentScratch{};
-    detail::mp_cut_append(trie, runes, words, limit - 3, scratch);
+    detail::mp_cut_append(trie, runes, limit - 3, words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{limit - 3, limit - 2}, {limit - 2, limit - 1}, {limit - 1, limit}}));
 }
 
