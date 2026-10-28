@@ -15,7 +15,7 @@ if(MSVC)
     target_sources(cpp_api_consumer PRIVATE ../../cmake/utf8.manifest)
 endif()
 enable_testing()
-add_test(NAME installed_cpp_api_consumer COMMAND cpp_api_consumer "${CPPJIEBA_TEST_DICT_DIR}" "我爱北京天安门")
+add_test(NAME installed_cpp_api_consumer COMMAND cpp_api_consumer "${neo_cppjieba_DICT_DIR}" "我爱北京天安门")
 set_tests_properties(installed_cpp_api_consumer PROPERTIES
     PASS_REGULAR_EXPRESSION "MIX: \\[我\\] \\[爱\\] \\[北京\\] \\[天安门\\]")
 

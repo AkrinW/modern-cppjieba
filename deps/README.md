@@ -45,12 +45,15 @@ versions. Initialize only the sources needed by the selected comparison.
 ## C++ comparisons
 
 ```sh
-git submodule update --init deps/cppjieba deps/limonp
+git submodule update --init deps/cppjieba            # legacy tests
+git submodule update --init deps/cppjieba deps/limonp # C++ benchmarks
 ```
 
-`cppjieba.cmake` supplies targets for the pinned upstream headers. Legacy tests
-use CppJieba's helpers; FileIO comparisons and the legacy load benchmark explicitly
-link limonp. Their build and installation are controlled by this repository.
+`cppjieba.cmake` supplies targets for the pinned upstream headers; the pinned
+CppJieba headers do not include limonp. The core library, C ABI, unit tests and
+legacy tests do not depend on limonp. It serves only the FileIO comparison and the
+legacy load benchmark under `CPPJIEBA_BUILD_BENCHMARKS`, which link `limonp::limonp`
+explicitly. Their build and installation are controlled by this repository.
 
 Comparisons pass the shared dictionary, HMM model and user-dictionary paths
 explicitly. The upstream facade also offers default paths inside its own checkout.

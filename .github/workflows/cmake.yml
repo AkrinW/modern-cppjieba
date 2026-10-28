@@ -15,7 +15,6 @@ permissions:
   contents: read
 
 env:
-  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
   CXX: g++-15
 
@@ -24,9 +23,6 @@ jobs:
     name: Linux x64 / ${{ matrix.build_type }} / legacy=${{ matrix.legacy_tests }}
     env:
       BUILD_TYPE: ${{ matrix.build_type }}
-    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
-    # You can convert this to a matrix build if you need cross-platform coverage.
-    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -48,9 +44,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y g++-15
 
       - name: Configure CMake
-        # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
-        # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-        # run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
         run: cmake -B ${{github.workspace}}/build -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=OFF -DCPPJIEBA_BUILD_LEGACY_TESTS=${{matrix.legacy_tests}} -DCPPJIEBA_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_STANDARD=${{matrix.cpp_version}} -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
       - name: Check unit-test isolation
@@ -61,14 +54,10 @@ jobs:
           fi
 
       - name: Build
-        # Build your program with the given configuration
-        # run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
         run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel 2
 
       - name: Test
         working-directory: ${{github.workspace}}/build
-        # Execute tests defined by the CMake configuration.
-        # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
         run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure --output-junit unit-tests.xml
 
       - name: Upload unit-test results
@@ -336,7 +325,8 @@ jobs:
       - name: Check installation and dependency isolation
         run: |
           test -f install/include/neo/Jieba.hpp
-          test -f install/share/cppjieba/dict/jieba.dict.utf8
+          test -f install/share/neo_cppjieba/dict/jieba.dict.utf8
+          test ! -e install/share/cppjieba
           test ! -e install/include/cppjieba
           test ! -e install/include/limonp
           test ! -d build/deps

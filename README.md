@@ -1,4 +1,4 @@
-# modern-cppjieba
+# neo-cppjieba
 
 基于 [CppJieba](https://github.com/yanyiwu/cppjieba) 重写的 C++23 中文分词库，
 以头文件形式提供，使用 `neo_cppjieba` 命名空间；另提供适合 C 和其他语言绑定的 C ABI。
@@ -22,8 +22,8 @@
 CI 覆盖 GCC 15、LLVM 23 / libc++ 和 Visual Studio 2026，详见 [构建环境](docs/building.md#环境)。
 
 ```sh
-git clone https://github.com/AkrinW/modern-cppjieba.git
-cd modern-cppjieba
+git clone https://github.com/AkrinW/neo-cppjieba.git
+cd neo-cppjieba
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_EXAMPLES=ON
 cmake --build build --config Release --target jieba_basic_cut --parallel
@@ -66,7 +66,7 @@ int main() {
 源码接入：
 
 ```cmake
-add_subdirectory(external/modern-cppjieba)
+add_subdirectory(external/neo-cppjieba)
 target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 ```
 
@@ -93,11 +93,11 @@ target_link_libraries(my_app PRIVATE neo_cppjieba::neo_cppjieba)
 
 <!-- benchmark:start -->
 
-数据来自 [GitHub Actions](https://github.com/AkrinW/modern-cppjieba/actions/runs/37750171581)，测试日期：2026-10-08。
-测量提交：[`44b8f2f`](https://github.com/AkrinW/modern-cppjieba/commit/44b8f2f513bbc65a0f3c679c3b7f07ad50d677ae)。
-各实现使用同一主词典和 HMM 模型，关闭用户词典；modern-cppjieba 使用 `CPP` 规则。
+数据来自 [GitHub Actions](https://github.com/AkrinW/neo-cppjieba/actions/runs/37750171581)，测试日期：2026-10-08。
+测量提交：[`44b8f2f`](https://github.com/AkrinW/neo-cppjieba/commit/44b8f2f513bbc65a0f3c679c3b7f07ad50d677ae)。
+各实现使用同一主词典和 HMM 模型，关闭用户词典；neo-cppjieba 使用 `CPP` 规则。
 
-![CppJieba、modern-cppjieba、jieba-rs 和 Python jieba 的分词吞吐量，线性坐标](docs/benchmarks/comparison.svg)
+![CppJieba、neo-cppjieba、jieba-rs 和 Python jieba 的分词吞吐量，线性坐标](docs/benchmarks/comparison.svg)
 
 吞吐量单位为 MiB/s，越高越好。曲线取各样本的中位数，误差线表示最小、最大吞吐量。
 各路径均返回独立字符串，计时覆盖分词、字符串构造和释放；语料读取、词典加载和预热在计时前完成。

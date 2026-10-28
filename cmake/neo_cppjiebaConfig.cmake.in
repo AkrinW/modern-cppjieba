@@ -1,5 +1,8 @@
 @PACKAGE_INIT@
 
+# Installed dictionaries and models, relocated with the package prefix.
+set_and_check(neo_cppjieba_DICT_DIR "@PACKAGE_cppjieba_dict_dir@")
+
 include("${CMAKE_CURRENT_LIST_DIR}/neo_cppjiebaTargets.cmake")
 
 foreach(_neo_cppjieba_component IN LISTS neo_cppjieba_FIND_COMPONENTS)

@@ -15,7 +15,7 @@ cmake --build build-examples --config Release --parallel
 ```
 
 示例通过 `neo_cppjieba::neo_cppjieba` 获取头文件路径和 C++23 编译要求。
-以下命令均在仓库根目录运行。第一个参数是词典目录，也可以改成安装后的 `share/cppjieba/dict/`。
+以下命令均在仓库根目录运行。第一个参数是词典目录，也可以改成安装后的 `share/neo_cppjieba/dict/`。
 
 | 示例 | 场景 | 主要接口 |
 | --- | --- | --- |

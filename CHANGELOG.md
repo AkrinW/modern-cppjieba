@@ -21,6 +21,11 @@
 
 ### Changed
 
+- **不兼容**：词典和模型改为安装到 `share/neo_cppjieba/dict/`，避免与上游 CppJieba 的 `share/cppjieba/dict/` 冲突。
+  CMake 包新增 `neo_cppjieba_DICT_DIR`；过渡选项 `CPPJIEBA_INSTALL_LEGACY_DICT_DIR=ON` 同时安装到旧位置。
+- 项目名改为 neo-cppjieba，CMake `project()` 名改为 `neo_cppjieba`，版本变量相应为 `neo_cppjieba_VERSION`；
+  命名空间、包名、目标和 C ABI 不变。
+- 移除 `test/testdata/` 中未使用的上游 server 配置、GBK 词典和分片词典等测试数据。
 - 词性标记表移至 [docs/pos_tags.md](docs/pos_tags.md)。
 - 整理内部架构，分词结果不变：`CutMode` 移至 `neo/CutMode.hpp`（`neo/Jieba.hpp` 仍包含它）；
   运行时 `CutMode` 与编译期 `SegmentationStyle` 只在 `detail/Segmenter.hpp` 中分派，`Jieba` 不再分支；
@@ -122,7 +127,7 @@ modern-cppjieba 的首个独立版本。
 - 增加编译期 `CPP`、`RUST`、`PYTHON` 分词规则配置，以及文本索引、偏移和 Trie 节点的容量类型配置。
 - 增加现代实现单元测试、应用示例及 CppJieba / jieba-rs / Python jieba 比较工具。
 - 增加 macOS、Windows 平台适配和 CI 构建配置。
-- README 增加 CppJieba、modern-cppjieba、jieba-rs 和 Python jieba 的性能折线图，并保存测量快照与绘图脚本。
+- README 增加 CppJieba、neo-cppjieba、jieba-rs 和 Python jieba 的性能折线图，并保存测量快照与绘图脚本。
 
 ### Changed
 
@@ -146,6 +151,6 @@ modern-cppjieba 的首个独立版本。
 
 ## 上游历史
 
-原 CHANGELOG 中的 v2.1.1–v5.5.0 属于 **CppJieba**，不作为 modern-cppjieba 的发布版本。
-完整内容保留在 [改写前的历史文件](https://github.com/AkrinW/modern-cppjieba/blob/3732abc0e5548c96b4a6ea55113a02df97acf761/CHANGELOG.md)，
+原 CHANGELOG 中的 v2.1.1–v5.5.0 属于 **CppJieba**，不作为 neo-cppjieba 的发布版本。
+完整内容保留在 [改写前的历史文件](https://github.com/AkrinW/neo-cppjieba/blob/3732abc0e5548c96b4a6ea55113a02df97acf761/CHANGELOG.md)，
 上游后续记录见 [CppJieba CHANGELOG](https://github.com/yanyiwu/cppjieba/blob/master/CHANGELOG.md)。

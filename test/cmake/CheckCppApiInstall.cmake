@@ -9,7 +9,6 @@ file(RENAME "${prefix}" "${relocated_prefix}")
 include("${CMAKE_CURRENT_LIST_DIR}/ConsumerConfig.cmake")
 list(APPEND configure_args
     "-Dneo_cppjieba_DIR=${relocated_prefix}/${INSTALL_LIBDIR}/cmake/neo_cppjieba"
-    "-DCPPJIEBA_TEST_DICT_DIR=${relocated_prefix}/${INSTALL_DATADIR}/cppjieba/dict"
     "-DCMAKE_EXE_LINKER_FLAGS=${EXE_LINKER_FLAGS}" "-DICU_ROOT=${ICU_ROOT}")
 
 # Configure independent consumers to exercise package discovery, compilation, and runtime dependencies.
