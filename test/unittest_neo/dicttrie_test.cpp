@@ -147,6 +147,71 @@ TEST_F(DictTrieInputTest, ZeroUserFrequencyUsesDefaultWeight) {
     EXPECT_FLOAT_EQ(word.weight, trie.user_word_default_weight());
 }
 
+TEST_F(DictTrieInputTest, RuntimeWordWithFreqMatchesUserDictionaryEntry) {
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "新词 5 nz\n"));
+    const auto loaded =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+    auto edited = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+
+    edited.add_word_with_freq(decode(std::string_view{"新词"}), 5, PosTag{"nz"});
+
+    const auto expected = loaded.find("新词");
+    const auto actual = edited.find("新词");
+    ASSERT_TRUE(actual.has_value());
+    EXPECT_FLOAT_EQ(actual.weight, expected.weight);
+    EXPECT_EQ(actual.tag, expected.tag);
+}
+
+TEST_F(DictTrieInputTest, RuntimeWordWithoutFreqUsesDefaultWeight) {
+    auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+
+    trie.add_word(decode(std::string_view{"新词"}), PosTag{"n"});
+
+    const auto word = trie.find("新词");
+    ASSERT_TRUE(word.has_value());
+    EXPECT_FLOAT_EQ(word.weight, trie.user_word_default_weight());
+    EXPECT_EQ(word.tag, "n");
+}
+
+TEST_F(DictTrieInputTest, RuntimeWordRejectsNonPositiveFrequencyWithoutChange) {
+    auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+
+    EXPECT_THROW(trie.add_word_with_freq(decode(std::string_view{"新词"}), 0, PosTag{"n"}), LogConfig::Exception);
+    EXPECT_THROW(trie.add_word_with_freq(decode(std::string_view{"新词"}), -1, PosTag{"n"}), LogConfig::Exception);
+    EXPECT_FALSE(trie.find("新词").has_value());
+}
+
+TEST_F(DictTrieInputTest, RuntimeEditsRejectEmptyWords) {
+    auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+
+    EXPECT_THROW(trie.add_word(Unicode{}, PosTag{"n"}), LogConfig::Exception);
+    EXPECT_THROW(trie.add_word_with_freq(Unicode{}, 5, PosTag{"n"}), LogConfig::Exception);
+    EXPECT_THROW(trie.remove_word(Unicode{}), LogConfig::Exception);
+}
+
+TEST_F(DictTrieInputTest, RemoveWordDoesNotRestoreMainDictionaryWeight) {
+    ASSERT_NO_FATAL_FAILURE(write_file("user.dict", "主词 3 v\n"));
+    auto trie =
+        DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
+
+    EXPECT_TRUE(trie.remove_word(decode(std::string_view{"主词"})));
+
+    EXPECT_FALSE(trie.find("主词").has_value());
+    EXPECT_FALSE(trie.remove_word(decode(std::string_view{"主词"})));
+    EXPECT_TRUE(trie.find("基础").has_value());
+}
+
+TEST_F(DictTrieInputTest, SingleRuneRuntimeWordTogglesUserWordMarker) {
+    auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto word = decode(std::string_view{"龙"});
+
+    trie.add_word(word, PosTag{"n"});
+    EXPECT_TRUE(trie.is_user_dict_single_chinese_word(word.front()));
+
+    EXPECT_TRUE(trie.remove_word(word));
+    EXPECT_FALSE(trie.is_user_dict_single_chinese_word(word.front()));
+}
+
 TEST_F(DictTrieInputTest, RejectsUnknownWeightOptionBeforeOpeningDictionary) {
     const auto invalid = static_cast<DictTrie::UserWordWeightOption>(255);
     try {

@@ -1,12 +1,20 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
+#include "neo/DictSource.hpp"
+#include "neo/PosTag.hpp"
+#include "neo/Unicode.hpp"
 #include "neo/UnicodeTypes.hpp"
+#include "neo/detail/DictTrie.hpp"
+#include "neo/detail/Logging.hpp"
 #include "neo/detail/Trie.hpp"
 #include "neo/third_party/gtl.hpp"
 
 #include <array>
 #include <cstddef>
 #include <limits>
+#include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 using namespace neo_cppjieba;
@@ -153,4 +161,31 @@ TEST(TrieCapacityTest, ChildStorageSupportsMoreEdgesThanEightBitNodeIds) {
     EXPECT_EQ(stats.value_count, 320u);
     EXPECT_EQ(stats.compact_edge_count, 320u);
     EXPECT_EQ(stats.edge_count, 400u);
+}
+
+TEST(TrieCapacityTest, RuntimeWordBeyondNodeRangeThrowsWithoutChange) {
+    // One 254-rune word uses node ids 0 through 253; a new two-rune root word then takes id 254.
+    auto text = std::string{};
+    for (std::size_t i = 0; i < 254; ++i) {
+        text += "中";
+    }
+    text += " 1 n\n";
+    auto dict = DictTrie{DictSource::memory(text, "capacity.dict"), std::span<const DictSource>{},
+                         DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto first = decode(std::string_view{"甲乙"});
+    const auto second = decode(std::string_view{"丙丁"});
+    const auto prefix = decode(std::string_view{"中中"});
+
+    dict.add_word(first, PosTag{"n"});
+    dict.add_word(prefix, PosTag{"n"});
+
+    EXPECT_TRUE(dict.find(first).has_value());
+    EXPECT_TRUE(dict.find(prefix).has_value());
+    if constexpr (std::numeric_limits<TrieNodeId>::digits == 8) {
+        EXPECT_THROW(dict.add_word(second, PosTag{"n"}), LogConfig::Exception);
+        EXPECT_FALSE(dict.find(second).has_value());
+    } else {
+        dict.add_word(second, PosTag{"n"});
+        EXPECT_TRUE(dict.find(second).has_value());
+    }
 }

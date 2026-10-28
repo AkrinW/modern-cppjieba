@@ -161,6 +161,82 @@ class Trie {
         return transitions_.try_emplace(transition_key(parent, rune), Entry{0, 0, {}}).first->second;
     }
 
+    [[nodiscard]] auto find_entry(std::span<const Rune> key) const noexcept -> const Entry * {
+        if (empty() || key.empty()) {
+            return nullptr;
+        }
+        const auto *entry = find_root(key.front());
+        for (size_t i = 1; entry && i < key.size(); ++i) {
+            entry = find_child(*entry, key[i]);
+        }
+        return entry;
+    }
+
+    // Count the child nodes an insertion would allocate; an existing path allocates none.
+    [[nodiscard]] auto new_node_count(std::span<const Rune> key) const noexcept -> size_t {
+        assert_check([&] { return !key.empty() && !empty(); }, "Trie: invalid insertion key");
+        const auto *entry = find_root(key.front());
+        for (size_t i = 1; i < key.size(); ++i) {
+            if (entry == nullptr || entry->child == 0) {
+                // Edges i - 1 through key.size() - 2 each need a new child node.
+                return key.size() - i;
+            }
+            entry = find_transition(*entry, key[i]);
+        }
+        return 0;
+    }
+
+    // New nodes use hashed child storage, so each one only extends the compact offsets with an empty range.
+    auto allocate_node() -> TrieNodeId {
+        assert_check([&] { return detail::size_below_capacity<TrieNodeId>(node_count_); },
+                     "Trie: node count exceeds the configured index range");
+        if (compact_offsets_.empty()) {
+            compact_offsets_.resize(node_count_ + 1);
+        }
+        compact_offsets_.push_back(compact_offsets_.back());
+        return static_cast<TrieNodeId>(node_count_++);
+    }
+
+    // Compact child sets cannot grow in place; move one into the hash table and leave its slots absent.
+    auto promote_children(TrieNodeId node) -> void {
+        const auto id = static_cast<size_t>(node);
+        assert(id + 1 < compact_offsets_.size());
+        for (auto i = compact_offsets_[id]; i < compact_offsets_[id + 1]; ++i) {
+            auto &slot = compact_[i];
+            transitions_.emplace(transition_key(node, slot.rune), slot.entry);
+            slot.entry = Entry{};
+        }
+    }
+
+    // Runtime insertion may introduce a BMP root beyond the extent sized by build().
+    auto ensure_root(Rune rune) -> Entry & {
+        if (rune < kRootTableLimit && rune >= root_.size()) {
+            root_.resize(static_cast<size_t>(rune) + 1);
+        }
+        return ensure_transition(0, rune);
+    }
+
+    // Parent fields are updated before any table insertion, which may move the parent entry itself.
+    auto ensure_child(Entry &parent, Rune rune) -> Entry & {
+        assert_check([&] { return parent.child != kAbsentNode && parent.child < node_count_; },
+                     "Trie: invalid insertion parent");
+        if (parent.child > 0) {
+            if (const auto *found = find_transition(parent, rune)) {
+                // Lookup is shared with the const query path; the entry belongs to this non-const trie.
+                return *const_cast<Entry *>(found);
+            }
+        } else {
+            parent.child = allocate_node();
+        }
+        const auto node = parent.child;
+        const auto compact = (parent.filter & kCompactFlag) != 0;
+        parent.filter = (parent.filter | child_bits(rune)) & kFilterMask;
+        if (compact) {
+            promote_children(node);
+        }
+        return ensure_transition(node, rune);
+    }
+
     auto insert_word(std::span<const Rune> key, DictUnit value, std::vector<uint32_t> &filters) -> void {
         auto parent = TrieNodeId{0};
         for (size_t i = 0; i < key.size(); ++i) {
@@ -322,14 +398,38 @@ public:
 
     /// Find an exact key, returning its dictionary payload by value.
     [[nodiscard]] auto find(std::span<const Rune> key) const noexcept -> DictUnit {
-        if (empty() || key.empty()) {
-            return {};
-        }
-        const auto *entry = find_root(key.front());
-        for (size_t i = 1; entry && i < key.size(); ++i) {
-            entry = find_child(*entry, key[i]);
-        }
+        const auto *entry = find_entry(key);
         return entry ? entry->value : DictUnit{};
+    }
+
+    /// Check whether inserting key stays within the configured node id range.
+    [[nodiscard]] auto has_capacity_for(std::span<const Rune> key) const noexcept -> bool {
+        const auto count = new_node_count(key);
+        return count == 0 || detail::size_below_capacity<TrieNodeId>(node_count_ + count - 1);
+    }
+
+    /// Insert or replace one key in place. Mutation needs exclusive access to the trie;
+    /// it may rehash transitions and move compact child sets into the hash table.
+    auto insert(std::span<const Rune> key, DictUnit value) -> void {
+        assert_check([&] { return !key.empty() && !empty() && value.has_value(); }, "Trie: invalid insertion");
+        assert_check([&] { return has_capacity_for(key); }, "Trie: insertion exceeds the configured index range");
+        auto *entry = &ensure_root(key.front());
+        for (size_t i = 1; i < key.size(); ++i) {
+            entry = &ensure_child(*entry, key[i]);
+        }
+        entry->value = value;
+    }
+
+    /// Clear one key's value in place and report whether it existed. Nodes and child filters remain;
+    /// a stale filter bit only costs an extra table lookup.
+    auto erase(std::span<const Rune> key) -> bool {
+        const auto *entry = find_entry(key);
+        if (entry == nullptr || !entry->value.has_value()) {
+            return false;
+        }
+        // Lookup is shared with the const query path; the entry belongs to this non-const trie.
+        const_cast<Entry *>(entry)->value = DictUnit{};
+        return true;
     }
 
     /// Convenience overload: decode any StringLike input (UTF-8, UTF-16, …) then look up.
@@ -467,11 +567,14 @@ public:
         }
         for (auto parent = size_t{1}; parent < node_count_; ++parent) {
             for (auto i = compact_offsets_[parent]; i < compact_offsets_[parent + 1]; ++i) {
-                visit(static_cast<TrieNodeId>(parent), compact_[i].entry);
+                // Slots vacated by runtime promotion stay allocated but hold no transition.
+                if (compact_[i].entry.child != kAbsentNode) {
+                    visit(static_cast<TrieNodeId>(parent), compact_[i].entry);
+                    ++stats.compact_edge_count;
+                }
             }
         }
         stats.hashed_edge_count = transitions_.size();
-        stats.compact_edge_count = compact_.size();
 
         size_t total_depth = 0;
         size_t total_leaf_depth = 0;

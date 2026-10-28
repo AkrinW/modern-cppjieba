@@ -190,6 +190,25 @@ const auto jieba = Jieba{DictSource::memory(embedded_dict, "jieba.dict"), DictSo
 const auto extractor = TfIdfExtractor{jieba, DictSource::memory(embedded_idf), DictSource::memory(embedded_stop_words)};
 ```
 
+## 运行时增删词
+
+`Jieba` 可在构建后就地加词、删词，对应 CppJieba 的 `InsertUserWord` 和 Python jieba 的 `add_word` / `del_word`：
+
+```cpp
+auto jieba = Jieba{dict_path, model_path, ""};
+jieba.add_word("杭研", PosTag{"nz"});                // 默认用户词权重
+jieba.add_word_with_freq("云计算", 500, PosTag{"n"}); // 频率必须为正
+const bool removed = jieba.remove_word("大厦");        // 词不存在时返回 false
+```
+
+- 运行时加入的词与写在用户词典中的同一行效果相同：权重始终按加载时主词典的频率总和归一化，增删词不改变其他词的权重。
+- 重复加入同一个词以最后一次为准。`remove_word` 对主词典和用户词典中的词一视同仁，删除后不会恢复更早的权重。
+- 空词、非法编码、非正频率，以及超出 `TrieNodeId` 容量的加词通过 `LogConfig::Exception` 报告，词典保持不变。
+
+增删词是非 `const` 操作，库内部不加锁。调用期间该 `Jieba` 不能同时执行其他调用；
+调用方按场景自行选择互斥锁、读写锁或单线程使用。分词入口仍是 `const`，并发分词时各线程使用独立的 `Workspace`。
+`TfIdfExtractor`、`TextRankExtractor` 引用构造时传入的 `Jieba`，会直接看到其后的增删。
+
 ## 位置与工作区
 
 位置采用半开区间 `[begin, end)`：
@@ -214,7 +233,7 @@ const auto extractor = TfIdfExtractor{jieba, DictSource::memory(embedded_idf), D
 | `RuneIndex` | 单次输入的 Unicode 码点位置 |
 | `SourceOffset` | 原文编码单元位置 |
 | `DagOffset` | DAG 物化接口中的边偏移 |
-| `TrieNodeId` | 主词典和用户词典合并后的 Trie 节点编号 |
+| `TrieNodeId` | 主词典、用户词典和运行时加词合并后的 Trie 节点编号 |
 
 可选 8、16、32、64 位及工具链支持的原生 128 位无符号整数。
 容器大小和内存分配仍受宿主平台范围约束。调用方保证输入及词典规模符合所选容量；Debug 构建通过断言检查。

@@ -7,6 +7,7 @@ add_executable(test_neo.run
     benchmark_utils_test.cpp
     postag_test.cpp
     trie_stats_test.cpp
+    trie_update_test.cpp
     dicttrie_test.cpp
     segment_api_test.cpp
     hmmseg_test.cpp

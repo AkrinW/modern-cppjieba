@@ -559,3 +559,51 @@ TEST(JiebaNeoTest, InvalidTextClearsOutputAndWorkspaceCanRecoverInAnotherMode) {
     test_jieba().cut_into("北京", CutMode::HMM, out, workspace);
     EXPECT_EQ(out, (std::vector<TokenPosition>{{{0, 2}, {0, 6}}}));
 }
+
+TEST(JiebaNeoTest, AddedWordJoinsDictionarySegmentation) {
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+    const auto text = std::string_view{"他来到了网易杭研大厦"};
+    ASSERT_EQ(std::ranges::count(jieba.cut_strings(text, CutMode::MP), "杭研"), 0);
+
+    jieba.add_word("杭研", PosTag{"nz"});
+
+    EXPECT_EQ(std::ranges::count(jieba.cut_strings(text, CutMode::MP), "杭研"), 1);
+    EXPECT_EQ(jieba.lookup_tag("杭研"), "nz");
+}
+
+TEST(JiebaNeoTest, RemovedWordLeavesDictionarySegmentation) {
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+    const auto text = std::string_view{"他来到了网易杭研大厦"};
+    ASSERT_EQ(std::ranges::count(jieba.cut_strings(text, CutMode::MP), "大厦"), 1);
+
+    EXPECT_TRUE(jieba.remove_word("大厦"));
+
+    EXPECT_EQ(std::ranges::count(jieba.cut_strings(text, CutMode::MP), "大厦"), 0);
+    EXPECT_FALSE(jieba.remove_word("大厦"));
+}
+
+TEST(JiebaNeoTest, RuntimeWordsMatchUserDictionaryEntries) {
+    const auto user_dicts = std::array{DictSource::memory("杭研 5 nz\n研 n\n", "user.dict")};
+    const auto loaded = Jieba{DictSource::file(DICT_FILE), DictSource::file(HMM_MODEL_FILE), user_dicts};
+    auto edited = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+
+    edited.add_word_with_freq("杭研", 5, PosTag{"nz"});
+    edited.add_word("研", PosTag{"n"});
+
+    for (const auto text : {std::string_view{"他来到了网易杭研大厦"}, std::string_view{"研究生命的起源"}}) {
+        for (const auto mode : all_modes) {
+            EXPECT_EQ(edited.cut_strings<Tagging::Pos>(text, mode), loaded.cut_strings<Tagging::Pos>(text, mode))
+                << text << " mode " << static_cast<int>(mode);
+        }
+    }
+}
+
+TEST(JiebaNeoTest, RuntimeEditsRejectInvalidWords) {
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+
+    EXPECT_THROW(jieba.add_word(std::string_view{}, PosTag{"n"}), LogConfig::Exception);
+    EXPECT_THROW(jieba.add_word(std::string_view{"\xff"}, PosTag{"n"}), LogConfig::Exception);
+    EXPECT_THROW(jieba.add_word_with_freq(std::string_view{"杭研"}, 0, PosTag{"n"}), LogConfig::Exception);
+    EXPECT_THROW(jieba.remove_word(std::string_view{}), LogConfig::Exception);
+    EXPECT_FALSE(jieba.remove_word("杭研"));
+}

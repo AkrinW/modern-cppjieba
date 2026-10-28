@@ -41,9 +41,13 @@
 
 - [x] 支持从内存加载主词典、用户词典、HMM 模型、IDF 和停用词（`DictSource::memory`），
   覆盖资源内嵌、WASM 等不便访问文件系统的场景；用户词典可有多个。
-- [ ] 支持追加用户词，对应 CppJieba 的 `InsertUserWord` 和 Python jieba 的 `add_word` / `suggest_freq`。
-- [ ] 先确定并发模型。倾向保持 `Jieba` 构建后不可变：通过 builder 或派生新实例加入新词，
-  调用方自行替换实例，避免在分词热路径上加锁。
+- [x] 支持就地加词和删词（`add_word`、`add_word_with_freq`、`remove_word`），对应 CppJieba 的
+  `InsertUserWord` 和 Python jieba 的 `add_word` / `del_word`。权重按加载时主词典的频率总和归一化。
+- [x] 确定并发模型：库内部不加锁。分词入口为 `const`，增删词为非 `const`，需要独占访问；
+  调用方按场景选择加锁、写时复制或单线程使用，分词热路径不加锁。
+- [ ] 提供 `Jieba::clone()` 支持写时复制，并提供 `compact()` 回收删词和加词留下的无效节点、恢复紧凑存储。
+- [ ] `KeywordExtractor` 改为无状态接口，每次调用显式传入 `const Jieba &`。
+- [ ] 支持 Python jieba 的 `suggest_freq`。
 
 ## 1.4 — 扩展 C ABI v1
 
