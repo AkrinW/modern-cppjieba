@@ -35,8 +35,9 @@ inline auto assert_rune_count(size_t rune_count) noexcept -> void {
 
 } // namespace detail
 
-/// Jieba is the top-level facade for Chinese word segmentation. It owns the immutable dictionary and HMM model;
-/// every entry point is const and keeps per-call state in a Workspace.
+/// Jieba is the top-level facade for Chinese word segmentation. It owns the dictionary and HMM model;
+/// every segmentation entry point is const and keeps per-call state in a Workspace.
+/// Runtime word edits are non-const and need exclusive access; the library takes no locks.
 ///
 /// Entry points differ only in how results are delivered:
 ///   - cut / cut_with_workspace: positions plus a borrowed view of the input (Tokens).
@@ -55,6 +56,15 @@ public:
     // Load from files or memory; user dictionaries load in order and a repeated word takes the last entry.
     explicit Jieba(const DictSource &dict, const DictSource &model, std::span<const DictSource> user_dicts = {})
         : dict_(dict, user_dicts), model_(model) {
+    }
+
+    Jieba(Jieba &&) noexcept = default;
+    auto operator=(Jieba &&) noexcept -> Jieba & = default;
+    auto operator=(const Jieba &) -> Jieba & = delete;
+
+    // An independent copy for copy-on-write updates: edit the clone, then publish it in place of the original.
+    [[nodiscard]] auto clone() const -> Jieba {
+        return Jieba{*this};
     }
 
     // Tagging::Pos makes an entry point attach each word's part-of-speech tag without changing segmentation:
@@ -163,6 +173,32 @@ public:
         return lookup_tag(std::span<const Rune>{runes});
     }
 
+    // Runtime words behave like user dictionary entries and keep the load-time frequency total.
+    // Callers serialize edits against all other calls, e.g. with a lock, copy-on-write, or a single thread.
+    template <StringLike Input>
+    auto add_word(const Input &word, PosTag tag) -> void {
+        const auto runes = decode(word);
+        dict_.add_word(runes, tag);
+    }
+
+    template <StringLike Input>
+    auto add_word_with_freq(const Input &word, int freq, PosTag tag) -> void {
+        const auto runes = decode(word);
+        dict_.add_word_with_freq(runes, freq, tag);
+    }
+
+    // Removal drops main and user dictionary words alike; returns false when the word is absent.
+    template <StringLike Input>
+    auto remove_word(const Input &word) -> bool {
+        const auto runes = decode(word);
+        return dict_.remove_word(runes);
+    }
+
+    // Reclaim storage left by runtime edits; segmentation results are unchanged.
+    auto compact() -> void {
+        dict_.compact();
+    }
+
 private:
     template <CharType CharT>
     auto prepare_and_cut(std::basic_string_view<CharT> source, CutMode mode, Workspace &workspace) const
@@ -174,6 +210,10 @@ private:
         detail::assert_rune_count(workspace.decoded_.runes.size());
         detail::segment_into(dict_, model_, workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
         return workspace.ranges_;
+    }
+
+    // Copying is reserved for clone() so whole-dictionary copies stay explicit at call sites.
+    Jieba(const Jieba &other) : dict_(other.dict_.clone()), model_(other.model_) {
     }
 
     detail::DictTrie dict_;

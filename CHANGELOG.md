@@ -18,8 +18,14 @@
 - 新增 `DictSource`：主词典、用户词典、HMM 模型、IDF 和停用词均可从文件或内存加载，
   `Jieba`、`HMModel`、`TfIdfExtractor`、`TextRankExtractor` 增加对应构造函数；用户词典可有多个。
   见 [从内存加载词典](docs/usage.md#从内存加载词典)。
+- `Jieba` 支持运行时就地增删词：`add_word`、`add_word_with_freq`、`remove_word`，权重规则与用户词典一致，
+  库内部不加锁；`clone()` 显式复制实例用于写时复制，`compact()` 回收增删留下的存储。
+  见 [运行时增删词](docs/usage.md#运行时增删词)。
 
 ### Changed
+
+- **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 不再保存 `Jieba`。构造函数去掉 `Jieba` 参数，选项参数须显式传入；
+  `extract` / `extract_into` 的第一个参数改为 `const Jieba &`。见 [关键词提取](docs/usage.md#关键词提取)。
 
 - **不兼容**：词典和模型改为安装到 `share/neo_cppjieba/dict/`，避免与上游 CppJieba 的 `share/cppjieba/dict/` 冲突。
   CMake 包新增 `neo_cppjieba_DICT_DIR`；过渡选项 `CPPJIEBA_INSTALL_LEGACY_DICT_DIR=ON` 同时安装到旧位置。

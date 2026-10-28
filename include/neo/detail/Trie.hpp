@@ -16,6 +16,7 @@
 #include <limits>
 #include <numeric>
 #include <span>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -110,42 +111,88 @@ class Trie {
         return (uint32_t{1} << (hash >> 28)) | (uint32_t{1} << (16 + ((hash >> 24) & 15)));
     }
 
-    [[nodiscard]] auto find_root(Rune rune) const noexcept -> const Entry * {
-        assert_check([this] { return node_count_ > 0; }, "Trie: root lookup on an empty trie");
-        if (rune < root_.size()) {
-            const auto &entry = root_[rune];
+    /// A trie entry with the constness of the trie it was found in.
+    template <typename Self>
+    using EntryOf = std::conditional_t<std::is_const_v<Self>, const Entry, Entry>;
+
+    // Each lookup is implemented once for Self = Trie or const Trie. Queries use the const find_* wrappers;
+    // runtime edits use the explicitly named find_mutable_* wrappers.
+    template <typename Self>
+    [[nodiscard]] static auto root_in(Self &self, Rune rune) noexcept -> EntryOf<Self> * {
+        assert_check([&] { return self.node_count_ > 0; }, "Trie: root lookup on an empty trie");
+        if (rune < self.root_.size()) {
+            auto &entry = self.root_[rune];
             return entry.child != kAbsentNode ? &entry : nullptr;
         }
-        const auto it = transitions_.find(transition_key(0, rune));
-        return it != transitions_.end() ? &it->second : nullptr;
+        const auto it = self.transitions_.find(transition_key(0, rune));
+        return it != self.transitions_.end() ? &it->second : nullptr;
     }
 
     // The filter tag selects storage without reserving any bits from the configured node id.
-    [[nodiscard]] auto find_transition(const Entry &parent, Rune rune) const noexcept -> const Entry * {
-        assert(parent.child > 0 && parent.child < node_count_);
+    template <typename Self>
+    [[nodiscard]] static auto transition_in(Self &self, const Entry &parent, Rune rune) noexcept -> EntryOf<Self> * {
+        assert(parent.child > 0 && parent.child < self.node_count_);
         if ((parent.filter & kCompactFlag) != 0) {
             const auto id = static_cast<size_t>(parent.child);
-            const auto begin = compact_offsets_[id];
-            const auto end = compact_offsets_[id + 1];
-            const auto children = std::span<const CompactTransition>{compact_}.subspan(begin, end - begin);
+            const auto begin = self.compact_offsets_[id];
+            const auto end = self.compact_offsets_[id + 1];
+            const auto children = std::span{self.compact_}.subspan(begin, end - begin);
             const auto it = std::ranges::find(children, rune, &CompactTransition::rune);
             return it != children.end() ? &it->entry : nullptr;
         }
-        const auto it = transitions_.find(transition_key(parent.child, rune));
-        return it != transitions_.end() ? &it->second : nullptr;
+        const auto it = self.transitions_.find(transition_key(parent.child, rune));
+        return it != self.transitions_.end() ? &it->second : nullptr;
     }
 
-    [[nodiscard]] auto find_child(const Entry &parent, Rune rune) const noexcept -> const Entry * {
-        assert_check([&] { return parent.child != kAbsentNode && parent.child < node_count_; },
+    template <typename Self>
+    [[nodiscard]] static auto child_in(Self &self, const Entry &parent, Rune rune) noexcept -> EntryOf<Self> * {
+        assert_check([&] { return parent.child != kAbsentNode && parent.child < self.node_count_; },
                      "Trie: invalid transition parent");
         const auto bits = child_bits(rune) & kFilterMask;
         if ((parent.filter & bits) != bits) {
-            assert_check([&] { return parent.child == 0 || find_transition(parent, rune) == nullptr; },
+            assert_check([&] { return parent.child == 0 || transition_in(self, parent, rune) == nullptr; },
                          "Trie: child filter rejected an existing rune");
             return nullptr;
         }
         assert_check([&] { return parent.child > 0; }, "Trie: terminal edge has a nonempty child filter");
-        return find_transition(parent, rune);
+        return transition_in(self, parent, rune);
+    }
+
+    template <typename Self>
+    [[nodiscard]] static auto entry_in(Self &self, std::span<const Rune> key) noexcept -> EntryOf<Self> * {
+        if (self.empty() || key.empty()) {
+            return nullptr;
+        }
+        auto *entry = root_in(self, key.front());
+        for (size_t i = 1; entry && i < key.size(); ++i) {
+            entry = child_in(self, *entry, key[i]);
+        }
+        return entry;
+    }
+
+    [[nodiscard]] auto find_root(Rune rune) const noexcept -> const Entry * {
+        return root_in(*this, rune);
+    }
+
+    [[nodiscard]] auto find_transition(const Entry &parent, Rune rune) const noexcept -> const Entry * {
+        return transition_in(*this, parent, rune);
+    }
+
+    [[nodiscard]] auto find_child(const Entry &parent, Rune rune) const noexcept -> const Entry * {
+        return child_in(*this, parent, rune);
+    }
+
+    [[nodiscard]] auto find_entry(std::span<const Rune> key) const noexcept -> const Entry * {
+        return entry_in(*this, key);
+    }
+
+    // Runtime edits need exclusive access to the trie while they hold a mutable entry.
+    [[nodiscard]] auto find_mutable_transition(const Entry &parent, Rune rune) noexcept -> Entry * {
+        return transition_in(*this, parent, rune);
+    }
+
+    [[nodiscard]] auto find_mutable_entry(std::span<const Rune> key) noexcept -> Entry * {
+        return entry_in(*this, key);
     }
 
     /// The returned reference is consumed before the next insertion, which may rehash the table.
@@ -160,6 +207,143 @@ class Trie {
         }
         return transitions_.try_emplace(transition_key(parent, rune), Entry{0, 0, {}}).first->second;
     }
+
+    // Count the child nodes an insertion would allocate; an existing path allocates none.
+    [[nodiscard]] auto new_node_count(std::span<const Rune> key) const noexcept -> size_t {
+        assert_check([&] { return !key.empty(); }, "Trie: invalid insertion key");
+        if (empty()) {
+            // The root node is recreated on insertion; every edge except the last needs a child node.
+            return key.size() - 1;
+        }
+        const auto *entry = find_root(key.front());
+        for (size_t i = 1; i < key.size(); ++i) {
+            if (entry == nullptr || entry->child == 0) {
+                // Edges i - 1 through key.size() - 2 each need a new child node.
+                return key.size() - i;
+            }
+            entry = find_transition(*entry, key[i]);
+        }
+        return 0;
+    }
+
+    // New nodes use hashed child storage, so each one only extends the compact offsets with an empty range.
+    auto allocate_node() -> TrieNodeId {
+        assert_check([&] { return detail::size_below_capacity<TrieNodeId>(node_count_); },
+                     "Trie: node count exceeds the configured index range");
+        if (compact_offsets_.empty()) {
+            compact_offsets_.resize(node_count_ + 1);
+        }
+        compact_offsets_.push_back(compact_offsets_.back());
+        return static_cast<TrieNodeId>(node_count_++);
+    }
+
+    // Compact child sets cannot grow in place; move one into the hash table and leave its slots absent.
+    auto promote_children(TrieNodeId node) -> void {
+        const auto id = static_cast<size_t>(node);
+        assert(id + 1 < compact_offsets_.size());
+        for (auto i = compact_offsets_[id]; i < compact_offsets_[id + 1]; ++i) {
+            auto &slot = compact_[i];
+            transitions_.emplace(transition_key(node, slot.rune), slot.entry);
+            slot.entry = Entry{};
+        }
+    }
+
+    // Runtime insertion may introduce a BMP root beyond the extent sized by build().
+    auto ensure_root(Rune rune) -> Entry & {
+        if (rune < kRootTableLimit && rune >= root_.size()) {
+            root_.resize(static_cast<size_t>(rune) + 1);
+        }
+        return ensure_transition(0, rune);
+    }
+
+    // Parent fields are updated before any table insertion, which may move the parent entry itself.
+    auto ensure_child(Entry &parent, Rune rune) -> Entry & {
+        assert_check([&] { return parent.child != kAbsentNode && parent.child < node_count_; },
+                     "Trie: invalid insertion parent");
+        if (parent.child > 0) {
+            if (auto *found = find_mutable_transition(parent, rune)) {
+                return *found;
+            }
+        } else {
+            parent.child = allocate_node();
+        }
+        const auto node = parent.child;
+        const auto compact = (parent.filter & kCompactFlag) != 0;
+        parent.filter = (parent.filter | child_bits(rune)) & kFilterMask;
+        if (compact) {
+            promote_children(node);
+        }
+        return ensure_transition(node, rune);
+    }
+
+    // Visit every edge as (parent, rune, entry) across direct roots, hashed and compact storage.
+    // Slots vacated by runtime promotion stay allocated but hold no transition, so they are skipped.
+    template <typename Visit>
+    auto for_each_edge(Visit &&visit) const -> void {
+        for (size_t rune = 0; rune < root_.size(); ++rune) {
+            if (root_[rune].child != kAbsentNode) {
+                visit(TrieNodeId{0}, static_cast<Rune>(rune), root_[rune]);
+            }
+        }
+        for (const auto &[key, entry] : transitions_) {
+            visit(key.parent, key.rune, entry);
+        }
+        for (auto parent = size_t{1}; parent < node_count_; ++parent) {
+            for (auto i = compact_offsets_[parent]; i < compact_offsets_[parent + 1]; ++i) {
+                if (compact_[i].entry.child != kAbsentNode) {
+                    visit(static_cast<TrieNodeId>(parent), compact_[i].rune, compact_[i].entry);
+                }
+            }
+        }
+    }
+
+    /// Words reconstructed from the trie, in the parallel layout build() takes.
+    struct WordList {
+        std::vector<Unicode> keys;
+        std::vector<DictUnit> values;
+    };
+
+    // Every node has exactly one incoming edge, so walking parent edges spells each valued key.
+    [[nodiscard]] auto live_words() const -> WordList {
+        /// The edge that reaches one node.
+        struct IncomingEdge {
+            TrieNodeId parent{0};
+            Rune rune{};
+        };
+        /// An edge that ends a dictionary word.
+        struct ValueEdge {
+            TrieNodeId parent;
+            Rune rune;
+            DictUnit value;
+        };
+        auto incoming = std::vector<IncomingEdge>(node_count_);
+        auto valued = std::vector<ValueEdge>{};
+        for_each_edge([&](TrieNodeId parent, Rune rune, const Entry &entry) {
+            if (entry.child != 0) {
+                incoming[static_cast<size_t>(entry.child)] = IncomingEdge{parent, rune};
+            }
+            if (entry.value.has_value()) {
+                valued.push_back(ValueEdge{parent, rune, entry.value});
+            }
+        });
+
+        auto words = WordList{};
+        words.keys.reserve(valued.size());
+        words.values.reserve(valued.size());
+        for (const auto &edge : valued) {
+            auto key = Unicode{edge.rune};
+            for (auto node = edge.parent; node != 0; node = incoming[static_cast<size_t>(node)].parent) {
+                key.push_back(incoming[static_cast<size_t>(node)].rune);
+            }
+            std::ranges::reverse(key);
+            words.keys.push_back(std::move(key));
+            words.values.push_back(edge.value);
+        }
+        return words;
+    }
+
+    // Copying is reserved for clone(), so whole-dictionary copies stay explicit at call sites.
+    Trie(const Trie &) = default;
 
     auto insert_word(std::span<const Rune> key, DictUnit value, std::vector<uint32_t> &filters) -> void {
         auto parent = TrieNodeId{0};
@@ -291,7 +475,6 @@ class Trie {
 
 public:
     explicit Trie() = default;
-    Trie(const Trie &) = delete;
     auto operator=(const Trie &) -> Trie & = delete;
 
     Trie(Trie &&other) noexcept
@@ -320,16 +503,56 @@ public:
         *this = std::move(next);
     }
 
+    /// Copy the complete storage, including runtime edits that have not been compacted.
+    [[nodiscard]] auto clone() const -> Trie {
+        return Trie{*this};
+    }
+
     /// Find an exact key, returning its dictionary payload by value.
     [[nodiscard]] auto find(std::span<const Rune> key) const noexcept -> DictUnit {
-        if (empty() || key.empty()) {
-            return {};
-        }
-        const auto *entry = find_root(key.front());
-        for (size_t i = 1; entry && i < key.size(); ++i) {
-            entry = find_child(*entry, key[i]);
-        }
+        const auto *entry = find_entry(key);
         return entry ? entry->value : DictUnit{};
+    }
+
+    /// Check whether inserting key stays within the configured node id range.
+    [[nodiscard]] auto has_capacity_for(std::span<const Rune> key) const noexcept -> bool {
+        const auto count = new_node_count(key);
+        const auto first_id = std::max(node_count_, size_t{1});
+        return count == 0 || detail::size_below_capacity<TrieNodeId>(first_id + count - 1);
+    }
+
+    /// Insert or replace one key in place. Mutation needs exclusive access to the trie;
+    /// it may rehash transitions and move compact child sets into the hash table.
+    auto insert(std::span<const Rune> key, DictUnit value) -> void {
+        assert_check([&] { return !key.empty() && value.has_value(); }, "Trie: invalid insertion");
+        assert_check([&] { return has_capacity_for(key); }, "Trie: insertion exceeds the configured index range");
+        if (empty()) {
+            // A trie compacted after erasing every word regains its root node here.
+            node_count_ = 1;
+        }
+        auto *entry = &ensure_root(key.front());
+        for (size_t i = 1; i < key.size(); ++i) {
+            entry = &ensure_child(*entry, key[i]);
+        }
+        entry->value = value;
+    }
+
+    /// Clear one key's value in place and report whether it existed. Nodes and child filters remain;
+    /// a stale filter bit only costs an extra table lookup.
+    auto erase(std::span<const Rune> key) -> bool {
+        auto *entry = find_mutable_entry(key);
+        if (entry == nullptr || !entry->value.has_value()) {
+            return false;
+        }
+        entry->value = DictUnit{};
+        return true;
+    }
+
+    /// Rebuild from the words that still have values: drop nodes left by erase and restore compact child
+    /// sets moved to the hash table by insert. A failure leaves the current trie intact.
+    auto compact() -> void {
+        const auto words = live_words();
+        build(words.keys, words.values);
     }
 
     /// Convenience overload: decode any StringLike input (UTF-8, UTF-16, …) then look up.
@@ -439,7 +662,7 @@ public:
             TrieNodeId parent{kAbsentNode};
         };
         auto nodes = std::vector<NodeInfo>(node_count_);
-        const auto visit = [&](TrieNodeId parent, const Entry &entry) {
+        for_each_edge([&](TrieNodeId parent, Rune, const Entry &entry) {
             assert_check([&] { return parent != kAbsentNode && parent < node_count_; },
                          "Trie: invalid statistics parent");
             assert_check([&] { return entry.child != kAbsentNode; }, "Trie: absent transition in statistics");
@@ -455,23 +678,12 @@ public:
             auto &child = nodes[static_cast<size_t>(entry.child)];
             assert_check([&] { return child.parent == kAbsentNode; }, "Trie: statistics revisited a node");
             child.parent = parent;
-        };
-        for (const auto &entry : root_) {
-            if (entry.child != kAbsentNode) {
-                visit(0, entry);
-                ++stats.direct_root_edge_count;
-            }
-        }
-        for (const auto &[key, entry] : transitions_) {
-            visit(key.parent, entry);
-        }
-        for (auto parent = size_t{1}; parent < node_count_; ++parent) {
-            for (auto i = compact_offsets_[parent]; i < compact_offsets_[parent + 1]; ++i) {
-                visit(static_cast<TrieNodeId>(parent), compact_[i].entry);
-            }
-        }
+        });
+        stats.direct_root_edge_count = static_cast<size_t>(
+            std::ranges::count_if(root_, [](const Entry &entry) { return entry.child != kAbsentNode; }));
         stats.hashed_edge_count = transitions_.size();
-        stats.compact_edge_count = compact_.size();
+        // Every edge outside the direct root table and the hash table lives in compact storage.
+        stats.compact_edge_count = stats.edge_count - stats.direct_root_edge_count - stats.hashed_edge_count;
 
         size_t total_depth = 0;
         size_t total_leaf_depth = 0;

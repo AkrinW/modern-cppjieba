@@ -46,6 +46,15 @@ public:
         init(dict, user_dicts, user_word_weight_opt);
     }
 
+    DictTrie(DictTrie &&) noexcept = default;
+    auto operator=(DictTrie &&) noexcept -> DictTrie & = default;
+    auto operator=(const DictTrie &) -> DictTrie & = delete;
+
+    /// Copy the dictionary, including runtime edits; copies are explicit because the trie is large.
+    [[nodiscard]] auto clone() const -> DictTrie {
+        return DictTrie{*this};
+    }
+
     // ── Query interface ──────────────────────────────────────────────────
 
     /// Find exact match by rune span.
@@ -106,6 +115,40 @@ public:
         return trie_;
     }
 
+    // ── Runtime user words ───────────────────────────────────────────────
+    //
+    // Runtime words follow the user dictionary weight rules and keep the load-time frequency total.
+    // Mutation needs exclusive access; callers choose locking, copy-on-write, or single-threaded use.
+
+    /// Insert or replace a user word with the configured default user word weight.
+    auto add_word(std::span<const Rune> word, PosTag tag) -> void {
+        insert_user_word(word, DictUnit{user_word_default_weight_, tag});
+    }
+
+    /// Insert or replace a user word weighted by an explicit positive frequency.
+    auto add_word_with_freq(std::span<const Rune> word, int freq, PosTag tag) -> void {
+        check(freq > 0, "DictTrie: runtime user word frequency must be positive, got {}", freq);
+        insert_user_word(word, DictUnit{freq_weight(freq), tag});
+    }
+
+    /// Remove a word whether it came from the main or a user dictionary; no earlier weight is restored.
+    /// Returns false when the word is absent.
+    auto remove_word(std::span<const Rune> word) -> bool {
+        check(!word.empty(), "DictTrie: cannot remove an empty word");
+        if (!trie_.erase(word)) {
+            return false;
+        }
+        if (word.size() == 1) {
+            user_dict_single_chinese_word_.erase(word.front());
+        }
+        return true;
+    }
+
+    /// Rebuild trie storage after many runtime edits without changing any lookup result.
+    auto compact() -> void {
+        trie_.compact();
+    }
+
 private:
     // ── Intermediate representation ──────────────────────────────────────
     //
@@ -118,6 +161,36 @@ private:
         int freq; // 0 ⇒ "use default weight" (user words without explicit freq)
         PosTag tag;
     };
+
+    // Copying is reserved for clone(); Trie exposes its copy only through Trie::clone().
+    DictTrie(const DictTrie &other)
+        : trie_{other.trie_.clone()}, freq_sum_{other.freq_sum_}, min_weight_{other.min_weight_},
+          max_weight_{other.max_weight_}, median_weight_{other.median_weight_},
+          user_word_default_weight_{other.user_word_default_weight_},
+          user_dict_single_chinese_word_{other.user_dict_single_chinese_word_} {
+    }
+
+    // Normalize by the main dictionary total fixed at load time, shared by loaded and runtime user words.
+    [[nodiscard]] auto freq_weight(int f) const -> detail::WordWeight {
+        assert_check([&] { return f > 0 && std::isfinite(freq_sum_) && freq_sum_ > 0.0; },
+                     "DictTrie: invalid frequency normalization");
+        if constexpr (compile_config::segmentation_style == SegmentationStyle::CPP) {
+            return std::log(f / freq_sum_);
+        } else {
+            return std::log(static_cast<double>(f)) - std::log(freq_sum_);
+        }
+    }
+
+    // Public word arguments are validated here, so Trie::insert keeps only internal assertions.
+    auto insert_user_word(std::span<const Rune> word, DictUnit value) -> void {
+        check(!word.empty(), "DictTrie: cannot add an empty word");
+        check(trie_.has_capacity_for(word), "DictTrie: adding a {}-rune word exceeds the configured trie node range",
+              word.size());
+        trie_.insert(word, value);
+        if (word.size() == 1) {
+            user_dict_single_chinese_word_.insert(word.front());
+        }
+    }
 
     static auto check_weight_option(UserWordWeightOption opt) -> void {
         check(opt == UserWordWeightOption::WordWeightMin || opt == UserWordWeightOption::WordWeightMedian
@@ -165,19 +238,9 @@ private:
         auto median_freq = freqs[mid];
 
         // Convert selected int frequencies to log-weights
-        auto to_weight = [&](int f) -> detail::WordWeight {
-            assert_check([&] { return f > 0 && std::isfinite(freq_sum_) && freq_sum_ > 0.0; },
-                         "DictTrie: invalid frequency normalization");
-            if constexpr (compile_config::segmentation_style == SegmentationStyle::CPP) {
-                return std::log(f / freq_sum_);
-            } else {
-                return std::log(static_cast<double>(f)) - std::log(freq_sum_);
-            }
-        };
-
-        min_weight_ = to_weight(min_freq);
-        max_weight_ = to_weight(max_freq);
-        median_weight_ = to_weight(median_freq);
+        min_weight_ = freq_weight(min_freq);
+        max_weight_ = freq_weight(max_freq);
+        median_weight_ = freq_weight(median_freq);
         assert_check([&] { return min_weight_ <= median_weight_ && median_weight_ <= max_weight_; },
                      "DictTrie: inconsistent weight statistics");
         set_user_default_weight(opt);
@@ -200,7 +263,7 @@ private:
         values.reserve(entries.size());
 
         for (auto &e : entries) {
-            auto w = e.freq > 0 ? to_weight(e.freq) : user_word_default_weight_;
+            auto w = e.freq > 0 ? freq_weight(e.freq) : user_word_default_weight_;
             keys.push_back(std::move(e.word));
             values.push_back(DictUnit{w, e.tag});
         }
