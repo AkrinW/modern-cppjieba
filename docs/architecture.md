@@ -16,18 +16,18 @@
 | 关键词算法 | `algorithm/KeywordRank.hpp` | 候选收集、TF-IDF、TextRank、Top-N 选择，作用于 `KeywordState` |
 | 算法积木与结果填充 | `algorithm/SegmentCommon.hpp`、`Separator.hpp`、`CharClass.hpp`、`Output.hpp`、`PosTagging.hpp` | 分隔符切分、结果校验、字符分类；把 rune 范围填充为调用方的输出类型 |
 | 上下文 | `workspace/Workspace.hpp`、`SegmentScratch.hpp`、`KeywordWorkspace.hpp`、`KeywordState.hpp` | 调用方持有的可复用缓冲；公开的工作区不透明 |
-| 资源 | `resource/DictTrie.hpp`、`Trie.hpp`、`HMModel.hpp`、`KeywordResource.hpp` | 词典、模型、IDF 表和停用词：只能移动，复制用 `clone()` |
+| 资源 | `resource/DictTrie.hpp`、`Trie.hpp`、`HMModel.hpp`、`KeywordResource.hpp`；词汇头 `DictUnit.hpp`、`HMMState.hpp` | 词典、模型、IDF 表和停用词：只能移动，复制用 `clone()`；不解码文本 |
 | 值类型与配置 | `value/`、`options/`、`Config.hpp`、`Fwd.hpp` | 公开的输入、结果与选项，不含算法 |
-| 契约 | `concept/Text.hpp`、`Output.hpp`、`Segment.hpp`、`Keyword.hpp` | 输入、输出与回调、policy 族、标注回调的 concept；依赖它约束的类型 |
-| 基础设施 | `util/Logging.hpp`、`Unicode.hpp`、`StringUtil.hpp`、`FileIO.hpp`、`Platform.hpp` | 诊断、编解码、解析、文件读取；被各层共用 |
+| 契约 | `concept/Text.hpp`、`Output.hpp`、`Segment.hpp`、`Match.hpp`、`Keyword.hpp` | 输入与加载、输出与访问者、policy 族与分词回调、词典匹配、标注回调的 concept；依赖它约束的类型 |
+| 基础设施 | `util/Logging.hpp`、`Unicode.hpp`、`RuneString.hpp`、`StringUtil.hpp`、`FileIO.hpp`、`Platform.hpp` | 诊断、编解码、码点串哈希、解析、文件读取；被各层共用 |
 
 `Dag.hpp` 仅供 `Trie::find_dag` 的诊断和对照测试使用，分词路径不物化 DAG。
 
 ## 一次分词的数据流
 
 ```text
-input ──detail::as_view──▶ source ──decode_with_offset_into──▶ runes + offsets   (Workspace::decoded_)
-runes ──detail::segment_into(mode)──▶ WordRange[]                         (Workspace::ranges_, scratch_)
+input ──detail::as_view──▶ source ──decode_with_offset_into──▶ runes + offsets   (SegmentState::decoded)
+runes ──detail::segment_into(mode)──▶ WordRange[]                         (SegmentState::ranges, scratch)
 WordRange[] + offsets ──fill_output / emit_tokens / fill_tagged_output──▶ 调用方的输出类型
 ```
 
@@ -67,10 +67,14 @@ HMM：for_each_separated + hmm_emit_one_segment
 
 - 所有分词入口是 `const`；`DictTrie`、`HMModel` 只在显式编辑时改变。`add_word`、`remove_word`、`compact`
   是非 `const` 操作，库内不加锁，由调用方保证独占访问；`clone()` 支持写时复制。
-- 每次调用的可变状态都在调用方的 `Workspace` 中：解码缓冲、结果缓冲和 `SegmentScratch`。
+- 每次调用的可变状态都在调用方的 `Workspace` 中，内部是 `detail::SegmentState`：解码缓冲、结果缓冲和 `SegmentScratch`，
+  只能经 `detail::segment_state` 取得。
   `SegmentScratch` 的各缓冲保留最高水位，算法只覆盖本次读取的行，不做整体清零。
 - `KeywordWorkspace` 不透明，内部状态是 `detail::KeywordState`（内嵌一个 `Workspace`），只能经 `detail::keyword_state`
-  取得；关键词提取不与分词共享可变状态。
+  取得；关键词提取不与分词共享可变状态。`KeywordState` 按算法分组：候选收集写 `CandidateTable`，TF-IDF 与 TextRank
+  更新其中的权重，TextRank 另用 `TextRankScratch`，Top-N 选择用 `SelectionScratch`。
+- 配置不进入任何对象的长期状态：`CutMode`、`TfIdfOptions`、`TextRankOptions` 都随调用传入；只有资源的构造配置
+  （`UserWordWeightOption`）在构造时折算进 `DictTrie`。
 
 ## 公开边界
 

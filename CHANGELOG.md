@@ -28,6 +28,9 @@
   `TfIdfOptions`、`TextRankOptions` 改为 `extract` / `extract_into` 在 `top_n` 之后的参数，按 `const &` 传入且不被保存，
   `options()` 移除。`TextRankOptions::damping` 改为在每次调用入口检查。见 [关键词提取](docs/usage.md#关键词提取)。
 - **不兼容**：移除 `WordRange::to_string`，值类型不再携带编码操作；改用 `Utf::encode<CharT>(range.slice(runes))`。
+- 内部结构按角色进一步解耦，行为不变：`Workspace` 与 `KeywordWorkspace` 都经唯一的 `detail` 访问点拆包，
+  关键词状态按算法分组；回调参数都有 concept，算法积木的参数按统一签名顺序排列；`Trie`、`DictTrie` 去掉解码字符串的
+  查询重载；`DictTrie` 的 `UserWordWeightOption` 移到 `options/`，不再用默认参数。见 [设计原则](docs/design.md)。
 - **不兼容**：头文件按角色重新组织。`include/neo/` 一级目录只保留门面 `Jieba.hpp`、`KeywordExtractor.hpp`、
   `Utf.hpp`（原 `Unicode.hpp`），编译期配置 `Config.hpp`，以及新增的前向声明头 `Fwd.hpp`；其余头文件按角色移入
   `value/`、`options/`、`workspace/`、`concept/`、`resource/`、`algorithm/`、`util/`，原 `detail/` 目录取消，
