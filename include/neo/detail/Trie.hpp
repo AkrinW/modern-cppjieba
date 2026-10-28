@@ -16,6 +16,7 @@
 #include <limits>
 #include <numeric>
 #include <span>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -110,42 +111,88 @@ class Trie {
         return (uint32_t{1} << (hash >> 28)) | (uint32_t{1} << (16 + ((hash >> 24) & 15)));
     }
 
-    [[nodiscard]] auto find_root(Rune rune) const noexcept -> const Entry * {
-        assert_check([this] { return node_count_ > 0; }, "Trie: root lookup on an empty trie");
-        if (rune < root_.size()) {
-            const auto &entry = root_[rune];
+    /// A trie entry with the constness of the trie it was found in.
+    template <typename Self>
+    using EntryOf = std::conditional_t<std::is_const_v<Self>, const Entry, Entry>;
+
+    // Each lookup is implemented once for Self = Trie or const Trie. Queries use the const find_* wrappers;
+    // runtime edits use the explicitly named find_mutable_* wrappers.
+    template <typename Self>
+    [[nodiscard]] static auto root_in(Self &self, Rune rune) noexcept -> EntryOf<Self> * {
+        assert_check([&] { return self.node_count_ > 0; }, "Trie: root lookup on an empty trie");
+        if (rune < self.root_.size()) {
+            auto &entry = self.root_[rune];
             return entry.child != kAbsentNode ? &entry : nullptr;
         }
-        const auto it = transitions_.find(transition_key(0, rune));
-        return it != transitions_.end() ? &it->second : nullptr;
+        const auto it = self.transitions_.find(transition_key(0, rune));
+        return it != self.transitions_.end() ? &it->second : nullptr;
     }
 
     // The filter tag selects storage without reserving any bits from the configured node id.
-    [[nodiscard]] auto find_transition(const Entry &parent, Rune rune) const noexcept -> const Entry * {
-        assert(parent.child > 0 && parent.child < node_count_);
+    template <typename Self>
+    [[nodiscard]] static auto transition_in(Self &self, const Entry &parent, Rune rune) noexcept -> EntryOf<Self> * {
+        assert(parent.child > 0 && parent.child < self.node_count_);
         if ((parent.filter & kCompactFlag) != 0) {
             const auto id = static_cast<size_t>(parent.child);
-            const auto begin = compact_offsets_[id];
-            const auto end = compact_offsets_[id + 1];
-            const auto children = std::span<const CompactTransition>{compact_}.subspan(begin, end - begin);
+            const auto begin = self.compact_offsets_[id];
+            const auto end = self.compact_offsets_[id + 1];
+            const auto children = std::span{self.compact_}.subspan(begin, end - begin);
             const auto it = std::ranges::find(children, rune, &CompactTransition::rune);
             return it != children.end() ? &it->entry : nullptr;
         }
-        const auto it = transitions_.find(transition_key(parent.child, rune));
-        return it != transitions_.end() ? &it->second : nullptr;
+        const auto it = self.transitions_.find(transition_key(parent.child, rune));
+        return it != self.transitions_.end() ? &it->second : nullptr;
     }
 
-    [[nodiscard]] auto find_child(const Entry &parent, Rune rune) const noexcept -> const Entry * {
-        assert_check([&] { return parent.child != kAbsentNode && parent.child < node_count_; },
+    template <typename Self>
+    [[nodiscard]] static auto child_in(Self &self, const Entry &parent, Rune rune) noexcept -> EntryOf<Self> * {
+        assert_check([&] { return parent.child != kAbsentNode && parent.child < self.node_count_; },
                      "Trie: invalid transition parent");
         const auto bits = child_bits(rune) & kFilterMask;
         if ((parent.filter & bits) != bits) {
-            assert_check([&] { return parent.child == 0 || find_transition(parent, rune) == nullptr; },
+            assert_check([&] { return parent.child == 0 || transition_in(self, parent, rune) == nullptr; },
                          "Trie: child filter rejected an existing rune");
             return nullptr;
         }
         assert_check([&] { return parent.child > 0; }, "Trie: terminal edge has a nonempty child filter");
-        return find_transition(parent, rune);
+        return transition_in(self, parent, rune);
+    }
+
+    template <typename Self>
+    [[nodiscard]] static auto entry_in(Self &self, std::span<const Rune> key) noexcept -> EntryOf<Self> * {
+        if (self.empty() || key.empty()) {
+            return nullptr;
+        }
+        auto *entry = root_in(self, key.front());
+        for (size_t i = 1; entry && i < key.size(); ++i) {
+            entry = child_in(self, *entry, key[i]);
+        }
+        return entry;
+    }
+
+    [[nodiscard]] auto find_root(Rune rune) const noexcept -> const Entry * {
+        return root_in(*this, rune);
+    }
+
+    [[nodiscard]] auto find_transition(const Entry &parent, Rune rune) const noexcept -> const Entry * {
+        return transition_in(*this, parent, rune);
+    }
+
+    [[nodiscard]] auto find_child(const Entry &parent, Rune rune) const noexcept -> const Entry * {
+        return child_in(*this, parent, rune);
+    }
+
+    [[nodiscard]] auto find_entry(std::span<const Rune> key) const noexcept -> const Entry * {
+        return entry_in(*this, key);
+    }
+
+    // Runtime edits need exclusive access to the trie while they hold a mutable entry.
+    [[nodiscard]] auto find_mutable_transition(const Entry &parent, Rune rune) noexcept -> Entry * {
+        return transition_in(*this, parent, rune);
+    }
+
+    [[nodiscard]] auto find_mutable_entry(std::span<const Rune> key) noexcept -> Entry * {
+        return entry_in(*this, key);
     }
 
     /// The returned reference is consumed before the next insertion, which may rehash the table.
@@ -159,17 +206,6 @@ class Trie {
             return entry;
         }
         return transitions_.try_emplace(transition_key(parent, rune), Entry{0, 0, {}}).first->second;
-    }
-
-    [[nodiscard]] auto find_entry(std::span<const Rune> key) const noexcept -> const Entry * {
-        if (empty() || key.empty()) {
-            return nullptr;
-        }
-        const auto *entry = find_root(key.front());
-        for (size_t i = 1; entry && i < key.size(); ++i) {
-            entry = find_child(*entry, key[i]);
-        }
-        return entry;
     }
 
     // Count the child nodes an insertion would allocate; an existing path allocates none.
@@ -225,9 +261,8 @@ class Trie {
         assert_check([&] { return parent.child != kAbsentNode && parent.child < node_count_; },
                      "Trie: invalid insertion parent");
         if (parent.child > 0) {
-            if (const auto *found = find_transition(parent, rune)) {
-                // Lookup is shared with the const query path; the entry belongs to this non-const trie.
-                return *const_cast<Entry *>(found);
+            if (auto *found = find_mutable_transition(parent, rune)) {
+                return *found;
             }
         } else {
             parent.child = allocate_node();
@@ -505,12 +540,11 @@ public:
     /// Clear one key's value in place and report whether it existed. Nodes and child filters remain;
     /// a stale filter bit only costs an extra table lookup.
     auto erase(std::span<const Rune> key) -> bool {
-        const auto *entry = find_entry(key);
+        auto *entry = find_mutable_entry(key);
         if (entry == nullptr || !entry->value.has_value()) {
             return false;
         }
-        // Lookup is shared with the const query path; the entry belongs to this non-const trie.
-        const_cast<Entry *>(entry)->value = DictUnit{};
+        entry->value = DictUnit{};
         return true;
     }
 
