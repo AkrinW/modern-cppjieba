@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -606,4 +607,47 @@ TEST(JiebaNeoTest, RuntimeEditsRejectInvalidWords) {
     EXPECT_THROW(jieba.add_word_with_freq(std::string_view{"杭研"}, 0, PosTag{"n"}), LogConfig::Exception);
     EXPECT_THROW(jieba.remove_word(std::string_view{}), LogConfig::Exception);
     EXPECT_FALSE(jieba.remove_word("杭研"));
+}
+
+TEST(JiebaNeoTest, WholeDictionaryCopiesRequireClone) {
+    static_assert(!std::is_copy_constructible_v<Jieba>);
+    static_assert(!std::is_copy_assignable_v<Jieba>);
+    static_assert(std::is_nothrow_move_constructible_v<Jieba>);
+    static_assert(std::is_nothrow_move_assignable_v<Jieba>);
+}
+
+TEST(JiebaNeoTest, CloneSegmentsIndependentlyAfterEdits) {
+    const auto original = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+    auto copy = original.clone();
+    const auto text = std::string_view{"他来到了网易杭研大厦"};
+
+    copy.add_word("杭研", PosTag{"nz"});
+
+    EXPECT_EQ(std::ranges::count(original.cut_strings(text, CutMode::MP), "杭研"), 0);
+    EXPECT_EQ(std::ranges::count(copy.cut_strings(text, CutMode::MP), "杭研"), 1);
+}
+
+TEST(JiebaNeoTest, CompactKeepsSegmentationAfterEdits) {
+    auto jieba = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+    jieba.add_word("杭研", PosTag{"nz"});
+    jieba.add_word_with_freq("研大", 3, PosTag{"n"});
+    ASSERT_TRUE(jieba.remove_word("大厦"));
+    ASSERT_TRUE(jieba.remove_word("研究生"));
+    constexpr auto texts = std::array{std::string_view{"他来到了网易杭研大厦"}, std::string_view{"研究生命的起源"}};
+    auto expected = std::vector<std::vector<TaggedWord<char>>>{};
+    for (const auto text : texts) {
+        for (const auto mode : all_modes) {
+            expected.push_back(jieba.cut_strings<Tagging::Pos>(text, mode));
+        }
+    }
+
+    jieba.compact();
+
+    auto index = std::size_t{0};
+    for (const auto text : texts) {
+        for (const auto mode : all_modes) {
+            EXPECT_EQ(jieba.cut_strings<Tagging::Pos>(text, mode), expected[index++])
+                << text << " mode " << static_cast<int>(mode);
+        }
+    }
 }

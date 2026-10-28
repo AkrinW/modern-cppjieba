@@ -212,6 +212,21 @@ TEST_F(DictTrieInputTest, SingleRuneRuntimeWordTogglesUserWordMarker) {
     EXPECT_FALSE(trie.is_user_dict_single_chinese_word(word.front()));
 }
 
+TEST_F(DictTrieInputTest, CloneKeepsRuntimeEditsIndependent) {
+    auto original = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto word = decode(std::string_view{"龙"});
+    original.add_word(word, PosTag{"n"});
+
+    auto copy = original.clone();
+    ASSERT_TRUE(copy.remove_word(word));
+
+    EXPECT_TRUE(original.find(word).has_value());
+    EXPECT_TRUE(original.is_user_dict_single_chinese_word(word.front()));
+    EXPECT_FALSE(copy.find(word).has_value());
+    EXPECT_FALSE(copy.is_user_dict_single_chinese_word(word.front()));
+    EXPECT_FLOAT_EQ(copy.user_word_default_weight(), original.user_word_default_weight());
+}
+
 TEST_F(DictTrieInputTest, RejectsUnknownWeightOptionBeforeOpeningDictionary) {
     const auto invalid = static_cast<DictTrie::UserWordWeightOption>(255);
     try {

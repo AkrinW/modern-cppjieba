@@ -58,6 +58,15 @@ public:
         : dict_(dict, user_dicts), model_(model) {
     }
 
+    Jieba(Jieba &&) noexcept = default;
+    auto operator=(Jieba &&) noexcept -> Jieba & = default;
+    auto operator=(const Jieba &) -> Jieba & = delete;
+
+    // An independent copy for copy-on-write updates: edit the clone, then publish it in place of the original.
+    [[nodiscard]] auto clone() const -> Jieba {
+        return Jieba{*this};
+    }
+
     // Tagging::Pos makes an entry point attach each word's part-of-speech tag without changing segmentation:
     // the dictionary tag when the word has one, otherwise CppJieba's rule ("m", "eng" or "x").
     // Tags are looked up only after segmentation, so Tagging::None instantiations do no tagging work.
@@ -185,6 +194,11 @@ public:
         return dict_.remove_word(runes);
     }
 
+    // Reclaim storage left by runtime edits; segmentation results are unchanged.
+    auto compact() -> void {
+        dict_.compact();
+    }
+
 private:
     template <CharType CharT>
     auto prepare_and_cut(std::basic_string_view<CharT> source, CutMode mode, Workspace &workspace) const
@@ -196,6 +210,10 @@ private:
         detail::assert_rune_count(workspace.decoded_.runes.size());
         detail::segment_into(dict_, model_, workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
         return workspace.ranges_;
+    }
+
+    // Copying is reserved for clone() so whole-dictionary copies stay explicit at call sites.
+    Jieba(const Jieba &other) : dict_(other.dict_.clone()), model_(other.model_) {
     }
 
     detail::DictTrie dict_;

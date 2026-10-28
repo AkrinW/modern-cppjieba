@@ -45,7 +45,7 @@
   `InsertUserWord` 和 Python jieba 的 `add_word` / `del_word`。权重按加载时主词典的频率总和归一化。
 - [x] 确定并发模型：库内部不加锁。分词入口为 `const`，增删词为非 `const`，需要独占访问；
   调用方按场景选择加锁、写时复制或单线程使用，分词热路径不加锁。
-- [ ] 提供 `Jieba::clone()` 支持写时复制，并提供 `compact()` 回收删词和加词留下的无效节点、恢复紧凑存储。
+- [x] 提供 `Jieba::clone()` 支持写时复制，并提供 `compact()` 回收删词和加词留下的无效节点、恢复紧凑存储。
 - [ ] `KeywordExtractor` 改为无状态接口，每次调用显式传入 `const Jieba &`。
 - [ ] 支持 Python jieba 的 `suggest_freq`。
 

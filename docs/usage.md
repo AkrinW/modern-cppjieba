@@ -206,7 +206,18 @@ const bool removed = jieba.remove_word("大厦");        // 词不存在时返�
 - 空词、非法编码、非正频率，以及超出 `TrieNodeId` 容量的加词通过 `LogConfig::Exception` 报告，词典保持不变。
 
 增删词是非 `const` 操作，库内部不加锁。调用期间该 `Jieba` 不能同时执行其他调用；
-调用方按场景自行选择互斥锁、读写锁或单线程使用。分词入口仍是 `const`，并发分词时各线程使用独立的 `Workspace`。
+调用方按场景自行选择互斥锁、读写锁、写时复制或单线程使用。分词入口仍是 `const`，并发分词时各线程使用独立的 `Workspace`。
+
+`Jieba` 只能移动，不能隐式拷贝；`clone()` 显式复制完整词典和模型，用于写时复制：
+
+```cpp
+auto next = jieba.clone();       // 旧实例在复制和编辑期间可继续并发分词
+next.add_word("杭研", PosTag{"nz"});
+// 发布方式由调用方决定，例如在自己的锁内替换实例，或通过原子指针切换
+```
+
+大量增删后可调用 `compact()` 重建词典存储，回收删词留下的节点并恢复紧凑子节点存储，分词结果不变。
+它同样是非 `const` 操作，耗时与重新构建词典相当。
 `TfIdfExtractor`、`TextRankExtractor` 引用构造时传入的 `Jieba`，会直接看到其后的增删。
 
 ## 位置与工作区

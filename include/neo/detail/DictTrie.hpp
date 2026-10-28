@@ -46,6 +46,15 @@ public:
         init(dict, user_dicts, user_word_weight_opt);
     }
 
+    DictTrie(DictTrie &&) noexcept = default;
+    auto operator=(DictTrie &&) noexcept -> DictTrie & = default;
+    auto operator=(const DictTrie &) -> DictTrie & = delete;
+
+    /// Copy the dictionary, including runtime edits; copies are explicit because the trie is large.
+    [[nodiscard]] auto clone() const -> DictTrie {
+        return DictTrie{*this};
+    }
+
     // ── Query interface ──────────────────────────────────────────────────
 
     /// Find exact match by rune span.
@@ -135,6 +144,11 @@ public:
         return true;
     }
 
+    /// Rebuild trie storage after many runtime edits without changing any lookup result.
+    auto compact() -> void {
+        trie_.compact();
+    }
+
 private:
     // ── Intermediate representation ──────────────────────────────────────
     //
@@ -147,6 +161,14 @@ private:
         int freq; // 0 ⇒ "use default weight" (user words without explicit freq)
         PosTag tag;
     };
+
+    // Copying is reserved for clone(); Trie exposes its copy only through Trie::clone().
+    DictTrie(const DictTrie &other)
+        : trie_{other.trie_.clone()}, freq_sum_{other.freq_sum_}, min_weight_{other.min_weight_},
+          max_weight_{other.max_weight_}, median_weight_{other.median_weight_},
+          user_word_default_weight_{other.user_word_default_weight_},
+          user_dict_single_chinese_word_{other.user_dict_single_chinese_word_} {
+    }
 
     // Normalize by the main dictionary total fixed at load time, shared by loaded and runtime user words.
     [[nodiscard]] auto freq_weight(int f) const -> detail::WordWeight {
