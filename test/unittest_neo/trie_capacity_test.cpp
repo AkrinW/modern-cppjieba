@@ -2,6 +2,7 @@
 #include "neo/Config.hpp"
 #include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/Trie.hpp"
 #include "neo/third_party/gtl.hpp"
 #include "neo/util/Unicode.hpp"

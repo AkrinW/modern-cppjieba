@@ -17,6 +17,7 @@
 
 // ── Neo Trie header (neo_cppjieba namespace — no conflict with cppjieba) ──
 #include "neo/Utf.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/Trie.hpp"
 
 #include "BenchmarkUtils.hpp"

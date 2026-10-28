@@ -9,6 +9,8 @@
 #include "neo/algorithm/SegmentCommon.hpp"
 #include "neo/resource/Dag.hpp"
 #include "neo/resource/DictTrie.hpp"
+#include "neo/resource/DictUnit.hpp"
+#include "neo/resource/HMMState.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/resource/Trie.hpp"
 #include "neo/util/StringUtil.hpp"
@@ -260,18 +262,18 @@ static_assert(noexcept(std::declval<const HMModel &>().get_start_prob(HMMState::
 static_assert(noexcept(std::declval<const HMModel &>().get_trans_prob(HMMState::B, HMMState::E)));
 
 // Generic visitors determine whether allocation-free traversal can promise not to throw.
-using MatchVisitor = void (*)(RuneIndex, const DictUnit &);
-using NoThrowMatchVisitor = void (*)(RuneIndex, const DictUnit &) noexcept;
+using MatchCallback = void (*)(RuneIndex, const DictUnit &);
+using NoThrowMatchCallback = void (*)(RuneIndex, const DictUnit &) noexcept;
 using WordVisitor = void (*)(TokenView<char>);
 using NoThrowWordVisitor = void (*)(TokenView<char>) noexcept;
 static_assert(noexcept(std::declval<const Trie &>().for_each_match_from(std::declval<std::span<const Rune>>(), 0,
-                                                                        std::declval<NoThrowMatchVisitor>())));
+                                                                        std::declval<NoThrowMatchCallback>())));
 static_assert(!noexcept(std::declval<const Trie &>().for_each_match_from(std::declval<std::span<const Rune>>(), 0,
-                                                                         std::declval<MatchVisitor>())));
+                                                                         std::declval<MatchCallback>())));
 static_assert(noexcept(std::declval<const DictTrie &>().for_each_match_from(std::declval<std::span<const Rune>>(), 0,
-                                                                            std::declval<NoThrowMatchVisitor>())));
+                                                                            std::declval<NoThrowMatchCallback>())));
 static_assert(!noexcept(std::declval<const DictTrie &>().for_each_match_from(std::declval<std::span<const Rune>>(), 0,
-                                                                             std::declval<MatchVisitor>())));
+                                                                             std::declval<MatchCallback>())));
 static_assert(noexcept(detail::emit_tokens(std::declval<std::string_view>(), std::declval<std::span<const WordRange>>(),
                                            std::declval<std::span<const SourceOffset>>(),
                                            std::declval<NoThrowWordVisitor &>())));
@@ -282,7 +284,6 @@ static_assert(
 // External validation and allocation failures remain recoverable through the existing exception paths.
 static_assert(!noexcept(decode(std::declval<std::string_view>())));
 static_assert(!noexcept(encode<char>(std::declval<std::span<const Rune>>())));
-static_assert(!noexcept(std::declval<const Trie &>().find(std::declval<std::string_view>())));
 static_assert(!noexcept(std::declval<const Jieba &>().cut(std::declval<std::string_view>(), CutMode::MIX)));
 static_assert(!noexcept(std::declval<const Jieba &>().cut_each(std::declval<std::string_view>(), CutMode::MIX,
                                                                std::declval<NoThrowWordVisitor>(),

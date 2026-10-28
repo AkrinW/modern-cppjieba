@@ -1,9 +1,10 @@
 #pragma once
 
 #include "neo/Config.hpp"
-#include "neo/concept/Text.hpp"
+#include "neo/concept/Match.hpp"
 #include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/Dag.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/Trie.hpp"
 #include "neo/third_party/gtl.hpp"
 #include "neo/util/Logging.hpp"
@@ -66,14 +67,7 @@ public:
         return trie_.find(key);
     }
 
-    /// Find exact match by any StringLike type (UTF-8, UTF-16, etc.).
-    template <StringLike T>
-    [[nodiscard]] auto find(const T &input) const -> DictUnit {
-        auto unicode = decode(input);
-        return find(std::span<const Rune>{unicode});
-    }
-
-    template <typename Emit>
+    template <MatchVisitor Emit>
     auto for_each_match_from(std::span<const Rune> runes, RuneIndex begin, Emit &&emit) const
         noexcept(noexcept(trie_.for_each_match_from(runes, begin, std::forward<Emit>(emit)))) -> void {
         trie_.for_each_match_from(runes, begin, std::forward<Emit>(emit));
@@ -86,12 +80,6 @@ public:
     // Reuse a caller-owned DAG without changing dictionary matching semantics.
     auto find_dag_into(std::span<const Rune> runes, Dag &dag) const -> void {
         trie_.find_dag_into(runes, dag);
-    }
-
-    template <StringLike T>
-    [[nodiscard]] auto find_dag(const T &input) const -> Dag {
-        auto unicode = decode(input);
-        return find_dag(std::span<const Rune>{unicode});
     }
 
     /// Check if a single Chinese character comes from the user dictionary.

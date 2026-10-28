@@ -8,6 +8,7 @@
 #include "neo/algorithm/SegmentCommon.hpp"
 #include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
+#include "neo/resource/HMMState.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
 #include "neo/workspace/SegmentScratch.hpp"

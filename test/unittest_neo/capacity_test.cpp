@@ -5,6 +5,7 @@
 #include "neo/algorithm/MPSegment.hpp"
 #include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/Trie.hpp"
 #include "neo/util/Unicode.hpp"
 #include "neo/workspace/SegmentScratch.hpp"

@@ -10,8 +10,8 @@
 #include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/Dag.hpp"
 #include "neo/resource/DictTrie.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/HMModel.hpp"
-#include "neo/resource/Trie.hpp"
 #include "neo/util/Unicode.hpp"
 #include "neo/workspace/SegmentScratch.hpp"
 
@@ -111,12 +111,12 @@ TEST_F(DictTrieInputTest, RejectsEmptyMainDictionary) {
 TEST_F(DictTrieInputTest, AcceptsEmptyTagAndWindowsLineEndings) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "主词 10 \r\n\r\n基础 20 n\r\n"));
     const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
-    const auto word = trie.find("主词");
+    const auto word = trie.find(decode("主词"));
     ASSERT_TRUE(word.has_value());
     EXPECT_TRUE(word.tag.empty());
     EXPECT_FLOAT_EQ(word.weight, std::log(10.0f / 30.0f));
-    EXPECT_FALSE(trie.find("缺词").has_value());
-    EXPECT_FALSE(trie.find("").has_value());
+    EXPECT_FALSE(trie.find(decode("缺词")).has_value());
+    EXPECT_FALSE(trie.find(decode("")).has_value());
 }
 
 TEST_F(DictTrieInputTest, RejectsExtraUserDictionaryFields) {
@@ -153,8 +153,8 @@ TEST_F(DictTrieInputTest, RuntimeWordWithFreqMatchesUserDictionaryEntry) {
 
     edited.add_word_with_freq(decode(std::string_view{"新词"}), 5, PosTag{"nz"});
 
-    const auto expected = loaded.find("新词");
-    const auto actual = edited.find("新词");
+    const auto expected = loaded.find(decode("新词"));
+    const auto actual = edited.find(decode("新词"));
     ASSERT_TRUE(actual.has_value());
     EXPECT_FLOAT_EQ(actual.weight, expected.weight);
     EXPECT_EQ(actual.tag, expected.tag);
@@ -165,7 +165,7 @@ TEST_F(DictTrieInputTest, RuntimeWordWithoutFreqUsesDefaultWeight) {
 
     trie.add_word(decode(std::string_view{"新词"}), PosTag{"n"});
 
-    const auto word = trie.find("新词");
+    const auto word = trie.find(decode("新词"));
     ASSERT_TRUE(word.has_value());
     EXPECT_FLOAT_EQ(word.weight, trie.user_word_default_weight());
     EXPECT_EQ(word.tag, "n");
@@ -176,7 +176,7 @@ TEST_F(DictTrieInputTest, RuntimeWordRejectsNonPositiveFrequencyWithoutChange) {
 
     EXPECT_THROW(trie.add_word_with_freq(decode(std::string_view{"新词"}), 0, PosTag{"n"}), LogConfig::Exception);
     EXPECT_THROW(trie.add_word_with_freq(decode(std::string_view{"新词"}), -1, PosTag{"n"}), LogConfig::Exception);
-    EXPECT_FALSE(trie.find("新词").has_value());
+    EXPECT_FALSE(trie.find(decode("新词")).has_value());
 }
 
 TEST_F(DictTrieInputTest, RuntimeEditsRejectEmptyWords) {
@@ -193,9 +193,9 @@ TEST_F(DictTrieInputTest, RemoveWordDoesNotRestoreMainDictionaryWeight) {
 
     EXPECT_TRUE(trie.remove_word(decode(std::string_view{"主词"})));
 
-    EXPECT_FALSE(trie.find("主词").has_value());
+    EXPECT_FALSE(trie.find(decode("主词")).has_value());
     EXPECT_FALSE(trie.remove_word(decode(std::string_view{"主词"})));
-    EXPECT_TRUE(trie.find("基础").has_value());
+    EXPECT_TRUE(trie.find(decode("基础")).has_value());
 }
 
 TEST_F(DictTrieInputTest, SingleRuneRuntimeWordTogglesUserWordMarker) {
@@ -252,19 +252,19 @@ TEST_F(DictTrieInputTest, RejectsUnknownWeightOption) {
 TEST_F(DictTrieInputTest, SingleEntryDictionaryRetainsItsZeroWeightWord) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词条 10 n\n"));
     const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
-    const auto word = trie.find("词条");
+    const auto word = trie.find(decode("词条"));
     ASSERT_TRUE(word.has_value());
     EXPECT_FLOAT_EQ(word.weight, 0.0f);
     EXPECT_EQ(word.tag, PosTag{"n"});
-    EXPECT_FALSE(trie.find("词").has_value());
-    EXPECT_FALSE(trie.find("外").has_value());
+    EXPECT_FALSE(trie.find(decode("词")).has_value());
+    EXPECT_FALSE(trie.find(decode("外")).has_value());
     EXPECT_EQ(trie.trie().collect_stats().value_count, 1u);
 }
 
 TEST_F(DictTrieInputTest, LastMainDictionaryEntryWins) {
     ASSERT_NO_FATAL_FAILURE(write_file("main.dict", "词条 10 n\n词条 20 v\n"));
     const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
-    const auto word = trie.find("词条");
+    const auto word = trie.find(decode("词条"));
     ASSERT_TRUE(word.has_value());
     EXPECT_FLOAT_EQ(word.weight, std::log(20.0f / 30.0f));
     EXPECT_EQ(word.tag, PosTag{"v"});
@@ -521,7 +521,7 @@ TEST(DictTrieTest, UserWordWeightMax) {
 TEST(DictTrieTest, FindExistingWord) {
     auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
 
-    auto unit = trie.find("来到");
+    auto unit = trie.find(decode("来到"));
     ASSERT_TRUE(unit.has_value());
     EXPECT_EQ(unit.tag, PosTag{"v"});
     EXPECT_NEAR(unit.weight, -8.870f, 0.01f);
@@ -530,7 +530,7 @@ TEST(DictTrieTest, FindExistingWord) {
 TEST(DictTrieTest, FindMultiCharWord) {
     auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
 
-    auto unit = trie.find("清华大学");
+    auto unit = trie.find(decode("清华大学"));
     ASSERT_TRUE(unit.has_value());
     // just verify it exists and has a PosTag
     EXPECT_FALSE(unit.tag.empty());
@@ -539,7 +539,7 @@ TEST(DictTrieTest, FindMultiCharWord) {
 TEST(DictTrieTest, FindSingleChar) {
     auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
 
-    auto unit = trie.find("的");
+    auto unit = trie.find(decode("的"));
     ASSERT_TRUE(unit.has_value());
     EXPECT_EQ(unit.tag, PosTag{"uj"});
 }
@@ -547,13 +547,13 @@ TEST(DictTrieTest, FindSingleChar) {
 TEST(DictTrieTest, FindNonExistentWord) {
     auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
 
-    auto unit = trie.find("不存在的词xyz");
+    auto unit = trie.find(decode("不存在的词xyz"));
     EXPECT_FALSE(unit.has_value());
 }
 
 TEST(DictTrieTest, FindEmptyString) {
     auto trie = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
-    EXPECT_FALSE(trie.find("").has_value());
+    EXPECT_FALSE(trie.find(decode("")).has_value());
 }
 
 // ─── Find: user dictionary ──────────────────────────────────────────────────
@@ -562,7 +562,7 @@ TEST(DictTrieTest, FindUserDictWordNoFreqNoTag) {
     // userdict.utf8 line: "云计算"  (1 field → default weight, empty tag)
     auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMedian};
 
-    auto unit = trie.find("云计算");
+    auto unit = trie.find(decode("云计算"));
     ASSERT_TRUE(unit.has_value());
     // weight should equal user_word_default_weight (median)
     EXPECT_FLOAT_EQ(unit.weight, trie.user_word_default_weight());
@@ -573,7 +573,7 @@ TEST(DictTrieTest, FindUserDictWordWithTag) {
     // userdict.utf8 line: "蓝翔 nz"  (2 fields → default weight, tag = "nz")
     auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMedian};
 
-    auto unit = trie.find("蓝翔");
+    auto unit = trie.find(decode("蓝翔"));
     ASSERT_TRUE(unit.has_value());
     EXPECT_EQ(unit.tag, PosTag{"nz"});
     EXPECT_FLOAT_EQ(unit.weight, trie.user_word_default_weight());
@@ -583,7 +583,7 @@ TEST(DictTrieTest, FindUserDictWordWithFreqAndTag) {
     // userdict.utf8 line: "区块链 10 nz"  (3 fields → freq=10, tag="nz")
     auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMedian};
 
-    auto unit = trie.find("区块链");
+    auto unit = trie.find(decode("区块链"));
     ASSERT_TRUE(unit.has_value());
     EXPECT_EQ(unit.tag, PosTag{"nz"});
     // weight = log(10 / freq_sum), should be distinctly different from default
@@ -595,7 +595,7 @@ TEST(DictTrieTest, UserDictMaxWeight) {
     auto trie = DictTrie{DICT_FILE, USER_DICT_FILE, UserWordWeightOption::WordWeightMax};
 
     // "云计算" has no freq → should use max weight as default
-    auto unit = trie.find("云计算");
+    auto unit = trie.find(decode("云计算"));
     ASSERT_TRUE(unit.has_value());
     EXPECT_NEAR(unit.weight, trie.max_weight(), 0.01f);
 }

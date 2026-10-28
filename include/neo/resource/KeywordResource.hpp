@@ -2,10 +2,10 @@
 
 #include "neo/third_party/gtl.hpp"
 #include "neo/util/Logging.hpp"
+#include "neo/util/RuneString.hpp"
 #include "neo/util/StringUtil.hpp"
 #include "neo/util/Unicode.hpp"
 #include "neo/value/DictSource.hpp"
-#include "neo/value/Rune.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -15,21 +15,6 @@
 #include <string_view>
 
 namespace neo_cppjieba::detail {
-
-// u32string keys accept u32string_view lookups, so candidate words are never copied for a query.
-struct RuneStringHash {
-    using is_transparent = void;
-
-    [[nodiscard]] auto operator()(std::u32string_view word) const noexcept -> size_t {
-        return std::hash<std::u32string_view>{}(word);
-    }
-};
-
-using RuneStringSet = gtl::flat_hash_set<std::u32string, RuneStringHash, std::equal_to<>>;
-
-[[nodiscard]] inline auto rune_view(std::span<const Rune> runes) noexcept -> std::u32string_view {
-    return {runes.data(), runes.size()};
-}
 
 // Words excluded from keyword candidates. One word per line, compared exactly as written; empty lines are ignored.
 class StopWords {

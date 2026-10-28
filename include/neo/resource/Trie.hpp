@@ -1,17 +1,17 @@
 #pragma once
 
 #include "neo/Config.hpp"
-#include "neo/concept/Text.hpp"
+#include "neo/concept/Match.hpp"
 #include "neo/resource/Dag.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/TrieStats.hpp"
 #include "neo/third_party/gtl.hpp"
 #include "neo/util/Logging.hpp"
-#include "neo/util/Unicode.hpp"
-#include "neo/value/PosTag.hpp"
 #include "neo/value/Rune.hpp"
 
 #include <algorithm>
 #include <cassert>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -22,9 +22,6 @@
 #include <vector>
 
 namespace neo_cppjieba::detail {
-
-// Missing entries use a value outside finite dictionary weights, so log(1) == 0 remains valid.
-inline constexpr auto kMissingWordWeight = -std::numeric_limits<detail::WordWeight>::infinity();
 
 /// A transition retains the full parent id and rune independently of the configured node width.
 template <CapacityInteger NodeId>
@@ -52,20 +49,11 @@ struct TrieTransitionHash {
     }
 };
 
-/// Compact dictionary entry stored by value in trie transitions, with no pointer indirection.
-/// The original CppJieba DictUnit also stored the word and a std::string tag (~80 bytes).
-struct DictUnit {
-    detail::WordWeight weight{kMissingWordWeight};
-    PosTag tag{};
+class Trie;
 
-    /// Default construction means "no value"; every finite weight, including zero, is a real entry.
-    [[nodiscard]] constexpr auto has_value() const noexcept -> bool {
-        return weight != kMissingWordWeight;
-    }
-};
-
-static_assert(sizeof(DictUnit) == 2 * sizeof(detail::WordWeight));
-static_assert(alignof(DictUnit) == alignof(detail::WordWeight));
+// Each lookup is written once for the trie and its const view.
+template <typename Self>
+concept TrieSelf = std::same_as<std::remove_const_t<Self>, Trie>;
 
 /// A read-only character trie with direct BMP root transitions and one flat hash table.
 /// Each transition carries its dictionary value and a filter for the child's outgoing runes.
@@ -113,12 +101,12 @@ class Trie {
     }
 
     /// A trie entry with the constness of the trie it was found in.
-    template <typename Self>
+    template <TrieSelf Self>
     using EntryOf = std::conditional_t<std::is_const_v<Self>, const Entry, Entry>;
 
     // Each lookup is implemented once for Self = Trie or const Trie. Queries use the const find_* wrappers;
     // runtime edits use the explicitly named find_mutable_* wrappers.
-    template <typename Self>
+    template <TrieSelf Self>
     [[nodiscard]] static auto root_in(Self &self, Rune rune) noexcept -> EntryOf<Self> * {
         assert_check([&] { return self.node_count_ > 0; }, "Trie: root lookup on an empty trie");
         if (rune < self.root_.size()) {
@@ -130,7 +118,7 @@ class Trie {
     }
 
     // The filter tag selects storage without reserving any bits from the configured node id.
-    template <typename Self>
+    template <TrieSelf Self>
     [[nodiscard]] static auto transition_in(Self &self, const Entry &parent, Rune rune) noexcept -> EntryOf<Self> * {
         assert(parent.child > 0 && parent.child < self.node_count_);
         if ((parent.filter & kCompactFlag) != 0) {
@@ -145,7 +133,7 @@ class Trie {
         return it != self.transitions_.end() ? &it->second : nullptr;
     }
 
-    template <typename Self>
+    template <TrieSelf Self>
     [[nodiscard]] static auto child_in(Self &self, const Entry &parent, Rune rune) noexcept -> EntryOf<Self> * {
         assert_check([&] { return parent.child != kAbsentNode && parent.child < self.node_count_; },
                      "Trie: invalid transition parent");
@@ -159,7 +147,7 @@ class Trie {
         return transition_in(self, parent, rune);
     }
 
-    template <typename Self>
+    template <TrieSelf Self>
     [[nodiscard]] static auto entry_in(Self &self, std::span<const Rune> key) noexcept -> EntryOf<Self> * {
         if (self.empty() || key.empty()) {
             return nullptr;
@@ -280,6 +268,7 @@ class Trie {
     // Visit every edge as (parent, rune, entry) across direct roots, hashed and compact storage.
     // Slots vacated by runtime promotion stay allocated but hold no transition, so they are skipped.
     template <typename Visit>
+        requires std::invocable<Visit &, TrieNodeId, Rune, const Entry &>
     auto for_each_edge(Visit &&visit) const -> void {
         for (size_t rune = 0; rune < root_.size(); ++rune) {
             if (root_[rune].child != kAbsentNode) {
@@ -556,16 +545,9 @@ public:
         build(words.keys, words.values);
     }
 
-    /// Convenience overload: decode any StringLike input (UTF-8, UTF-16, …) then look up.
-    template <StringLike T>
-    [[nodiscard]] auto find(const T &input) const -> DictUnit {
-        const auto unicode = decode(input);
-        return find(std::span<const Rune>{unicode});
-    }
-
     // Visit real dictionary matches from one rune position in increasing end order.
     // The callback borrows each dictionary value; unknown runes do not produce matches.
-    template <typename Emit>
+    template <MatchVisitor Emit>
     auto for_each_match_from(std::span<const Rune> runes, RuneIndex begin, Emit &&emit) const
         noexcept(noexcept(emit(RuneIndex{}, std::declval<const DictUnit &>()))) -> void {
         assert(detail::size_fits_capacity<RuneIndex>(runes.size()));
@@ -629,12 +611,6 @@ public:
         assert_check([&] { return detail::size_fits_capacity<DagOffset>(dag.edges.size()); },
                      "Trie: DAG edge count exceeds the supported offset range");
         dag.offsets.push_back(static_cast<DagOffset>(dag.edges.size()));
-    }
-
-    template <StringLike T>
-    [[nodiscard]] auto find_dag(const T &input) const -> Dag {
-        const auto unicode = decode(input);
-        return find_dag(std::span<const Rune>{unicode});
     }
 
     /// Return the total number of nodes in the trie (including the root).

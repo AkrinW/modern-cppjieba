@@ -1,5 +1,6 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
+#include "neo/resource/DictUnit.hpp"
 #include "neo/resource/Trie.hpp"
 
 #include <array>

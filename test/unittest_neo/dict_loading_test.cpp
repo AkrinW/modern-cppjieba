@@ -4,6 +4,7 @@
 #include "neo/KeywordExtractor.hpp"
 #include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
+#include "neo/resource/HMMState.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
 
@@ -107,8 +108,8 @@ TEST(DictLoadingTest, UserDictionariesLoadInOrderAndLaterEntriesWin) {
     const auto user_dicts = std::array{DictSource::memory("新词 v\n字\n"), DictSource::file(TEST_USER_DICT_FILE),
                                        DictSource::memory("新词 n\n")};
     const auto trie = DictTrie{main, user_dicts, UserWordWeightOption::WordWeightMedian};
-    EXPECT_EQ(trie.find("新词").tag, PosTag{"n"});
-    EXPECT_TRUE(trie.find("云计算").has_value());
+    EXPECT_EQ(trie.find(decode("新词")).tag, PosTag{"n"});
+    EXPECT_TRUE(trie.find(decode("云计算")).has_value());
     EXPECT_TRUE(trie.is_user_dict_single_chinese_word(decode("字")[0]));
     EXPECT_FALSE(trie.is_user_dict_single_chinese_word(decode("词")[0]));
 }

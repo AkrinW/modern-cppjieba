@@ -1,7 +1,7 @@
 #pragma once
 
 #include "neo/Config.hpp"
-#include "neo/resource/HMModel.hpp"
+#include "neo/resource/HMMState.hpp"
 #include "neo/value/Rune.hpp"
 
 #include <array>
