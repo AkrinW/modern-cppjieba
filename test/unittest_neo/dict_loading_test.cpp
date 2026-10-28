@@ -132,20 +132,20 @@ TEST(DictLoadingTest, KeywordExtractorsLoadFromMemory) {
     const auto &jieba = file_jieba();
     const auto text = "我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"sv;
 
-    const auto tfidf_files = TfIdfExtractor{IDF_FILE, STOP_WORDS_FILE, TfIdfOptions{}};
-    const auto tfidf_memory = TfIdfExtractor{DictSource::memory(idf), DictSource::memory(stop_words), TfIdfOptions{}};
-    const auto expected = tfidf_files.extract(jieba, text, 5);
-    const auto actual = tfidf_memory.extract(jieba, text, 5);
+    const auto tfidf_files = TfIdfExtractor{IDF_FILE, STOP_WORDS_FILE};
+    const auto tfidf_memory = TfIdfExtractor{DictSource::memory(idf), DictSource::memory(stop_words)};
+    const auto expected = tfidf_files.extract(jieba, text, 5, TfIdfOptions{});
+    const auto actual = tfidf_memory.extract(jieba, text, 5, TfIdfOptions{});
     ASSERT_EQ(actual.size(), expected.size());
     for (size_t i = 0; i < actual.size(); ++i) {
         EXPECT_EQ(actual[i].word, expected[i].word);
         EXPECT_DOUBLE_EQ(actual[i].weight, expected[i].weight);
     }
 
-    const auto textrank_files = TextRankExtractor{STOP_WORDS_FILE, TextRankOptions{}};
-    const auto textrank_memory = TextRankExtractor{DictSource::memory(stop_words), TextRankOptions{}};
-    const auto expected_rank = textrank_files.extract(jieba, text, 5);
-    const auto actual_rank = textrank_memory.extract(jieba, text, 5);
+    const auto textrank_files = TextRankExtractor{STOP_WORDS_FILE};
+    const auto textrank_memory = TextRankExtractor{DictSource::memory(stop_words)};
+    const auto expected_rank = textrank_files.extract(jieba, text, 5, TextRankOptions{});
+    const auto actual_rank = textrank_memory.extract(jieba, text, 5, TextRankOptions{});
     ASSERT_EQ(actual_rank.size(), expected_rank.size());
     for (size_t i = 0; i < actual_rank.size(); ++i) {
         EXPECT_EQ(actual_rank[i].word, expected_rank[i].word);

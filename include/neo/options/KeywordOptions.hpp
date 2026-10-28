@@ -1,6 +1,7 @@
 #pragma once
 
 #include "neo/Fwd.hpp"
+#include "neo/util/Logging.hpp"
 #include "neo/value/PosTag.hpp"
 
 #include <array>
@@ -26,5 +27,15 @@ struct TextRankOptions {
     double damping{0.85};
     std::vector<PosTag> allowed_tags;
 };
+
+namespace detail {
+
+// Option values supplied by callers are configuration errors, not internal invariants.
+inline auto check_text_rank_options(const TextRankOptions &options) -> void {
+    check(options.damping >= 0.0 && options.damping <= 1.0, "TextRankExtractor: damping {} is outside [0, 1]",
+          options.damping);
+}
+
+} // namespace detail
 
 } // namespace neo_cppjieba

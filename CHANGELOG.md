@@ -24,6 +24,9 @@
 
 ### Changed
 
+- **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 只持有 IDF 和停用词，构造函数去掉选项参数；
+  `TfIdfOptions`、`TextRankOptions` 改为 `extract` / `extract_into` 在 `top_n` 之后的参数，按 `const &` 传入且不被保存，
+  `options()` 移除。`TextRankOptions::damping` 改为在每次调用入口检查。见 [关键词提取](docs/usage.md#关键词提取)。
 - **不兼容**：头文件按角色重新组织。`include/neo/` 一级目录只保留门面 `Jieba.hpp`、`KeywordExtractor.hpp`、
   `Utf.hpp`（原 `Unicode.hpp`），编译期配置 `Config.hpp`，以及新增的前向声明头 `Fwd.hpp`；其余头文件按角色移入
   `value/`、`options/`、`workspace/`、`concept/`、`resource/`、`algorithm/`、`util/`，原 `detail/` 目录取消，
@@ -36,7 +39,7 @@
 - 内部分词 policy 统一为 `cut_into(dict, model, runes, out, scratch)` 并由 `SegmentPolicy` concept 约束；
   `MPSegment::cut` 等静态便捷入口改为 `detail::cut<Policy>(dict, model, runes)`。
 
-- **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 不再保存 `Jieba`。构造函数去掉 `Jieba` 参数，选项参数须显式传入；
+- **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 不再保存 `Jieba`。构造函数去掉 `Jieba` 参数；
   `extract` / `extract_into` 的第一个参数改为 `const Jieba &`。见 [关键词提取](docs/usage.md#关键词提取)。
 
 - **不兼容**：词典和模型改为安装到 `share/neo_cppjieba/dict/`，避免与上游 CppJieba 的 `share/cppjieba/dict/` 冲突。
