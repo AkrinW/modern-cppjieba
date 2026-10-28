@@ -1,6 +1,5 @@
 #include "gtest/gtest.h"
-#include "neo/Config.hpp"
-#include "neo/Traits.hpp"
+#include "neo/util/Unicode.hpp"
 
 #include <array>
 #include <concepts>
@@ -15,6 +14,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 namespace {
 

@@ -44,7 +44,7 @@ Temporary strings can be passed directly to a conversion operation.
 
 ```cpp
 #include "neo/Jieba.hpp"
-#include "neo/Unicode.hpp"
+#include "neo/Utf.hpp"
 #include "neo/encoding/IcuCodec.hpp"
 
 #include <string>
@@ -100,7 +100,7 @@ Preserve the source mapping when exact original bytes are required:
 ```cpp
 auto decoded = UnicodeWithOffset{};
 IcuCodec::decode_with_offset_into(bytes, EncodingId::GBK, decoded);
-const auto mapped_utf8 = encode<char>(decoded.runes);
+const auto mapped_utf8 = Utf::encode<char>(decoded.runes);
 const auto mapped_result = jieba.cut(mapped_utf8, CutMode::SEARCH);
 const auto original_range = mapped_result[0].position.runes;
 const auto original_begin = decoded.offsets[original_range.begin];
@@ -114,13 +114,13 @@ Re-encoding uses the installed ICU mapping and can select a different sequence.
 
 ## UTF validation
 
-`is_valid_utf(input)` in `neo/Unicode.hpp` checks the encoding associated with the
+`Utf::is_valid(input)` in `neo/Utf.hpp` checks the encoding associated with the
 [input character type](usage.md#输入文本). It returns true for empty input and
 false for malformed sequences, using a linear scan without decoding buffers.
 
 ```cpp
-const auto valid = is_valid_utf(utf8);
-const auto valid_utf16 = is_valid_utf(std::u16string_view{u"中国😀"});
+const auto valid = Utf::is_valid(utf8);
+const auto valid_utf16 = Utf::is_valid(std::u16string_view{u"中国😀"});
 ```
 
 Text segmentation already validates the current input during decoding, including

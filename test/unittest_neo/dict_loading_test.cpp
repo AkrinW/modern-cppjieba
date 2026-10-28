@@ -1,9 +1,10 @@
 #include "gtest/gtest.h"
-#include "neo/DictSource.hpp"
+#include "neo/Config.hpp"
 #include "neo/Jieba.hpp"
 #include "neo/KeywordExtractor.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/HMModel.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/HMModel.hpp"
+#include "neo/util/Unicode.hpp"
 
 #include "test_paths.h"
 
@@ -89,8 +90,12 @@ TEST(DictLoadingTest, FileSourcesMatchPathConstructor) {
 TEST(DictLoadingTest, HmmModelFromMemoryMatchesFile) {
     const auto from_file = HMModel{HMM_MODEL_FILE};
     const auto from_memory = HMModel{DictSource::memory(model_text())};
-    EXPECT_EQ(from_memory.start_prob, from_file.start_prob);
-    EXPECT_EQ(from_memory.trans_prob, from_file.trans_prob);
+    for (const auto from : {HMMState::B, HMMState::E, HMMState::M, HMMState::S}) {
+        EXPECT_EQ(from_memory.get_start_prob(from), from_file.get_start_prob(from));
+        for (const auto to : {HMMState::B, HMMState::E, HMMState::M, HMMState::S}) {
+            EXPECT_EQ(from_memory.get_trans_prob(from, to), from_file.get_trans_prob(from, to));
+        }
+    }
     for (const auto rune : decode("我的天𠀀a"sv)) {
         EXPECT_EQ(from_memory.get_emit_probs(rune), from_file.get_emit_probs(rune));
     }

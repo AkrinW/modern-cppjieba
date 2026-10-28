@@ -1,5 +1,4 @@
 #include "neo/Jieba.hpp"
-#include "neo/Workspace.hpp"
 
 #include <cstdio>
 #include <exception>

@@ -1,8 +1,9 @@
 #include "../PlatformTestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/detail/Logging.hpp"
-#include "neo/detail/Platform.hpp"
+#include "neo/util/FilePlatform.hpp"
+#include "neo/util/Logging.hpp"
+#include "neo/util/Platform.hpp"
 
 #include <array>
 #include <cstddef>

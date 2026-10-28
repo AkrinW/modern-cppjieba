@@ -1,9 +1,11 @@
+#include "../SegmentTestUtils.hpp"
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
-#include "neo/Unicode.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/FullSegment.hpp"
-#include "neo/detail/SegmentScratch.hpp"
+#include "neo/algorithm/FullSegment.hpp"
+#include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/util/Unicode.hpp"
+#include "neo/workspace/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
@@ -61,7 +63,7 @@ TEST_F(FullSegmentDictionaryTest, OverlappingWordsKeepStartThenEndOrder) {
     const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙丙");
 
-    EXPECT_EQ(FullSegment::cut(dict, runes), (std::vector<WordRange>{{0, 2}, {0, 3}, {1, 3}}));
+    EXPECT_EQ(cut<FullSegment>(dict, unused_model(), runes), (std::vector<WordRange>{{0, 2}, {0, 3}, {1, 3}}));
 }
 
 TEST_F(FullSegmentDictionaryTest, ShorterLaterMatchesPreserveEarlierCoverage) {
@@ -69,7 +71,7 @@ TEST_F(FullSegmentDictionaryTest, ShorterLaterMatchesPreserveEarlierCoverage) {
     const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙丙丁戊己");
 
-    EXPECT_EQ(FullSegment::cut(dict, runes), (std::vector<WordRange>{{0, 5}, {1, 3}, {5, 6}}));
+    EXPECT_EQ(cut<FullSegment>(dict, unused_model(), runes), (std::vector<WordRange>{{0, 5}, {1, 3}, {5, 6}}));
 }
 
 TEST_F(FullSegmentDictionaryTest, UnmatchedPrefixesAndUnknownRunesRemainSingleTokens) {
@@ -77,7 +79,8 @@ TEST_F(FullSegmentDictionaryTest, UnmatchedPrefixesAndUnknownRunesRemainSingleTo
     const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("𠮷甲丙😀");
 
-    EXPECT_EQ(to_strings(runes, FullSegment::cut(dict, runes)), (std::vector<std::string>{"𠮷", "甲", "丙", "😀"}));
+    EXPECT_EQ(to_strings(runes, cut<FullSegment>(dict, unused_model(), runes)),
+              (std::vector<std::string>{"𠮷", "甲", "丙", "😀"}));
 }
 
 TEST_F(FullSegmentDictionaryTest, NonBmpMatchesKeepRuneOffsetsAcrossSeparators) {
@@ -85,7 +88,7 @@ TEST_F(FullSegmentDictionaryTest, NonBmpMatchesKeepRuneOffsetsAcrossSeparators) 
     const auto dict = DictTrie{dictionary_path(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode(" \t𠮷😀，𠮷\n😀。");
 
-    EXPECT_EQ(FullSegment::cut(dict, runes),
+    EXPECT_EQ(cut<FullSegment>(dict, unused_model(), runes),
               (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {4, 5}, {5, 6}, {6, 7}, {7, 8}, {8, 9}}));
 }
 
@@ -95,27 +98,27 @@ TEST_F(FullSegmentDictionaryTest, ReusedScratchReplacesLongShortAndEmptyResults)
     auto scratch = detail::SegmentScratch{};
     auto words = std::vector<WordRange>{};
 
-    FullSegment::cut_into(dict, decode("甲乙丙丁戊己"), words, scratch);
+    FullSegment::cut_into(dict, unused_model(), decode("甲乙丙丁戊己"), words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{0, 5}, {1, 3}, {5, 6}}));
-    FullSegment::cut_into(dict, decode("𠮷"), words, scratch);
+    FullSegment::cut_into(dict, unused_model(), decode("𠮷"), words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{0, 1}}));
-    FullSegment::cut_into(dict, Unicode{}, words, scratch);
+    FullSegment::cut_into(dict, unused_model(), Unicode{}, words, scratch);
     EXPECT_TRUE(words.empty());
-    FullSegment::cut_into(dict, decode("乙丙"), words, scratch);
+    FullSegment::cut_into(dict, unused_model(), decode("乙丙"), words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{0, 2}}));
 }
 
 TEST(FullSegmentTest, EmptyInput) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = Unicode{};
-    auto result = FullSegment::cut(dict, runes);
+    auto result = cut<FullSegment>(dict, unused_model(), runes);
     EXPECT_TRUE(result.empty());
 }
 
 TEST(FullSegmentTest, SingleCharDictWord) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"我"});
-    auto result = FullSegment::cut(dict, runes);
+    auto result = cut<FullSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
     ASSERT_EQ(words.size(), 1);
     EXPECT_EQ(words[0], "我");
@@ -124,7 +127,7 @@ TEST(FullSegmentTest, SingleCharDictWord) {
 TEST(FullSegmentTest, ClassicSentence) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"我来自北京邮电大学"});
-    auto result = FullSegment::cut(dict, runes);
+    auto result = cut<FullSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     auto expected =
@@ -135,7 +138,7 @@ TEST(FullSegmentTest, ClassicSentence) {
 TEST(FullSegmentTest, AnotherSentence) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"他来到了网易杭研大厦"});
-    auto result = FullSegment::cut(dict, runes);
+    auto result = cut<FullSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     auto has = [&](const std::string &w) {
@@ -149,7 +152,7 @@ TEST(FullSegmentTest, AnotherSentence) {
 TEST(FullSegmentTest, NanjingBridge) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"南京市长江大桥"});
-    auto result = FullSegment::cut(dict, runes);
+    auto result = cut<FullSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     auto has = [&](const std::string &w) {
@@ -165,7 +168,7 @@ TEST(FullSegmentTest, NanjingBridge) {
 TEST(FullSegmentTest, SeparatorsArePreserved) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"我来自北京，他来自上海"});
-    auto result = FullSegment::cut(dict, runes);
+    auto result = cut<FullSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     auto has = [&](const std::string &w) {
@@ -180,7 +183,7 @@ TEST(FullSegmentTest, SeparatorsArePreserved) {
 TEST(FullSegmentTest, WordRangeSlice) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"北京大学"});
-    auto result = FullSegment::cut(dict, runes);
+    auto result = cut<FullSegment>(dict, unused_model(), runes);
 
     for (auto &&wr : result) {
         auto slice = wr.slice(runes);
@@ -201,7 +204,7 @@ TEST(FullSegmentTest, WordRangeEquality) {
 TEST(FullSegmentTest, AllSingleChars) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"的了是"});
-    auto result = FullSegment::cut(dict, runes);
+    auto result = cut<FullSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     auto has = [&](const std::string &w) {
@@ -216,7 +219,7 @@ TEST(FullSegmentTest, LongSentence) {
     auto dict = DictTrie{DICT_FILE};
     auto input = std::string_view{"中华人民共和国中央人民政府今天成立了"};
     auto runes = decode(input);
-    auto result = FullSegment::cut(dict, runes);
+    auto result = cut<FullSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     EXPECT_GT(words.size(), 5u);
@@ -237,8 +240,8 @@ TEST(FullSegmentTest, Deterministic) {
     auto dict = DictTrie{DICT_FILE};
     auto runes = decode(std::string_view{"我来自北京邮电大学"});
 
-    auto result1 = FullSegment::cut(dict, runes);
-    auto result2 = FullSegment::cut(dict, runes);
+    auto result1 = cut<FullSegment>(dict, unused_model(), runes);
+    auto result2 = cut<FullSegment>(dict, unused_model(), runes);
 
     ASSERT_EQ(result1.size(), result2.size());
     for (auto i = size_t{0}; i < result1.size(); ++i) {

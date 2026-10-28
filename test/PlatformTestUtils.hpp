@@ -1,7 +1,8 @@
 #pragma once
 
 #include "gtest/gtest.h"
-#include "neo/detail/FileIO.hpp"
+#include "neo/Config.hpp"
+#include "neo/util/FileIO.hpp"
 
 #include "TestUtils.hpp"
 

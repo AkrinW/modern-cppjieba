@@ -21,7 +21,7 @@
 
 // ── Neo headers ──
 #include "neo/Jieba.hpp"
-#include "neo/Unicode.hpp"
+#include "neo/Utf.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "test_paths.h"
@@ -142,8 +142,8 @@ static auto neo_tagged_words(const neo_cppjieba::Jieba &jieba, const std::string
 // ─────────────────────────────────────────────────────────────────────────────
 template <typename CutFn>
 static auto bench_cut_unicode(const char *label, const CutFn &fn,
-                              const std::vector<neo_cppjieba::Unicode> &all_unicodes, size_t total_runes, size_t rounds)
-    -> BenchResult {
+                              const std::vector<neo_cppjieba::detail::Unicode> &all_unicodes, size_t total_runes,
+                              size_t rounds) -> BenchResult {
     auto n = all_unicodes.size();
 
     // Warm up
@@ -232,11 +232,11 @@ auto main(int argc, char *argv[]) -> int {
     std::printf("Loaded %zu lines (%zu bytes UTF-8)\n\n", lines.size(), total_bytes);
 
     // ── Pre-decode all lines to Unicode (excluded from neo core timing) ──
-    auto all_unicodes = std::vector<neo_cppjieba::Unicode>{};
+    auto all_unicodes = std::vector<neo_cppjieba::detail::Unicode>{};
     all_unicodes.reserve(lines.size());
     auto total_runes = size_t{0};
     for (auto &line : lines) {
-        all_unicodes.push_back(neo_cppjieba::decode(line));
+        all_unicodes.push_back(neo_cppjieba::Utf::decode(line));
         total_runes += all_unicodes.back().size();
     }
     std::printf("Decoded %zu runes total\n\n", total_runes);
@@ -327,32 +327,32 @@ auto main(int argc, char *argv[]) -> int {
 
     auto neo_mix = bench_cut_unicode(
         "Neo MIX  (MP + HMM)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::MIX); }, all_unicodes,
-        total_runes, ROUNDS);
+        [&](const neo_cppjieba::detail::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::MIX); },
+        all_unicodes, total_runes, ROUNDS);
     print_report(neo_mix);
 
     auto neo_mp = bench_cut_unicode(
         "Neo MP   (dictionary-only)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::MP); }, all_unicodes,
-        total_runes, ROUNDS);
+        [&](const neo_cppjieba::detail::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::MP); },
+        all_unicodes, total_runes, ROUNDS);
     print_report(neo_mp);
 
     auto neo_hmm = bench_cut_unicode(
         "Neo HMM  (Viterbi only)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::HMM); }, all_unicodes,
-        total_runes, ROUNDS);
+        [&](const neo_cppjieba::detail::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::HMM); },
+        all_unicodes, total_runes, ROUNDS);
     print_report(neo_hmm);
 
     auto neo_full = bench_cut_unicode(
         "Neo FULL (all dictionary words)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::FULL); }, all_unicodes,
-        total_runes, ROUNDS);
+        [&](const neo_cppjieba::detail::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::FULL); },
+        all_unicodes, total_runes, ROUNDS);
     print_report(neo_full);
 
     auto neo_search = bench_cut_unicode(
         "Neo SEARCH (MIX + sub-word)",
-        [&](const neo_cppjieba::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::SEARCH); }, all_unicodes,
-        total_runes, ROUNDS);
+        [&](const neo_cppjieba::detail::Unicode &u) { return jieba.cut_runes(u, neo_cppjieba::CutMode::SEARCH); },
+        all_unicodes, total_runes, ROUNDS);
     print_report(neo_search);
 
     // ── Neo methods summary table ────────────────────────────────────────

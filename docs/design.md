@@ -10,17 +10,44 @@
 
 | 角色 | 是什么 | 形态 | 生命周期与并发 | 现有例子 |
 | --- | --- | --- | --- | --- |
-| 资源 | 昂贵、构建后只在显式编辑时改变的数据 | 带不变量的类，只能移动，复制用 `clone()` | 调用方持有；`const` 访问可并发，编辑需独占 | `DictTrie`、`Trie`、`HMModel`、IDF 表、停用词 |
-| 算法 | 组合资源、配置和上下文，产出结果 | policy（只有 static 成员的类）或 `detail` 自由函数 | 无状态 | `MPSegment`、`mp_cut_append`、`segment_into` |
+| 资源 | 昂贵、构建后只在显式编辑时改变的数据 | 带不变量的类，只能移动，复制用 `clone()` | 调用方持有；`const` 访问可并发，编辑需独占 | `DictTrie`、`Trie`、`HMModel`、`IdfTable`、`StopWords` |
+| 算法 | 组合资源、配置和上下文，产出结果 | policy（只有 static 成员的类）或 `detail` 自由函数 | 无状态 | `MPSegment`、`mp_cut_append`、`segment_into`、`weigh_text_rank` |
 | 配置 | 选择算法行为的廉价值 | `enum class` 或聚合 `struct`；编译期配置放在 `Config.hpp` | 按值传递，随调用流入 | `CutMode`、`TfIdfOptions`、`TextRankOptions`、`SegmentationStyle` |
-| 上下文 | 一次调用的可变缓冲 | 调用方持有的对象，保留容量供复用 | 同一时间只属于一个调用 | `Workspace`、`SegmentScratch`、`KeywordWorkspace` |
-| 契约 | 角色之间接口的编译期约束 | C++20 `concept` | 无运行时存在 | `StringLike`、`CharType`、`CapacityInteger`、`OutputValue`、`ViewVisitor` |
-| 门面 | 公开入口 | 持有必须一起出现的资源，成员函数校验、拆包并转发 | 查询为 `const`，编辑为非 `const` | `Jieba`、`TfIdfExtractor`、`TextRankExtractor` |
+| 上下文 | 一次调用的可变缓冲 | 调用方持有的对象，保留容量供复用 | 同一时间只属于一个调用 | `Workspace`、`SegmentScratch`、`KeywordWorkspace`（`KeywordState`） |
+| 契约 | 角色之间接口的编译期约束 | C++20 `concept` | 无运行时存在 | `StringLike`、`CharType`、`CapacityInteger`、`OutputValue`、`ViewVisitor`、`SegmentPolicy`、`TagLookup` |
+| 门面 | 公开入口 | 持有必须一起出现的资源，成员函数校验、拆包并转发 | 查询为 `const`，编辑为非 `const` | `Jieba`、`TfIdfExtractor`、`TextRankExtractor`、`Utf`（无资源，只有 static 成员） |
 
 依赖方向：门面 → 算法 → 资源。配置和上下文作为参数穿过这条链，契约约束每一处模板参数。
 
 算法的统一签名顺序是 `(const 资源 &..., 配置, 输入, 输出 &, 上下文 &)`，与现有的
 `segment_into(dict, model, runes, mode, out, scratch)` 和 `cut_into(input, mode, out, workspace)` 一致。
+
+## 目录
+
+目录与角色一一对应：先判断角色，文件位置随之确定。一级目录只放用户 include 或修改的文件，其余按角色进入二级目录。
+值类型和基础设施不属于六种角色：前者是角色之间传递的输入与结果，后者被各角色共用。
+
+| 位置 | 内容 | 文件 |
+| --- | --- | --- |
+| `neo/` | 门面、编译期配置、前向声明 | `Jieba.hpp`、`KeywordExtractor.hpp`、`Utf.hpp`、`Config.hpp`、`Fwd.hpp` |
+| `neo/value/` | 值类型：调用的输入与结果，不含算法 | `Rune.hpp`、`TokenView.hpp`、`TaggedToken.hpp`、`Tokens.hpp`、`PosTag.hpp`、`Keyword.hpp`、`DictSource.hpp` |
+| `neo/options/` | 运行时配置 | `CutMode.hpp`、`Tagging.hpp`、`KeywordOptions.hpp` |
+| `neo/workspace/` | 上下文：公开的工作区与它们的内部状态 | `Workspace.hpp`、`SegmentScratch.hpp`、`KeywordWorkspace.hpp`、`KeywordState.hpp` |
+| `neo/concept/` | 契约：角色之间接口的 concept | `Text.hpp`、`Output.hpp`、`Segment.hpp`、`Keyword.hpp` |
+| `neo/resource/` | 资源，及其诊断结果 | `DictTrie.hpp`、`Trie.hpp`、`HMModel.hpp`、`KeywordResource.hpp`、`Dag.hpp`、`TrieStats.hpp` |
+| `neo/algorithm/` | 算法：policy、积木、分派、结果填充 | `Segmenter.hpp`、`MixSegment.hpp` 等分词 policy、`KeywordRank.hpp`、`PosTagging.hpp`、`Output.hpp` |
+| `neo/util/` | 基础设施：不属于任何角色的支撑代码 | `Logging.hpp`、`Unicode.hpp`、`StringUtil.hpp`、`FileIO.hpp`、`Platform.hpp` |
+| `neo/encoding/` | 需要额外 CMake 目标的可选模块 | `IcuCodec.hpp` |
+
+- 公开与内部由命名空间区分，不由目录区分：`neo_cppjieba` 中不在 `detail` 的名字是公开 API，
+  `neo_cppjieba::detail` 是内部实现。同一角色的公开类型和它的内部状态放在同一目录，例如 `Workspace` 与 `SegmentScratch`。
+- 用户只 include 一级目录的头文件，每个门面头文件自足；二级目录的路径属于内部组织，可随重构调整。
+- 一个头文件只承载一种角色，文件名与其中的主要类型同名。门面的拆包胶水（如 `detail::segment_candidates`）随门面留在一级。
+- `Fwd.hpp` 前向声明全部公开类型，是公开名字的总表。定义这些类型的头文件 include 它，由编译器检查两处声明一致；
+  `Tokens` 等别名模板需要完整定义，不在其中。
+- 依赖方向：门面 → 算法 → 资源、上下文 → 值类型、配置。concept 文件依赖它约束的类型；`util/` 被各层共用，
+  其中 `Unicode.hpp` 依赖 `value/Rune.hpp` 的码点类型。文件之间无环，二级目录的头文件不 include 门面。
+- 能归入某种角色的代码不放进 `util/`。例如默认分隔符是分词规则，放在 `algorithm/Separator.hpp`。
 
 ## 资源
 
@@ -76,7 +103,9 @@ concept 是角色之间接口的唯一书面定义，下列情况必须使用：
 
 - 用 concept 和 `requires` 子句替代 SFINAE、`enable_if` 和无约束的模板参数，让错误在调用点给出可读的诊断。
 - concept 只描述语法要求；语义要求（复杂度、是否可重入、坐标系）写在 concept 上方 1–3 行注释中。
-- 公开模板使用的 concept 放在公开头文件（如 `Traits.hpp`），只供内部使用的放在 `neo_cppjieba::detail`。
+- concept 放在 `concept/`，按接口分文件。用户需要书写的（`StringLike`、`CharType`）在 `neo_cppjieba`，
+  只用于约束的在 `neo_cppjieba::detail`。两类例外留在原处：约束编译期配置取值的（`CapacityInteger`、`LogConfiguration`）
+  与被约束的设置一起留在 `Config.hpp`；只约束单个文件内部模板参数的（如 `Logging.hpp` 的 `CheckCondition`）留在该文件。
 - 一个 concept 只对应一个角色的一个接口。只有一个满足者时直接写具体类型，不为它定义 concept。
 - 公开 concept 的变更等同于公开 API 变更。
 
@@ -110,14 +139,19 @@ friend 只在两种情况下使用：
 模板接受的外部类型或一族实现的共同签名?            → 契约：concept
 公开入口?                                          → 门面：校验、解码、转发、填充
 需要私有访问?                                      → 门面专属值类型，或唯一的 detail 访问函数
+新文件放在哪里?                                    → 角色对应的目录；用户 include 的入口才放一级目录
 ```
 
 ## 现状与待调整处
 
-下列代码早于本约定，按约定逐个小 patch 调整，每次调整前先出 patch plan：
+下列调整已按本约定完成：
 
-- `MPSegment`、`MixSegment`、`QuerySegment`、`FullSegment`、`HMMSegment` 是同签名的一族，
-  但目前在 `detail/Segmenter.hpp` 中按名字直接调用，没有对应的 concept 和 `static_assert`。
-- `KeywordWorkspace` 对 `TfIdfExtractor`、`TextRankExtractor` 分别开 friend，`collect` / `select` 是它的成员函数；
-  应收敛为一个 `detail` 访问点，并把两者改为作用于 `detail` 状态结构的自由函数。
-- `TextRankExtractor::rank` 是写在门面里的算法，应移到 `detail` 中的自由函数。
+- 分词 policy 共用签名 `cut_into(dict, model, runes, out, scratch)`，由 `concept/Segment.hpp` 的
+  `SegmentPolicy` 约束，每个实现旁有 `static_assert`；`CppSegmentFamily` 与 `StyledSegmentFamily` 由
+  `SegmentFamily` 约束，`algorithm/Segmenter.hpp` 经 `ActiveSegmentFamily` 分派。不用的资源参数不具名，没有运行时开销；
+  返回新容器的便捷入口是 `algorithm/SegmentCommon.hpp` 的 `detail::cut<Policy>(dict, model, runes)`。
+- `KeywordWorkspace` 只经 `detail::keyword_state` 一个访问点暴露 `detail::KeywordState`；候选收集、TF-IDF、TextRank
+  和 Top-N 选择是 `algorithm/KeywordRank.hpp` 中的自由函数，`TextRankExtractor` 不再包含算法。
+- IDF 表和停用词是 `detail::IdfTable`、`detail::StopWords` 资源类；`HMModel` 与提取器一样只能移动，复制用 `clone()`。
+- 公开的 Unicode 工具收敛为 `Utf` 门面（`is_valid`、`decode`、`encode`）；`CutMode` 校验移入 `algorithm/Segmenter.hpp`。
+- 头文件按"目录"一节的规则重新组织：一级目录只剩门面、`Config.hpp` 和新增的 `Fwd.hpp`，原 `detail/` 按角色拆入二级目录。

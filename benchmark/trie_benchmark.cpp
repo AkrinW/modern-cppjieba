@@ -16,7 +16,8 @@
 #include "cppjieba/Unicode.hpp"
 
 // ── Neo Trie header (neo_cppjieba namespace — no conflict with cppjieba) ──
-#include "neo/detail/Trie.hpp"
+#include "neo/Utf.hpp"
+#include "neo/resource/Trie.hpp"
 
 #include "BenchmarkUtils.hpp"
 
@@ -211,12 +212,12 @@ static auto bench_old_trie(const std::vector<RawEntry> &entries, size_t query_ro
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Benchmark: Neo Trie (using neo_cppjieba::detail::Trie from neo/Trie.hpp)
+// Benchmark: Neo Trie (using neo_cppjieba::detail::Trie from neo/resource/Trie.hpp)
 // ─────────────────────────────────────────────────────────────────────────────
 static auto bench_neo_trie(const std::vector<RawEntry> &entries, size_t query_rounds) -> BenchResult {
     namespace neo = neo_cppjieba;
 
-    auto keys = std::vector<neo::Unicode>(entries.size());
+    auto keys = std::vector<neo::detail::Unicode>(entries.size());
     auto values = std::vector<neo::detail::DictUnit>(entries.size());
 
     auto freq_sum = 0.0;
@@ -225,7 +226,7 @@ static auto bench_neo_trie(const std::vector<RawEntry> &entries, size_t query_ro
     }
 
     for (auto i = size_t{0}; i < entries.size(); ++i) {
-        keys[i] = neo::decode(entries[i].word);
+        keys[i] = neo::Utf::decode(entries[i].word);
         auto w = entries[i].freq > 0 ? static_cast<float>(std::log(entries[i].freq / freq_sum)) : -20.0f;
         values[i] = {w, neo::PosTag(entries[i].tag)};
     }
@@ -235,7 +236,7 @@ static auto bench_neo_trie(const std::vector<RawEntry> &entries, size_t query_ro
     auto rng = std::mt19937{42};
     std::ranges::shuffle(shuffled, rng);
 
-    auto miss_keys = std::vector<neo::Unicode>(entries.size());
+    auto miss_keys = std::vector<neo::detail::Unicode>(entries.size());
     for (auto i = size_t{0}; i < entries.size(); ++i) {
         miss_keys[i] = keys[i];
         if (!miss_keys[i].empty()) {

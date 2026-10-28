@@ -1,16 +1,17 @@
 #include "gtest/gtest.h"
 #include "neo/Jieba.hpp"
 #include "neo/KeywordExtractor.hpp"
-#include "neo/Unicode.hpp"
+#include "neo/Utf.hpp"
 
 #include "test_paths.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <format>
-#include <algorithm>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 using namespace neo_cppjieba;
@@ -135,10 +136,11 @@ TEST(KeywordExtractorTest, TextRankWithoutEdges) {
 TEST(KeywordExtractorTest, PositionsUseInputCodeUnits) {
     const auto tfidf = TfIdfExtractor{IDF_FILE, STOP_WORDS_FILE, TfIdfOptions{}};
     const auto textrank = TextRankExtractor{STOP_WORDS_FILE, TextRankOptions{}};
-    constexpr auto utf8 = std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
-    const auto runes = decode(utf8);
-    const auto utf16 = encode<char16_t>(runes);
-    const auto utf32 = encode<char32_t>(runes);
+    constexpr auto utf8 =
+        std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
+    const auto runes = Utf::decode(utf8);
+    const auto utf16 = Utf::encode<char16_t>(runes);
+    const auto utf32 = Utf::encode<char32_t>(runes);
 
     const auto check_encoding = [&](const auto &extractor) {
         const auto expected = extractor.extract(small_jieba(), utf8, all);
@@ -147,8 +149,8 @@ TEST(KeywordExtractorTest, PositionsUseInputCodeUnits) {
         ASSERT_EQ(wide16.size(), expected.size());
         ASSERT_EQ(wide32.size(), expected.size());
         for (auto i = size_t{0}; i < expected.size(); ++i) {
-            EXPECT_EQ(encode<char>(decode(wide16[i].word)), expected[i].word);
-            EXPECT_EQ(encode<char>(decode(wide32[i].word)), expected[i].word);
+            EXPECT_EQ(Utf::encode<char>(Utf::decode(wide16[i].word)), expected[i].word);
+            EXPECT_EQ(Utf::encode<char>(Utf::decode(wide32[i].word)), expected[i].word);
             EXPECT_EQ(wide16[i].weight, expected[i].weight);
             EXPECT_EQ(wide32[i].weight, expected[i].weight);
             ASSERT_EQ(wide16[i].positions.size(), expected[i].positions.size());
@@ -170,8 +172,8 @@ TEST(KeywordExtractorTest, WorkspaceReuseMatchesFreshCalls) {
     const auto tfidf = TfIdfExtractor{IDF_FILE, STOP_WORDS_FILE, TfIdfOptions{}};
     const auto textrank = TextRankExtractor{STOP_WORDS_FILE, TextRankOptions{}};
     const auto inputs = std::vector<std::string_view>{
-        "我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。", "你好世界世界而且而且",
-        "", "一部iPhone6"};
+        "我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。", "你好世界世界而且而且", "",
+        "一部iPhone6"};
 
     auto workspace = KeywordWorkspace{};
     auto out = std::vector<Keyword<char>>{};
@@ -196,7 +198,8 @@ TEST(KeywordExtractorTest, RejectsInvalidConfiguration) {
 TEST(KeywordExtractorTest, ReportsLookupTags) {
     const auto tfidf = TfIdfExtractor{IDF_FILE, STOP_WORDS_FILE, TfIdfOptions{}};
     const auto textrank = TextRankExtractor{STOP_WORDS_FILE, TextRankOptions{}};
-    constexpr auto text = std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
+    constexpr auto text =
+        std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
     for (const auto &keywords : {tfidf.extract(small_jieba(), text, all), textrank.extract(small_jieba(), text, all)}) {
         ASSERT_FALSE(keywords.empty());
         for (const auto &keyword : keywords) {
@@ -213,10 +216,13 @@ TEST(KeywordExtractorTest, TfIdfAllowedTagsFilterCandidates) {
     const auto tfidf = TfIdfExtractor{IDF_FILE, STOP_WORDS_FILE, TfIdfOptions{}};
     const auto allowed = std::vector{pos::n, pos::v, pos::vn};
     const auto filtered = TfIdfExtractor{IDF_FILE, STOP_WORDS_FILE, TfIdfOptions{.allowed_tags = allowed}};
-    constexpr auto text = std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
+    constexpr auto text =
+        std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
 
     auto expected = tfidf.extract(small_jieba(), text, all);
-    std::erase_if(expected, [&](const Keyword<char> &keyword) { return std::ranges::find(allowed, keyword.tag) == allowed.end(); });
+    std::erase_if(expected, [&](const Keyword<char> &keyword) {
+        return std::ranges::find(allowed, keyword.tag) == allowed.end();
+    });
     ASSERT_FALSE(expected.empty());
     EXPECT_EQ(format_keywords(filtered.extract(small_jieba(), text, all)), format_keywords(expected));
     EXPECT_LT(expected.size(), tfidf.extract(small_jieba(), text, all).size());
@@ -231,7 +237,8 @@ TEST(KeywordExtractorTest, TextRankAllowedTagsFilterCandidates) {
     const auto python = TextRankExtractor{
         STOP_WORDS_FILE,
         TextRankOptions{.allowed_tags = std::vector<PosTag>(python_textrank_tags.begin(), python_textrank_tags.end())}};
-    constexpr auto text = std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
+    constexpr auto text =
+        std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
 
     const auto keywords = python.extract(small_jieba(), text, all);
     ASSERT_FALSE(keywords.empty());
@@ -263,4 +270,28 @@ TEST(KeywordExtractorTest, ExtractorUsesTheJiebaPassedToEachCall) {
     EXPECT_FALSE(has_runtime_tag(textrank.extract(small_jieba(), text, all)));
     EXPECT_TRUE(has_runtime_tag(tfidf.extract(edited, text, all)));
     EXPECT_TRUE(has_runtime_tag(textrank.extract(edited, text, all)));
+}
+
+TEST(KeywordExtractorTest, ExtractorsAreMoveOnly) {
+    static_assert(!std::is_copy_constructible_v<TfIdfExtractor>
+                  && std::is_nothrow_move_constructible_v<TfIdfExtractor>);
+    static_assert(!std::is_copy_constructible_v<TextRankExtractor>
+                  && std::is_nothrow_move_constructible_v<TextRankExtractor>);
+}
+
+TEST(KeywordExtractorTest, ClonesExtractTheSameKeywords) {
+    const auto text =
+        std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
+    const auto tfidf = TfIdfExtractor{IDF_FILE, STOP_WORDS_FILE, TfIdfOptions{.allowed_tags = {pos::n, pos::v}}};
+    const auto tfidf_clone = tfidf.clone();
+    EXPECT_EQ(format_keywords(tfidf_clone.extract(small_jieba(), text, 5)),
+              format_keywords(tfidf.extract(small_jieba(), text, 5)));
+    EXPECT_EQ(tfidf_clone.idf_average(), tfidf.idf_average());
+    EXPECT_EQ(tfidf_clone.options().allowed_tags, tfidf.options().allowed_tags);
+
+    const auto textrank = TextRankExtractor{STOP_WORDS_FILE, TextRankOptions{.window = 3}};
+    const auto textrank_clone = textrank.clone();
+    EXPECT_EQ(format_keywords(textrank_clone.extract(small_jieba(), text, 5)),
+              format_keywords(textrank.extract(small_jieba(), text, 5)));
+    EXPECT_EQ(textrank_clone.options().window, size_t{3});
 }

@@ -1,20 +1,18 @@
+#include "neo/Config.hpp"
 #include "neo/Jieba.hpp"
-#include "neo/Token.hpp"
-#include "neo/TokenView.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/Workspace.hpp"
-#include "neo/detail/Dag.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/FullSegment.hpp"
-#include "neo/detail/HMMSegment.hpp"
-#include "neo/detail/HMModel.hpp"
-#include "neo/detail/MPSegment.hpp"
-#include "neo/detail/MixSegment.hpp"
-#include "neo/detail/Output.hpp"
-#include "neo/detail/QuerySegment.hpp"
-#include "neo/detail/StringUtil.hpp"
-#include "neo/detail/Trie.hpp"
-#include "neo/detail/Unicode.hpp"
+#include "neo/algorithm/FullSegment.hpp"
+#include "neo/algorithm/HMMSegment.hpp"
+#include "neo/algorithm/MPSegment.hpp"
+#include "neo/algorithm/MixSegment.hpp"
+#include "neo/algorithm/Output.hpp"
+#include "neo/algorithm/QuerySegment.hpp"
+#include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/resource/Dag.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/HMModel.hpp"
+#include "neo/resource/Trie.hpp"
+#include "neo/util/StringUtil.hpp"
+#include "neo/util/Unicode.hpp"
 
 #include <concepts>
 #include <cstddef>
@@ -34,32 +32,35 @@ template <typename Input, typename = void>
 inline constexpr bool full_segment_invocable_v = false;
 template <typename Input>
 inline constexpr bool full_segment_invocable_v<
-    Input, std::void_t<decltype(FullSegment::cut(std::declval<const DictTrie &>(), std::declval<Input>()))>> = true;
+    Input, std::void_t<decltype(cut<FullSegment>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+                                                 std::declval<Input>()))>> = true;
 
 template <typename Input, typename = void>
 inline constexpr bool mp_segment_invocable_v = false;
 template <typename Input>
 inline constexpr bool mp_segment_invocable_v<
-    Input, std::void_t<decltype(MPSegment::cut(std::declval<const DictTrie &>(), std::declval<Input>()))>> = true;
+    Input, std::void_t<decltype(cut<MPSegment>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+                                               std::declval<Input>()))>> = true;
 
 template <typename Input, typename = void>
 inline constexpr bool hmm_segment_invocable_v = false;
 template <typename Input>
 inline constexpr bool hmm_segment_invocable_v<
-    Input, std::void_t<decltype(HMMSegment::cut(std::declval<const HMModel &>(), std::declval<Input>()))>> = true;
+    Input, std::void_t<decltype(cut<HMMSegment>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+                                                std::declval<Input>()))>> = true;
 
 template <typename Input, typename = void>
 inline constexpr bool mix_segment_invocable_v = false;
 template <typename Input>
 inline constexpr bool mix_segment_invocable_v<
-    Input, std::void_t<decltype(MixSegment<>::cut(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+    Input, std::void_t<decltype(cut<MixSegment<>>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
                                                   std::declval<Input>()))>> = true;
 
 template <typename Input, typename = void>
 inline constexpr bool query_segment_invocable_v = false;
 template <typename Input>
 inline constexpr bool query_segment_invocable_v<
-    Input, std::void_t<decltype(QuerySegment<>::cut(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+    Input, std::void_t<decltype(cut<QuerySegment<>>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
                                                     std::declval<Input>()))>> = true;
 
 template <typename Input, typename = void>
@@ -174,32 +175,32 @@ static_assert(!JiebaCutEachInvocable<std::u16string_view, void (*)(TokenView<cha
 
 static_assert(full_segment_invocable_v<std::span<const Rune>>);
 static_assert(!full_segment_invocable_v<std::string_view>);
-static_assert(
-    std::same_as<decltype(FullSegment::cut(std::declval<const DictTrie &>(), std::declval<std::span<const Rune>>())),
-                 std::vector<WordRange>>);
+static_assert(std::same_as<decltype(cut<FullSegment>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+                                                     std::declval<std::span<const Rune>>())),
+                           std::vector<WordRange>>);
 
 static_assert(mp_segment_invocable_v<std::span<const Rune>>);
 static_assert(!mp_segment_invocable_v<std::string_view>);
-static_assert(
-    std::same_as<decltype(MPSegment::cut(std::declval<const DictTrie &>(), std::declval<std::span<const Rune>>())),
-                 std::vector<WordRange>>);
+static_assert(std::same_as<decltype(cut<MPSegment>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+                                                   std::declval<std::span<const Rune>>())),
+                           std::vector<WordRange>>);
 
 static_assert(hmm_segment_invocable_v<std::span<const Rune>>);
 static_assert(!hmm_segment_invocable_v<std::string_view>);
-static_assert(
-    std::same_as<decltype(HMMSegment::cut(std::declval<const HMModel &>(), std::declval<std::span<const Rune>>())),
-                 std::vector<WordRange>>);
+static_assert(std::same_as<decltype(cut<HMMSegment>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+                                                    std::declval<std::span<const Rune>>())),
+                           std::vector<WordRange>>);
 
 static_assert(mix_segment_invocable_v<std::span<const Rune>>);
 static_assert(!mix_segment_invocable_v<std::string_view>);
-static_assert(std::same_as<decltype(MixSegment<>::cut(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+static_assert(std::same_as<decltype(cut<MixSegment<>>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
                                                       std::declval<std::span<const Rune>>())),
                            std::vector<WordRange>>);
 
 static_assert(query_segment_invocable_v<std::span<const Rune>>);
 static_assert(!query_segment_invocable_v<std::string_view>);
 static_assert(
-    std::same_as<decltype(QuerySegment<>::cut(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
+    std::same_as<decltype(cut<QuerySegment<>>(std::declval<const DictTrie &>(), std::declval<const HMModel &>(),
                                               std::declval<std::span<const Rune>>())),
                  std::vector<WordRange>>);
 

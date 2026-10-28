@@ -2,13 +2,11 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
 #include "neo/Jieba.hpp"
-#include "neo/TokenView.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/Workspace.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/MPSegment.hpp"
-#include "neo/detail/SegmentScratch.hpp"
-#include "neo/detail/Trie.hpp"
+#include "neo/algorithm/MPSegment.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/Trie.hpp"
+#include "neo/util/Unicode.hpp"
+#include "neo/workspace/SegmentScratch.hpp"
 
 #include "test_paths.h"
 

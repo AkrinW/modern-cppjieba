@@ -1,13 +1,18 @@
+#include "../SegmentTestUtils.hpp"
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/FullSegment.hpp"
-#include "neo/detail/HMModel.hpp"
-#include "neo/detail/MPSegment.hpp"
-#include "neo/detail/MixSegment.hpp"
-#include "neo/detail/QuerySegment.hpp"
-#include "neo/detail/SegmentScratch.hpp"
+#include "neo/algorithm/FullSegment.hpp"
+#include "neo/algorithm/MPSegment.hpp"
+#include "neo/algorithm/MixSegment.hpp"
+#include "neo/algorithm/QuerySegment.hpp"
+#include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/resource/Dag.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/HMModel.hpp"
+#include "neo/resource/Trie.hpp"
+#include "neo/util/Unicode.hpp"
+#include "neo/workspace/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
@@ -302,14 +307,14 @@ TEST_F(DictTrieInputTest, MpSegmentationUsesZeroWeightWithoutFallbackPenalty) {
     const auto trie =
         DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
-    const auto words = MPSegment::cut(trie, runes);
+    const auto words = cut<MPSegment>(trie, unused_model(), runes);
     EXPECT_EQ(to_strings(runes, words), (std::vector<std::string>{"甲乙"}));
 }
 
 TEST_F(DictTrieInputTest, MpSegmentationStillEmitsUnknownRunes) {
     const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("𠮷外");
-    const auto words = MPSegment::cut(trie, runes);
+    const auto words = cut<MPSegment>(trie, unused_model(), runes);
     EXPECT_EQ(to_strings(runes, words), (std::vector<std::string>{"𠮷", "外"}));
 }
 
@@ -320,12 +325,12 @@ TEST_F(DictTrieInputTest, SingleEntryWordSurvivesAllSegmentationModes) {
     const auto runes = decode("𠮷，甲乙甲乙。");
     const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {4, 6}, {6, 7}};
 
-    EXPECT_EQ(MPSegment::cut(trie, runes), expected);
-    EXPECT_EQ(FullSegment::cut(trie, runes), expected);
-    EXPECT_EQ(MixSegment<true>::cut(trie, model, runes), expected);
-    EXPECT_EQ(MixSegment<false>::cut(trie, model, runes), expected);
-    EXPECT_EQ(QuerySegment<true>::cut(trie, model, runes), expected);
-    EXPECT_EQ(QuerySegment<false>::cut(trie, model, runes), expected);
+    EXPECT_EQ(cut<MPSegment>(trie, unused_model(), runes), expected);
+    EXPECT_EQ(cut<FullSegment>(trie, unused_model(), runes), expected);
+    EXPECT_EQ(cut<MixSegment<true>>(trie, model, runes), expected);
+    EXPECT_EQ(cut<MixSegment<false>>(trie, model, runes), expected);
+    EXPECT_EQ(cut<QuerySegment<true>>(trie, model, runes), expected);
+    EXPECT_EQ(cut<QuerySegment<false>>(trie, model, runes), expected);
 }
 
 TEST_F(DictTrieInputTest, MpSegmentationKeepsLowFrequencyUserWordWithSingleEntryMainDictionary) {
@@ -334,7 +339,7 @@ TEST_F(DictTrieInputTest, MpSegmentationKeepsLowFrequencyUserWordWithSingleEntry
     const auto trie =
         DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲乙"}));
+    EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲乙"}));
 }
 
 TEST_F(DictTrieInputTest, MpSegmentationPrefersDictionaryWordOverUnknownRunesOnEqualScores) {
@@ -343,7 +348,7 @@ TEST_F(DictTrieInputTest, MpSegmentationPrefersDictionaryWordOverUnknownRunesOnE
     const auto trie =
         DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲乙"}));
+    EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲乙"}));
 }
 
 TEST_F(DictTrieInputTest, MpSegmentationPreservesEqualScoreOrderBetweenKnownWords) {
@@ -352,7 +357,7 @@ TEST_F(DictTrieInputTest, MpSegmentationPreservesEqualScoreOrderBetweenKnownWord
     const auto trie =
         DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲", "乙"}));
+    EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲", "乙"}));
 }
 
 TEST_F(DictTrieInputTest, MpSegmentationSelectsHigherProbabilityWhenFloatScoresWouldTie) {
@@ -361,7 +366,7 @@ TEST_F(DictTrieInputTest, MpSegmentationSelectsHigherProbabilityWhenFloatScoresW
     const auto trie = DictTrie{file_path("main.dict"), "", DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙丙");
 
-    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲乙", "丙"}));
+    EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲乙", "丙"}));
 }
 
 TEST_F(DictTrieInputTest, MpSegmentationAcceptsPositiveUserWordWeights) {
@@ -369,7 +374,7 @@ TEST_F(DictTrieInputTest, MpSegmentationAcceptsPositiveUserWordWeights) {
     const auto trie =
         DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(to_strings(runes, MPSegment::cut(trie, runes)), (std::vector<std::string>{"甲乙"}));
+    EXPECT_EQ(to_strings(runes, cut<MPSegment>(trie, unused_model(), runes)), (std::vector<std::string>{"甲乙"}));
 }
 
 TEST_F(DictTrieInputTest, MpSegmentationPreservesOffsetsAtWordRangeLimit) {
@@ -452,7 +457,7 @@ TEST_F(DictTrieInputTest, MixUserSingleWordBoundsHmmRunsBetweenDictionaryWords) 
         DictTrie{file_path("main.dict"), file_path("user.dict"), DictTrie::UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{DICT_DIR "/hmm_model.utf8"};
     const auto runes = decode("北京杭研杭上海");
-    const auto result = MixSegment<true>::cut(trie, model, runes);
+    const auto result = cut<MixSegment<true>>(trie, model, runes);
 
     EXPECT_EQ(to_strings(runes, result), (std::vector<std::string>{"北京", "杭", "研", "杭", "上海"}));
     EXPECT_EQ(result, (std::vector<WordRange>{{0, 2}, {2, 3}, {3, 4}, {4, 5}, {5, 7}}));
@@ -467,8 +472,8 @@ TEST_F(DictTrieInputTest, QueryDagIncludesFinalBigramAndTrigramAfterASeparator) 
     const auto runes = decode("𠮷，abcd");
     const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {3, 5}, {4, 6}, {2, 5}, {3, 6}, {2, 6}};
 
-    EXPECT_EQ(QuerySegment<true>::cut(trie, model, runes), expected);
-    EXPECT_EQ(QuerySegment<false>::cut(trie, model, runes), expected);
+    EXPECT_EQ(cut<QuerySegment<true>>(trie, model, runes), expected);
+    EXPECT_EQ(cut<QuerySegment<false>>(trie, model, runes), expected);
 }
 
 TEST_F(DictTrieInputTest, QueryHmmIncludesFinalBigramAndTrigramAfterASeparator) {
@@ -480,7 +485,7 @@ TEST_F(DictTrieInputTest, QueryHmmIncludesFinalBigramAndTrigramAfterASeparator) 
     const auto runes = decode("𠮷，abcd");
     const auto expected = std::vector<WordRange>{{0, 1}, {1, 2}, {2, 4}, {3, 5}, {4, 6}, {2, 5}, {3, 6}, {2, 6}};
 
-    EXPECT_EQ(QuerySegment<true>::cut(trie, model, runes), expected);
+    EXPECT_EQ(cut<QuerySegment<true>>(trie, model, runes), expected);
 }
 
 // ─── Construction ────────────────────────────────────────────────────────────

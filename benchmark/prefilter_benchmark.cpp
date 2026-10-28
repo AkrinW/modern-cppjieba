@@ -13,8 +13,9 @@
 /// All strategies iterate the same pre-decoded Chinese text file and produce
 /// identical segment counts.
 
-#include "neo/Unicode.hpp"
-#include "neo/detail/StringUtil.hpp"
+#include "neo/Utf.hpp"
+#include "neo/algorithm/Separator.hpp"
+#include "neo/util/Logging.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "test_paths.h"
@@ -75,7 +76,7 @@ static inline auto on_text_segment(std::span<const char32_t> seg, uint64_t &acc)
 // Load text file via mmap and decode to Unicode lines
 // ─────────────────────────────────────────────────────────────────────────────
 struct LineData {
-    neo_cppjieba::Unicode runes;
+    neo_cppjieba::detail::Unicode runes;
 };
 
 // The shared binary loader now also supports Windows; decoding remains outside the timed region.
@@ -84,7 +85,7 @@ static auto load_unicode_lines(const std::string &path) -> std::vector<LineData>
 
     for (const std::string_view line : load_lines(path)) {
         if (!line.empty()) {
-            result.push_back(LineData{neo_cppjieba::decode(line)});
+            result.push_back(LineData{neo_cppjieba::Utf::decode(line)});
         }
     }
 

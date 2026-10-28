@@ -1,11 +1,9 @@
 #pragma once
 
 #include "neo/Config.hpp"
-#include "neo/Traits.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/UnicodeTypes.hpp"
-#include "neo/detail/Logging.hpp"
-#include "neo/detail/Unicode.hpp"
+#include "neo/util/Logging.hpp"
+#include "neo/util/Unicode.hpp"
+#include "neo/value/Rune.hpp"
 
 #include <array>
 #include <cassert>
@@ -188,9 +186,9 @@ public:
     }
 
     [[nodiscard]] static auto to_utf8(std::string_view input, EncodingId encoding) -> std::string {
-        auto runes = Unicode{};
+        auto runes = detail::Unicode{};
         detail::decode_icu_source_into<detail::OffsetMode::Omit>(input, encoding, runes);
-        return encode<char>(runes);
+        return detail::encode<char>(runes);
     }
 
     [[nodiscard]] static auto from_utf8(std::string_view input, EncodingId encoding) -> std::string {

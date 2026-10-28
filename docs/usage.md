@@ -2,7 +2,9 @@
 
 [快速开始](../README.md#快速开始) · [构建与安装](building.md) · [应用示例](../examples/README.md)
 
-公共入口是 `neo/Jieba.hpp` 中的 `neo_cppjieba::Jieba`。
+公共入口是 `neo/Jieba.hpp` 中的 `neo_cppjieba::Jieba`。`include/neo/` 一级目录只有用户需要 include 的头文件：
+门面 `Jieba.hpp`、`KeywordExtractor.hpp`、`Utf.hpp`，编译期配置 `Config.hpp`，以及只声明不定义公开类型的 `Fwd.hpp`
+（自己的头文件只需在声明中写出类型名时 include 它）。二级目录是内部组织，不直接 include。
 构造时依次提供主词典、HMM 模型和用户词典路径；用户词典参数 `""` 表示仅使用主词典。
 路径相对于进程工作目录解析，Windows 路径使用 UTF-8。文件格式见 [词典说明](../dict/README.md)。
 从内存加载和多个用户词典见 [从内存加载词典](#从内存加载词典)。
@@ -60,6 +62,9 @@ GBK / GB18030 输入先通过 [编码适配器](encoding.md) 转换为 UTF-8。
 | `cut_into(text, mode, out, workspace)` | 复用调用方的位置数组或字符串数组 |
 | `cut_each(text, mode, emit, workspace)` | 通过返回 `void` 的回调逐词接收 token |
 | `cut_runes(runes, mode)` / `cut_runes_into(runes, mode, out, workspace)` | 对已校验的 Unicode 标量分词，输出 `WordRange` |
+
+`cut_runes` 的输入可用 `neo/Utf.hpp` 的 `Utf` 门面准备：`Utf::decode(text)` 返回码点数组，
+`Utf::encode<CharT>(runes)` 编码回字符串，`Utf::is_valid(text)` 只做校验。其余编码工具都在 `detail` 中。
 
 `token.word` 借用原文；在原文修改或销毁前完成读取。`cut_owned` 的结果移动后，重新获取 token 视图。
 需要让每个词独立存活时，选择 `cut_strings`。完整的所有权示例见 [owned_results.cpp](../examples/owned_results.cpp)。
@@ -169,7 +174,7 @@ Python jieba 的 `extract_tags` / `textrank` 采用不同的规则（词频归�
 
 ## 从内存加载词典
 
-`neo/DictSource.hpp` 的 `DictSource` 表示一份输入：`DictSource::file(path)` 在加载时读取文件，
+`DictSource`（随 `neo/Jieba.hpp` 提供）表示一份输入：`DictSource::file(path)` 在加载时读取文件，
 `DictSource::memory(text, name)` 直接解析内存中的 UTF-8 文本，适合把词典编译进程序（如 `#embed`、
 资源段）或在 WASM 等不便访问文件系统的环境中使用。格式与对应文件相同；`name` 只用于错误信息。
 内存文本是借用的，只需在构造期间有效；构造完成后的对象不再引用它。
@@ -255,5 +260,5 @@ next.add_word("杭研", PosTag{"nz"});
 
 文本入口在解码时校验 UTF，词典、模型和外部数据错误通过 `LogConfig::Exception` 报告。
 发生异常后，丢弃该次调用可能留下的部分输出；后续调用可继续复用工作区。
-内部不变量由断言检查。独立编码预检可使用 `neo/Unicode.hpp` 的 `is_valid_utf(input)`；
+内部不变量由断言检查。独立编码预检可使用 `neo/Utf.hpp` 的 `Utf::is_valid(input)`；
 其用途和编码识别的区别见 [UTF validation](encoding.md#utf-validation)。

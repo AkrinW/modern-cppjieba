@@ -1,13 +1,9 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/DictSource.hpp"
-#include "neo/PosTag.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/UnicodeTypes.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/Logging.hpp"
-#include "neo/detail/Trie.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/Trie.hpp"
 #include "neo/third_party/gtl.hpp"
+#include "neo/util/Unicode.hpp"
 
 #include <array>
 #include <cstddef>

@@ -1,9 +1,11 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/detail/FileIO.hpp"
-#include "neo/detail/StringUtil.hpp"
-#include "neo/detail/Trie.hpp"
-#include "neo/detail/TrieStats.hpp"
+#include "neo/resource/Dag.hpp"
+#include "neo/resource/Trie.hpp"
+#include "neo/resource/TrieStats.hpp"
+#include "neo/util/FileIO.hpp"
+#include "neo/util/StringUtil.hpp"
+#include "neo/util/Unicode.hpp"
 
 #include "test_paths.h"
 

@@ -37,7 +37,7 @@
 
 ### 词典加载与运行时加词
 
-[`DictTrie`](include/neo/detail/DictTrie.hpp) 可从文件或内存加载，见 [从内存加载词典](docs/usage.md#从内存加载词典)。
+[`DictTrie`](include/neo/resource/DictTrie.hpp) 可从文件或内存加载，见 [从内存加载词典](docs/usage.md#从内存加载词典)。
 
 - [x] 支持从内存加载主词典、用户词典、HMM 模型、IDF 和停用词（`DictSource::memory`），
   覆盖资源内嵌、WASM 等不便访问文件系统的场景；用户词典可有多个。
@@ -77,7 +77,7 @@
 
 ### 日志与错误处理
 
-[`detail/Logging.hpp`](include/neo/detail/Logging.hpp) 直接写 stderr，断言失败时调用 `std::terminate`。
+[`util/Logging.hpp`](include/neo/util/Logging.hpp) 直接写 stderr，断言失败时调用 `std::terminate`。
 
 - [ ] 提供可替换的日志输出，并允许完全静默。
 - [ ] 区分调用方输入错误（异常或状态码）与内部不变量破坏（保持 terminate），在文档中列出各入口的失败方式。

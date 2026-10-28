@@ -11,7 +11,9 @@
 #include "cppjieba/Unicode.hpp"
 
 // ── Neo headers ──
-#include "neo/detail/DictTrie.hpp"
+#include "neo/Utf.hpp"
+#include "neo/resource/Dag.hpp"
+#include "neo/resource/DictTrie.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "test_paths.h"
@@ -112,10 +114,10 @@ static auto bench_neo_dag(const std::string &dict_path, const std::vector<std::s
 
     // Pre-decode all lines to Unicode (excluded from timing)
     auto n = lines.size();
-    auto rune_vecs = std::vector<neo::Unicode>(n);
+    auto rune_vecs = std::vector<neo::detail::Unicode>(n);
     auto total_runes = size_t{0};
     for (auto i = size_t{0}; i < n; ++i) {
-        rune_vecs[i] = neo::decode(lines[i]);
+        rune_vecs[i] = neo::Utf::decode(lines[i]);
         total_runes += rune_vecs[i].size();
     }
 

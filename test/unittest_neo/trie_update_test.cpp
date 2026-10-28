@@ -1,7 +1,6 @@
 #include "gtest/gtest.h"
-#include "neo/PosTag.hpp"
-#include "neo/UnicodeTypes.hpp"
-#include "neo/detail/Trie.hpp"
+#include "neo/Config.hpp"
+#include "neo/resource/Trie.hpp"
 
 #include <array>
 #include <cstddef>
