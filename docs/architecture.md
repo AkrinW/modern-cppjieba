@@ -1,6 +1,7 @@
 # 架构
 
-本文说明头文件的分层、依赖方向和扩展方式，供修改库内部时参考。使用方式见 [使用指南](usage.md)。
+本文说明头文件的分层、依赖方向和扩展方式，供修改库内部时参考。使用方式见 [使用指南](usage.md)；
+资源、算法、配置、上下文、契约和门面的划分标准见 [设计原则](design.md)。
 
 ## 分层
 
@@ -57,7 +58,8 @@ HMM：for_each_separated + hmm_emit_one_segment
 
 ## 内存与并发
 
-- `Jieba`、`DictTrie`、`HMModel` 构建后不可变，所有分词入口是 `const`。
+- 所有分词入口是 `const`；`DictTrie`、`HMModel` 只在显式编辑时改变。`add_word`、`remove_word`、`compact`
+  是非 `const` 操作，库内不加锁，由调用方保证独占访问；`clone()` 支持写时复制。
 - 每次调用的可变状态都在调用方的 `Workspace` 中：解码缓冲、结果缓冲和 `SegmentScratch`。
   `SegmentScratch` 的各缓冲保留最高水位，算法只覆盖本次读取的行，不做整体清零。
 - `KeywordWorkspace` 内嵌一个 `Workspace`，关键词提取不与分词共享可变状态。
