@@ -24,6 +24,15 @@ jobs:
       - name: Check formatting
         run: CLANG_FORMAT="clang-format-$LLVM_VERSION" tools/clang-format-recursive.sh --check
 
+  headers:
+    name: header self-containment
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      # Builds with BUILD_TESTING also compile each header alone through the neo_header_check target.
+      - name: Check that each header compiles alone and templates find their callees
+        run: CLANG_CXX="clang++-$LLVM_VERSION" tools/check-headers.sh
+
   tidy:
     name: clang-tidy
     runs-on: ubuntu-26.04

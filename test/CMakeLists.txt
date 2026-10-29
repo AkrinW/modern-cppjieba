@@ -15,6 +15,7 @@ if(CPPJIEBA_BUILD_LEGACY_TESTS)
     add_subdirectory(unittest)
 endif()
 
+include(cmake/HeaderTests.cmake)
 include(cmake/PackageTests.cmake)
 
 foreach(provider IN ITEMS parent installed source)
