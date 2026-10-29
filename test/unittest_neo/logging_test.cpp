@@ -1,9 +1,12 @@
 #include "../PlatformTestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
+#include "neo/resource/HMModel.hpp"
 #include "neo/util/FilePlatform.hpp"
 #include "neo/util/Logging.hpp"
 #include "neo/util/Platform.hpp"
+
+#include "test_paths.h"
 
 #include <array>
 #include <cstddef>
@@ -23,6 +26,11 @@
 #include <vector>
 
 using namespace neo_cppjieba;
+using neo_cppjieba::detail::log;
+using neo_cppjieba::detail::LogReceiver;
+using neo_cppjieba::detail::LogRecordView;
+using neo_cppjieba::detail::null_log_receiver;
+using neo_cppjieba::detail::stderr_log_receiver;
 
 // ─── LogLevel name mapping ──────────────────────────────────────────────────
 
@@ -539,6 +547,12 @@ TEST(LoggingTest, ExplicitDebugThresholdEnablesDebugInBothBuildModes) {
         log<LogLevel::LL_DEBUG, SmallBufferLogConfig>(stderr_log_receiver<SmallBufferLogConfig>(), "explicit debug");
     });
     EXPECT_NE(output.find("explicit debug"), std::string::npos);
+}
+
+TEST(LoggingTest, HmmModelLoadWritesNothingToStderr) {
+    const auto output = capture_stderr(
+        [] { [[maybe_unused]] const auto model = detail::HMModel{std::string_view{DICT_DIR "/hmm_model.utf8"}}; });
+    EXPECT_TRUE(output.empty());
 }
 
 // ─── check() passes when expression is true ─────────────────────────────────

@@ -22,6 +22,10 @@
 
 namespace neo_cppjieba {
 
+namespace detail {
+// The library has no log call sites; receiver-based logging is archived here for future diagnostics.
+// Only check and assert_check below are public.
+
 // Borrowed view of one diagnostic; message and location are valid only while the receiver callback runs.
 struct LogRecordView {
     LogLevel level;
@@ -36,7 +40,6 @@ struct LogReceiver {
     void (*receive)(void *context, const LogRecordView &record) noexcept;
 };
 
-namespace detail {
 // LogLevel enum to string mapping for log output.
 inline constexpr auto LOG_LEVEL_ARRAY = std::array<std::string_view, 5>{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"};
 constexpr auto log_level_name(LogLevel level) noexcept -> std::string_view {
@@ -249,12 +252,11 @@ struct LogFormatString {
         : fmt(std::forward<StringType>(s)), loc(Config::show_source_location ? l : std::source_location{}) {
     }
 };
-} // namespace detail
 
 // Receiver that writes each record to stderr with Config's line capacity and source location policy.
 template <LogConfiguration Config = LogConfig>
 [[nodiscard]] constexpr auto stderr_log_receiver() noexcept -> LogReceiver {
-    return LogReceiver{nullptr, &detail::write_stderr_record<Config>};
+    return LogReceiver{nullptr, &write_stderr_record<Config>};
 }
 
 // Receiver that discards every record, so log calls skip message formatting and lazy arguments.
@@ -266,19 +268,19 @@ template <LogConfiguration Config = LogConfig>
 // specified log level.
 // Pass expensive arguments as zero-argument callables so filtered log levels skip their computation.
 template <LogLevel Level, LogConfiguration Config = LogConfig, typename... Args>
-    requires(detail::NothrowLogArg<Args> && ...)
-inline auto log(const LogReceiver &receiver,
-                std::type_identity_t<detail::LogFormatString<Config, detail::LogEvalType<Args>...>> fmt,
+    requires(NothrowLogArg<Args> && ...)
+inline auto log(const LogReceiver &receiver, std::type_identity_t<LogFormatString<Config, LogEvalType<Args>...>> fmt,
                 Args &&...args) noexcept -> void {
-    detail::log_impl<Level, Config>(receiver, fmt.fmt, fmt.loc, std::forward<Args>(args)...);
+    log_impl<Level, Config>(receiver, fmt.fmt, fmt.loc, std::forward<Args>(args)...);
 }
 
 // Log an empty message with the same severity and configuration rules.
 template <LogLevel Level, LogConfiguration Config = LogConfig>
 inline auto log(const LogReceiver &receiver, const std::source_location &loc = std::source_location::current()) noexcept
     -> void {
-    detail::log_impl<Level, Config>(receiver, "", Config::show_source_location ? loc : std::source_location{});
+    log_impl<Level, Config>(receiver, "", Config::show_source_location ? loc : std::source_location{});
 }
+} // namespace detail
 
 // check is a helper function that evaluates an expression and throws Config::Exception if the expression is false.
 // The exception carries the formatted message without log decoration; no log record is delivered.

@@ -81,6 +81,7 @@
 [`util/Logging.hpp`](include/neo/util/Logging.hpp) 直接写 stderr，断言失败时调用 `std::terminate`。
 
 - [ ] 提供可替换的日志输出，并允许完全静默。
+  现状：库内已无日志调用点；接收器式的 `log` 收进 `detail` 留作归档，失败的 `assert_check` 仍写 stderr 并终止。
 - [ ] 区分调用方输入错误（异常或状态码）与内部不变量破坏（保持 terminate），在文档中列出各入口的失败方式。
 - [ ] 评估 `std::expected` 风格的入口，例如 `Jieba::open(...)` 和 `try_cut`，服务禁用异常的调用方。
 

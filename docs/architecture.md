@@ -85,5 +85,5 @@ HMM：for_each_separated + hmm_emit_one_segment
 测试内部实现的用例通过 `using namespace neo_cppjieba::detail;` 或 `detail::` 限定显式声明这一点，并直接 include
 被测的二级头文件；公开名字经门面或被测头文件取得。只测公开接口的用例只 include 一级目录的头文件。
 
-一处例外：`util/Logging.hpp` 的 `check`、`log`、`assert_check` 仍在 `neo_cppjieba` 中，
+一处例外：`util/Logging.hpp` 的 `check`、`assert_check` 仍在 `neo_cppjieba` 中，
 因为错误通过公开的 `LogConfig::Exception` 报告。它们随 [Roadmap](../ROADMAP.md#日志与错误处理) 的日志改造一起调整。

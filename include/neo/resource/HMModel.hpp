@@ -1,6 +1,5 @@
 #pragma once
 
-#include "neo/Config.hpp"
 #include "neo/resource/HMMState.hpp"
 #include "neo/third_party/gtl.hpp"
 #include "neo/util/Logging.hpp"
@@ -187,11 +186,6 @@ private:
         // ── Emission probabilities ───────────────────────────────────────
         for (auto i = size_t{0}; i < kHMMStatesNum; ++i) {
             emit_prob_maps[i] = parse_emit_prob_map(data_lines[idx]);
-
-            log<LogLevel::LL_DEBUG>(stderr_log_receiver(),
-                                    "HMModel: loaded emit map state {} with {} entries, avg_load_factor {:.2f}",
-                                    get_hmm_state_label(static_cast<HMMState>(i)), emit_prob_maps[i].size(),
-                                    emit_prob_maps[i].load_factor());
             ++idx;
         }
         build_emit_probs(emit_prob_maps);
