@@ -47,6 +47,7 @@ subdirectory for multi-configuration generators).
 | `dag_benchmark` | DAG construction | old cppjieba |
 | `trie_benchmark` | Trie construction and queries | old cppjieba |
 | `fileio_benchmark` | Dictionary parsing with streams and mapped views | limonp |
+| `load_benchmark` | Dictionary loading from text and from snapshots | none |
 | `load_test` | Legacy segmentation and keyword extraction throughput | old cppjieba |
 | `unicode_benchmark` | Unicode decoding and encoding | none |
 | `prefilter_benchmark` | Input prefiltering | none |
@@ -54,9 +55,18 @@ subdirectory for multi-configuration generators).
 | `cut_compare_benchmark` | Old, neo and Rust segmentation | old cppjieba, jieba-rs |
 | `python_compare_benchmark.py` | The same native paths plus Python `list[str]` | `cut_compare_benchmark`, Python jieba |
 
-The first nine targets are built by the benchmark option. The Rust target also
+The first ten targets are built by the benchmark option. The Rust target also
 requires `CPPJIEBA_BUILD_RUST_BENCHMARKS=ON` and Cargo. Its adapter links through
 `jieba_rs::jieba_rs`; see [RUST.md](RUST.md) for the output contracts and commands.
+
+`load_benchmark` first checks that snapshot and text loading cut and tag the corpus identically, then times
+each loading stage. `--rounds N` sets the rounds per case (default 9); `--cold` evicts the input files from
+the page cache before every round, which Linux allows without root. Model loading writes info logs to
+stderr, so redirect it to read the table alone:
+
+```sh
+build-bench/benchmark/load_benchmark --cold 2>/dev/null
+```
 
 The Python script runs the native benchmark and Python serially using the same
 corpus, dictionary, HMM model, rounds and samples. It requires Python 3.11 or

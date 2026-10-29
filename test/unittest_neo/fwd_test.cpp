@@ -20,6 +20,7 @@ struct Pipeline {
     neo::Workspace *workspace;
     neo::KeywordWorkspace *keyword_workspace;
     const neo::DictSource *dict;
+    const neo::SnapshotSource *snapshot;
     const neo::TfIdfOptions *tfidf_options;
     const neo::TextRankOptions *textrank_options;
     const neo::TokenView<char> *token;

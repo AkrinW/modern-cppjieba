@@ -43,5 +43,6 @@ template <CharType CharT>
 struct Keyword;
 class PosTag;
 class DictSource;
+class SnapshotSource;
 
 } // namespace neo_cppjieba

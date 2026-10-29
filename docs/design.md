@@ -31,13 +31,13 @@
 | 位置 | 内容 | 文件 |
 | --- | --- | --- |
 | `neo/` | 门面、编译期配置、前向声明 | `Jieba.hpp`、`KeywordExtractor.hpp`、`Utf.hpp`、`Config.hpp`、`Fwd.hpp` |
-| `neo/value/` | 值类型：调用的输入与结果，不含算法 | `Rune.hpp`、`TokenView.hpp`、`TaggedToken.hpp`、`Tokens.hpp`、`PosTag.hpp`、`Keyword.hpp`、`DictSource.hpp` |
+| `neo/value/` | 值类型：调用的输入与结果，不含算法 | `Rune.hpp`、`TokenView.hpp`、`TaggedToken.hpp`、`Tokens.hpp`、`PosTag.hpp`、`Keyword.hpp`、`DictSource.hpp`、`SnapshotSource.hpp` |
 | `neo/options/` | 配置：调用配置与资源的构造配置，及各自的取值检查 | `CutMode.hpp`、`Tagging.hpp`、`KeywordOptions.hpp`、`UserWordWeightOption.hpp` |
 | `neo/workspace/` | 上下文：公开的工作区与它们的内部状态 | `Workspace.hpp`、`SegmentScratch.hpp`、`KeywordWorkspace.hpp`、`KeywordState.hpp` |
 | `neo/concept/` | 契约：角色之间接口的 concept | `Text.hpp`、`Output.hpp`、`Segment.hpp`、`Match.hpp`、`Keyword.hpp` |
-| `neo/resource/` | 资源、资源的词汇类型及诊断结果 | `DictTrie.hpp`、`Trie.hpp`、`HMModel.hpp`、`KeywordResource.hpp`；`DictUnit.hpp`、`HMMState.hpp`；`Dag.hpp`、`TrieStats.hpp` |
+| `neo/resource/` | 资源、资源的词汇类型、诊断结果及词典快照 | `DictTrie.hpp`、`Trie.hpp`、`HMModel.hpp`、`KeywordResource.hpp`；`DictUnit.hpp`、`HMMState.hpp`；`Dag.hpp`、`TrieStats.hpp`；`DictSnapshot.hpp` |
 | `neo/algorithm/` | 算法：policy、积木、分派、结果填充 | `Segmenter.hpp`、`MixSegment.hpp` 等分词 policy、`KeywordRank.hpp`、`PosTagging.hpp`、`Output.hpp` |
-| `neo/util/` | 基础设施：不属于任何角色的支撑代码 | `Logging.hpp`、`Unicode.hpp`、`RuneString.hpp`、`StringUtil.hpp`、`FileIO.hpp`、`Platform.hpp` |
+| `neo/util/` | 基础设施：不属于任何角色的支撑代码 | `Logging.hpp`、`Unicode.hpp`、`RuneString.hpp`、`StringUtil.hpp`、`FileIO.hpp`、`Platform.hpp`、`ByteOrder.hpp`、`Xxh64.hpp` |
 | `neo/encoding/` | 需要额外 CMake 目标的可选模块 | `IcuCodec.hpp` |
 
 - 公开与内部由命名空间区分，不由目录区分：`neo_cppjieba` 中不在 `detail` 的名字是公开 API，

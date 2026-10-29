@@ -86,8 +86,9 @@
 
 ### 加载性能
 
-- [ ] 评估预编译的二进制词典 / Trie 快照，支持 mmap 加载，缩短服务冷启动和多进程部署的初始化时间。
-  以 [`dict_trie_benchmark`](benchmark/dict_trie_benchmark.cpp) 和 `load_test` 为基线。
+- [x] 预编译的词典快照：`Jieba::encode_dict_snapshot` 生成，`Jieba::from_snapshot` 加载，旧版本快照持续可读，
+  见 [词典快照格式](docs/snapshot.md)。[`load_benchmark`](benchmark/load_benchmark.cpp) 测得内置词典的 `Jieba`
+  构造从约 85 ms 降到约 19 ms，冷页缓存下从约 88 ms 降到约 22 ms。
 
 ### 降低工具链要求
 

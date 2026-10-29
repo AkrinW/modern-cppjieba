@@ -1,16 +1,22 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
 #include "neo/options/UserWordWeightOption.hpp"
+#include "neo/resource/DictSnapshot.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/DictUnit.hpp"
 #include "neo/resource/Trie.hpp"
 #include "neo/third_party/gtl.hpp"
 #include "neo/util/Unicode.hpp"
 #include "neo/value/DictSource.hpp"
+#include "neo/value/PosTag.hpp"
 #include "neo/value/Rune.hpp"
+#include "neo/value/SnapshotSource.hpp"
+
+#include "test_paths.h"
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <span>
 #include <string>
@@ -187,5 +193,33 @@ TEST(TrieCapacityTest, RuntimeWordBeyondNodeRangeThrowsWithoutChange) {
     } else {
         dict.add_word(second, PosTag{"n"});
         EXPECT_TRUE(dict.find(second).has_value());
+    }
+}
+
+TEST(TrieCapacityTest, SnapshotWrittenWithOtherNodeIdsMatchesTextLoading) {
+    // The golden snapshot was written with 32-bit node ids; its level-order layout carries no node id width.
+    const auto users = std::array{DictSource::file(TEST_DATA_DIR "/snapshot/user.dict.utf8")};
+    const auto text = DictTrie{DictSource::file(TEST_DATA_DIR "/snapshot/main.dict.utf8"), users,
+                               UserWordWeightOption::WordWeightMedian};
+    const auto loaded = load_dict_snapshot(SnapshotSource::file(TEST_DATA_DIR "/snapshot/format_v1.bin"));
+
+    EXPECT_EQ(loaded.trie().node_count(), text.trie().node_count());
+    for (const auto *const word : {"北京大学", "中午", "𠀀", "AT&T", "清华大学", "大学", "龘", "云计算", "中", "北"}) {
+        const auto runes = decode(std::string_view{word});
+        EXPECT_EQ(loaded.find(runes).weight, text.find(runes).weight) << word;
+        EXPECT_EQ(loaded.find(runes).tag, text.find(runes).tag) << word;
+    }
+}
+
+TEST(TrieCapacityTest, LevelOrderShapeBeyondNodeRangeIsRejected) {
+    // A 256-rune chain needs node ids 0 through 255, and the maximum id stays reserved as in runtime insertion.
+    auto shape = LevelOrderShape{std::vector<std::uint32_t>(256, 1), std::vector<LevelOrderEdge>(256)};
+    for (auto i = std::size_t{0}; i < shape.edges.size(); ++i) {
+        shape.edges[i] = LevelOrderEdge{U'中', i + 1 < shape.edges.size(), i + 1 == shape.edges.size()};
+    }
+    if constexpr (std::numeric_limits<TrieNodeId>::digits == 8) {
+        EXPECT_EQ(level_order_shape_error(shape), "the node count exceeds the configured trie node range");
+    } else {
+        EXPECT_TRUE(level_order_shape_error(shape).empty());
     }
 }

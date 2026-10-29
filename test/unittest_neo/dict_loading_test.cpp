@@ -8,10 +8,13 @@
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
 
+#include "TestUtils.hpp"
 #include "test_paths.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <ios>
 #include <iterator>
@@ -65,6 +68,23 @@ constexpr auto sentences = std::array{
 };
 constexpr auto modes = std::array{CutMode::MIX,  CutMode::MIX_NO_HMM, CutMode::MP,           CutMode::HMM,
                                   CutMode::FULL, CutMode::SEARCH,     CutMode::SEARCH_NO_HMM};
+
+// The bundled main dictionary as a snapshot, encoded once for the tests that only load it.
+auto dict_snapshot() -> const std::vector<std::byte> & {
+    static const auto bytes = Jieba::encode_dict_snapshot(DictSource::file(DICT_FILE), {});
+    return bytes;
+}
+
+// Segmentation and tags must agree in every mode.
+auto expect_same_cuts(const Jieba &actual, const Jieba &expected) -> void {
+    for (const auto sentence : sentences) {
+        for (const auto mode : modes) {
+            EXPECT_EQ(actual.cut_strings<Tagging::Pos>(sentence, mode),
+                      expected.cut_strings<Tagging::Pos>(sentence, mode))
+                << sentence;
+        }
+    }
+}
 
 } // namespace
 
@@ -152,4 +172,78 @@ TEST(DictLoadingTest, KeywordExtractorsLoadFromMemory) {
         EXPECT_EQ(actual_rank[i].word, expected_rank[i].word);
         EXPECT_DOUBLE_EQ(actual_rank[i].weight, expected_rank[i].weight);
     }
+}
+
+TEST(DictLoadingTest, SnapshotCutsLikeTheSourcesItWasEncodedFrom) {
+    const auto user_dicts = std::array{DictSource::file(USER_DICT_FILE), DictSource::file(TEST_USER_DICT_FILE)};
+    const auto bytes = Jieba::encode_dict_snapshot(DictSource::file(DICT_FILE), user_dicts);
+    const auto from_text = Jieba{DictSource::file(DICT_FILE), DictSource::file(HMM_MODEL_FILE), user_dicts};
+    const auto from_snapshot =
+        Jieba::from_snapshot(SnapshotSource::memory(bytes, "jieba.snapshot"), DictSource::file(HMM_MODEL_FILE));
+    expect_same_cuts(from_snapshot, from_text);
+}
+
+TEST(DictLoadingTest, SnapshotFileLoadsLikeSnapshotMemory) {
+    const auto directory = create_temp_directory("neo-jieba-snapshot-");
+    const auto path = directory / "jieba.snapshot";
+    {
+        const auto &bytes = dict_snapshot();
+        auto output = std::ofstream{path, std::ios::binary};
+        output.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+    const auto from_file =
+        Jieba::from_snapshot(SnapshotSource::file(path_to_utf8(path)), DictSource::file(HMM_MODEL_FILE));
+    std::filesystem::remove_all(directory);
+    expect_same_cuts(from_file, file_jieba());
+}
+
+TEST(DictLoadingTest, SnapshotMemoryIsNotRetainedAfterLoading) {
+    auto bytes = dict_snapshot();
+    const auto jieba =
+        Jieba::from_snapshot(SnapshotSource::memory(bytes, "jieba.snapshot"), DictSource::file(HMM_MODEL_FILE));
+    std::ranges::fill(bytes, std::byte{0});
+    bytes = {};
+    expect_same_cuts(jieba, file_jieba());
+}
+
+TEST(DictLoadingTest, SnapshotJiebaAppliesRuntimeEditsLikeTextJieba) {
+    auto from_text = Jieba{DICT_FILE, HMM_MODEL_FILE, ""};
+    auto from_snapshot = Jieba::from_snapshot(SnapshotSource::memory(dict_snapshot(), "jieba.snapshot"),
+                                              DictSource::file(HMM_MODEL_FILE));
+    for (auto *jieba : {&from_text, &from_snapshot}) {
+        jieba->add_word("杭研", PosTag{"nz"});
+        jieba->add_word_with_freq("云计算方面", 500, PosTag{"n"});
+        EXPECT_TRUE(jieba->remove_word("大厦"));
+    }
+    expect_same_cuts(from_snapshot, from_text);
+    from_text.compact();
+    from_snapshot.compact();
+    expect_same_cuts(from_snapshot, from_text);
+}
+
+TEST(DictLoadingTest, SnapshotErrorsNameTheSource) {
+    const auto garbage = std::array{std::byte{1}, std::byte{2}, std::byte{3}};
+    try {
+        const auto jieba =
+            Jieba::from_snapshot(SnapshotSource::memory(garbage, "broken.snapshot"), DictSource::file(HMM_MODEL_FILE));
+        FAIL() << "Expected a snapshot error";
+    } catch (const LogConfig::Exception &error) {
+        EXPECT_NE(std::string_view{error.what()}.find("broken.snapshot"), std::string_view::npos) << error.what();
+    }
+    // A text dictionary passed where a snapshot is expected is reported, not parsed.
+    EXPECT_THROW(Jieba::from_snapshot(SnapshotSource::file(DICT_FILE), DictSource::file(HMM_MODEL_FILE)),
+                 LogConfig::Exception);
+}
+
+TEST(DictLoadingTest, WrittenSnapshotHoldsTheEncodedDictionaryAndLoads) {
+    const auto directory = create_temp_directory("neo-jieba-snapshot-");
+    const auto path = path_to_utf8(directory / "jieba.snapshot");
+    Jieba::write_dict_snapshot(DictSource::file(DICT_FILE), {}, path);
+
+    const auto written = read_text(path);
+    const auto &expected = dict_snapshot();
+    const auto jieba = Jieba::from_snapshot(SnapshotSource::file(path), DictSource::file(HMM_MODEL_FILE));
+    std::filesystem::remove_all(directory);
+    EXPECT_TRUE(std::ranges::equal(std::as_bytes(std::span{written}), expected));
+    expect_same_cuts(jieba, file_jieba());
 }

@@ -7,6 +7,7 @@
 #include "neo/resource/TrieStats.hpp"
 #include "neo/third_party/gtl.hpp"
 #include "neo/util/Logging.hpp"
+#include "neo/util/Unicode.hpp"
 #include "neo/value/Rune.hpp"
 
 #include <algorithm>
@@ -14,9 +15,12 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <iterator>
 #include <limits>
 #include <numeric>
 #include <span>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -48,6 +52,127 @@ struct TrieTransitionHash {
         }
     }
 };
+
+/// One edge of a trie stored breadth-first. Nodes are numbered in level order and each node's edges are sorted
+/// by rune, so the k-th edge with a child reaches node k and child ids need no storage.
+struct LevelOrderEdge {
+    Rune rune{};
+    bool has_child{false};
+    bool has_value{false};
+
+    auto operator==(const LevelOrderEdge &) const noexcept -> bool = default;
+};
+
+/// A trie shape in level order: fanouts[node] consecutive edges per node, starting with the root, node 0.
+struct LevelOrderShape {
+    std::vector<std::uint32_t> fanouts;
+    std::vector<LevelOrderEdge> edges;
+
+    auto operator==(const LevelOrderShape &) const -> bool = default;
+};
+
+/// The level-order shape of a key set, with the index of the key that ends at each valued edge, in edge order.
+struct LevelOrderKeys {
+    LevelOrderShape shape;
+    std::vector<std::size_t> value_keys;
+};
+
+// Build the level-order shape of nonempty, strictly ascending keys. Each node covers the sorted range of keys
+// longer than its depth that extend its prefix; a key equal to an edge's prefix sorts first and ends there.
+[[nodiscard]] inline auto level_order_keys(std::span<const Unicode> keys) -> LevelOrderKeys {
+    assert_check(
+        [&] {
+            return std::ranges::none_of(keys, [](const Unicode &key) { return key.empty(); })
+                   && std::ranges::adjacent_find(keys, std::ranges::greater_equal{}) == keys.end();
+        },
+        "Trie: level-order keys must be nonempty and strictly ascending");
+    /// The keys below one node, all longer than its depth.
+    struct NodeRange {
+        std::size_t begin;
+        std::size_t end;
+        std::size_t depth;
+    };
+    auto result = LevelOrderKeys{};
+    auto nodes = std::vector<NodeRange>{{0, keys.size(), 0}};
+    for (auto node = std::size_t{0}; node < nodes.size(); ++node) {
+        const auto [begin, end, depth] = nodes[node];
+        auto fanout = std::uint32_t{0};
+        for (auto first = begin; first < end; ++fanout) {
+            const auto rune = keys[first][depth];
+            auto last = first + 1;
+            while (last < end && keys[last][depth] == rune) {
+                ++last;
+            }
+            const auto has_value = keys[first].size() == depth + 1;
+            const auto child_begin = has_value ? first + 1 : first;
+            result.shape.edges.push_back(LevelOrderEdge{rune, child_begin < last, has_value});
+            if (has_value) {
+                result.value_keys.push_back(first);
+            }
+            if (child_begin < last) {
+                nodes.push_back(NodeRange{child_begin, last, depth + 1});
+            }
+            first = last;
+        }
+        result.shape.fanouts.push_back(fanout);
+    }
+    return result;
+}
+
+// Check one node's edges: Unicode scalar runes in strictly ascending order, each leading to a child or a value.
+[[nodiscard]] inline auto level_order_node_error(std::span<const LevelOrderEdge> edges) -> std::string_view {
+    if (edges.empty()) {
+        return "a trie node has no edges";
+    }
+    if (std::ranges::adjacent_find(edges, std::ranges::greater_equal{}, &LevelOrderEdge::rune) != edges.end()) {
+        return "edge runes are not strictly ascending within a node";
+    }
+    for (const auto &edge : edges) {
+        if (!is_unicode_scalar(edge.rune)) {
+            return "an edge rune is not a Unicode scalar value";
+        }
+        if (!edge.has_child && !edge.has_value) {
+            return "an edge has neither a child nor a value";
+        }
+    }
+    return {};
+}
+
+// Describe the first violation of the level-order invariants Trie::build_level_order relies on, or return an
+// empty view. A node is reachable only if an edge of an earlier node leads to it, which also rules out cycles.
+[[nodiscard]] inline auto level_order_shape_error(const LevelOrderShape &shape) -> std::string_view {
+    const auto &[fanouts, edges] = shape;
+    if (fanouts.empty()) {
+        return "the trie has no root node";
+    }
+    if (!detail::size_below_capacity<TrieNodeId>(fanouts.size() - 1)) {
+        return "the node count exceeds the configured trie node range";
+    }
+    auto begin = std::size_t{0};
+    auto next_child = std::size_t{1};
+    for (auto node = std::size_t{0}; node < fanouts.size(); ++node) {
+        if (node > 0 && next_child <= node) {
+            return "a trie node is not reached from an earlier node";
+        }
+        const auto fanout = static_cast<std::size_t>(fanouts[node]);
+        if (fanout > edges.size() - begin) {
+            return "node fanouts exceed the edge count";
+        }
+        const auto node_edges = std::span{edges}.subspan(begin, fanout);
+        if (const auto error = level_order_node_error(node_edges); !error.empty()) {
+            return error;
+        }
+        next_child += static_cast<std::size_t>(std::ranges::count_if(node_edges, &LevelOrderEdge::has_child));
+        begin += fanout;
+    }
+    if (begin != edges.size()) {
+        return "edges remain after the last node";
+    }
+    if (next_child != fanouts.size()) {
+        return "child edges do not match the node count";
+    }
+    return {};
+}
 
 class Trie;
 
@@ -421,6 +546,84 @@ class Trie {
         }
     }
 
+    // Size every table before placement: BMP roots get direct slots, child sets of at most kCompactFanout runes
+    // get compact ranges, and the hash table keeps two slots per remaining transition, as compact_children does.
+    auto reserve_level_order_storage(const LevelOrderShape &shape) -> void {
+        const auto roots = std::span{shape.edges}.first(shape.fanouts.front());
+        const auto supplementary =
+            std::ranges::partition_point(roots, [](const LevelOrderEdge &edge) { return edge.rune < kRootTableLimit; });
+        root_.resize(supplementary == roots.begin() ? 0 : static_cast<size_t>(std::prev(supplementary)->rune) + 1);
+        auto hashed = static_cast<size_t>(roots.end() - supplementary);
+        if (node_count_ > 1) {
+            compact_offsets_.resize(node_count_ + 1);
+            for (auto node = size_t{1}; node < node_count_; ++node) {
+                const auto fanout = static_cast<size_t>(shape.fanouts[node]);
+                if (fanout <= kCompactFanout) {
+                    compact_offsets_[node + 1] = fanout;
+                } else {
+                    hashed += fanout;
+                }
+            }
+            std::partial_sum(compact_offsets_.begin(), compact_offsets_.end(), compact_offsets_.begin());
+            compact_.reserve(compact_offsets_.back());
+        }
+        assert(hashed <= std::numeric_limits<size_t>::max() / 2);
+        transitions_.rehash(hashed * 2);
+    }
+
+    // Each node's filter covers the runes of its own edges, before any storage tag.
+    [[nodiscard]] static auto level_order_filters(const LevelOrderShape &shape) -> std::vector<uint32_t> {
+        auto filters = std::vector<uint32_t>(shape.fanouts.size());
+        auto begin = size_t{0};
+        for (size_t node = 0; node < shape.fanouts.size(); ++node) {
+            for (const auto &edge : std::span{shape.edges}.subspan(begin, shape.fanouts[node])) {
+                filters[node] |= child_bits(edge.rune);
+            }
+            begin += shape.fanouts[node];
+        }
+        return filters;
+    }
+
+    // The filter an edge to child carries, tagged as mark_child_storage would once compact ranges are sized;
+    // terminal edges carry none.
+    [[nodiscard]] auto level_order_filter(std::span<const uint32_t> filters, size_t child) const noexcept -> uint32_t {
+        if (child == 0) {
+            return 0;
+        }
+        const auto compact = compact_offsets_[child] != compact_offsets_[child + 1];
+        return (filters[child] & kFilterMask) | (compact ? kCompactFlag : 0);
+    }
+
+    // Store one edge where build_storage and compact_children would place it.
+    auto place_level_order_edge(size_t node, Rune rune, const Entry &entry) -> void {
+        if (node == 0 && rune < kRootTableLimit) {
+            root_[rune] = entry;
+        } else if (node > 0 && compact_offsets_[node] != compact_offsets_[node + 1]) {
+            compact_.push_back(CompactTransition{rune, entry});
+        } else {
+            transitions_.emplace(transition_key(static_cast<TrieNodeId>(node), rune), entry);
+        }
+    }
+
+    // Edges arrive grouped by node in id order, so compact ranges fill by appending, and counting child edges
+    // yields each child id. Filters are tagged on placement, which spares build_storage's final tagging pass.
+    auto build_level_order_storage(const LevelOrderShape &shape, std::span<const DictUnit> values) -> void {
+        node_count_ = shape.fanouts.size();
+        reserve_level_order_storage(shape);
+        const auto filters = level_order_filters(shape);
+        auto edge = shape.edges.begin();
+        auto value = values.begin();
+        auto next_child = size_t{1};
+        for (size_t node = 0; node < node_count_; ++node) {
+            for (const auto end = edge + shape.fanouts[node]; edge != end; ++edge) {
+                const auto child = edge->has_child ? next_child++ : size_t{0};
+                const auto unit = edge->has_value ? *value++ : DictUnit{};
+                place_level_order_edge(node, edge->rune,
+                                       Entry{static_cast<TrieNodeId>(child), level_order_filter(filters, child), unit});
+            }
+        }
+    }
+
     auto build_storage(std::span<const Unicode> keys, std::span<const DictUnit> values) -> void {
         if (keys.empty()) {
             return;
@@ -490,6 +693,21 @@ public:
         assert_check([&] { return keys.size() == values.size(); }, "Trie: keys and values must have equal sizes");
         auto next = Trie{};
         next.build_storage(keys, values);
+        *this = std::move(next);
+    }
+
+    /// Build from a level-order shape and one value per valued edge, in edge order, with the lookups build()
+    /// would give for the same words. External shapes must pass level_order_shape_error first.
+    auto build_level_order(const LevelOrderShape &shape, std::span<const DictUnit> values) -> void {
+        assert_check([&] { return level_order_shape_error(shape).empty(); }, "Trie: invalid level-order shape");
+        assert_check(
+            [&] {
+                return std::cmp_equal(std::ranges::count_if(shape.edges, &LevelOrderEdge::has_value), values.size())
+                       && std::ranges::all_of(values, &DictUnit::has_value);
+            },
+            "Trie: level-order values must match the valued edges");
+        auto next = Trie{};
+        next.build_level_order_storage(shape, values);
         *this = std::move(next);
     }
 
