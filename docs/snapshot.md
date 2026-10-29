@@ -71,6 +71,8 @@ Section 表紧接 header，每项：`u32 kind`、`u16 encoding`、`u16 flags`（
 
 ## 加载与安全
 
+`Jieba::write_dict_snapshot` 经由 `replace_file_atomically`（`util/FileIO.hpp`）发布快照：写入同目录的临时文件，
+刷到存储后重命名替换目标，再同步目录，读者只会看到旧文件或完整的新文件。
 `SnapshotSource::file` 在加载时先把文件完整读入自有内存（沿用 `FileBuffer` 的读前读后元数据检查），再校验和解码，
 因此加载后文件被修改、截断或删除都不会影响词典；读取过程中的并发修改由校验和发现。
 所有结构错误都通过 `check` 报告为可处理的错误：越界计数、未知 flag、乱序 rune、不可达节点、超出 `TrieNodeId` 范围的节点数、

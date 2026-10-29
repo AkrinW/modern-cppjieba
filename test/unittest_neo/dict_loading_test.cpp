@@ -234,3 +234,16 @@ TEST(DictLoadingTest, SnapshotErrorsNameTheSource) {
     EXPECT_THROW(Jieba::from_snapshot(SnapshotSource::file(DICT_FILE), DictSource::file(HMM_MODEL_FILE)),
                  LogConfig::Exception);
 }
+
+TEST(DictLoadingTest, WrittenSnapshotHoldsTheEncodedDictionaryAndLoads) {
+    const auto directory = create_temp_directory("neo-jieba-snapshot-");
+    const auto path = path_to_utf8(directory / "jieba.snapshot");
+    Jieba::write_dict_snapshot(DictSource::file(DICT_FILE), {}, path);
+
+    const auto written = read_text(path);
+    const auto &expected = dict_snapshot();
+    const auto jieba = Jieba::from_snapshot(SnapshotSource::file(path), DictSource::file(HMM_MODEL_FILE));
+    std::filesystem::remove_all(directory);
+    EXPECT_TRUE(std::ranges::equal(std::as_bytes(std::span{written}), expected));
+    expect_same_cuts(jieba, file_jieba());
+}

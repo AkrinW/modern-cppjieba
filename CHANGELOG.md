@@ -18,8 +18,8 @@
 - 新增 `DictSource`：主词典、用户词典、HMM 模型、IDF 和停用词均可从文件或内存加载，
   `Jieba`、`HMModel`、`TfIdfExtractor`、`TextRankExtractor` 增加对应构造函数；用户词典可有多个。
   见 [从内存加载词典](docs/usage.md#从内存加载词典)。
-- 新增词典快照：`Jieba::encode_dict_snapshot` 把主词典和用户词典编译为快照，`Jieba::from_snapshot` 通过新的
-  `SnapshotSource`（文件或内存）加载。结果与从源词典加载完全相同，内置词典的加载时间约从 85 ms 降到 15 ms；
+- 新增词典快照：`Jieba::encode_dict_snapshot` 把主词典和用户词典编译为快照，`Jieba::write_dict_snapshot`
+  把它原子地写成文件，`Jieba::from_snapshot` 通过新的 `SnapshotSource`（文件或内存）加载。结果与从源词典加载完全相同，内置词典的加载时间约从 85 ms 降到 15 ms；
   新版本的库持续读取旧版本写出的快照。见 [词典快照](docs/usage.md#词典快照)。
 - 新增 `load_benchmark`：校验快照与文本加载的分词结果一致后，分阶段计时词典加载，`--cold` 在每轮前清除页缓存。
 - `Jieba` 支持运行时就地增删词：`add_word`、`add_word_with_freq`、`remove_word`，权重规则与用户词典一致，

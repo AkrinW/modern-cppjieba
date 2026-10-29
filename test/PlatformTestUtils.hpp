@@ -114,6 +114,16 @@ inline auto prepare_fileio_death_test() noexcept -> void {
 #endif
 }
 
+// POSIX readers keep the file they opened after a rename replaces its name; Windows refuses to replace a file
+// that a reader opened without FILE_SHARE_DELETE.
+inline auto replacement_keeps_open_readers() noexcept -> bool {
+#ifdef _WIN32
+    return false;
+#else
+    return true;
+#endif
+}
+
 // UTF-8 validation is specific to Windows path conversion; POSIX accepts arbitrary path bytes.
 inline auto expect_invalid_utf8_path_rejected() -> void {
 #ifdef _WIN32

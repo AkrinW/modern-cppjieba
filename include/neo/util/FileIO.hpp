@@ -4,11 +4,16 @@
 #include "neo/util/Logging.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
+#include <charconv>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <new>
+#include <random>
 #include <span>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
@@ -122,6 +127,80 @@ private:
 // File failures are reported through check before returning any content.
 inline auto read_file(std::string_view path) -> FileBuffer {
     return FileBuffer{path};
+}
+
+// ReplacementFile is a new file created beside a destination for an atomic replacement. It is removed on
+// destruction unless publish() renamed it over the destination, so failures never leave it behind.
+// A process that dies before the rename can still leave one; its name starts with '.' and ends with ".tmp".
+class ReplacementFile {
+public:
+    explicit ReplacementFile(const detail::platform::FileLocation &destination) {
+        auto random = std::random_device{};
+        for (auto attempt = 0; attempt < 64; ++attempt) {
+            const auto suffix = (static_cast<std::uint64_t>(random()) << 32) | random();
+            path_ = temporary_path(destination, suffix);
+            native_ = detail::platform::native_path(path_);
+            fd_ = detail::platform::try_create_new_file(native_);
+            if (fd_ != -1) {
+                return;
+            }
+            const auto error = errno;
+            check(error == EEXIST, "FileReplace: failed to create a temporary file: {}: {}", path_,
+                  [error] { return std::error_code{error, std::generic_category()}.message(); });
+        }
+        check(false, "FileReplace: found no unused temporary file name beside {}", destination.name);
+    }
+
+    ~ReplacementFile() noexcept {
+        if (fd_ != -1) {
+            detail::platform::close_file_descriptor(fd_);
+        }
+        if (!native_.empty()) {
+            detail::platform::remove_file(native_);
+        }
+    }
+
+    ReplacementFile(const ReplacementFile &) = delete;
+    auto operator=(const ReplacementFile &) -> ReplacementFile & = delete;
+
+    // Write the bytes, flush them to storage and close the file, then rename it over destination.
+    // path names the destination in diagnostics.
+    auto publish(std::span<const std::byte> bytes, const detail::platform::NativePath &destination,
+                 std::string_view path) -> void {
+        detail::platform::write_file_contents(fd_, bytes, path_);
+        detail::platform::sync_file(fd_, path_);
+        // On Linux close releases the descriptor even on EINTR; never retry a possibly reused descriptor.
+        const auto close_result = detail::platform::close_file_descriptor(std::exchange(fd_, -1));
+        check(close_result == 0, "FileReplace: failed to close file: {}: {}", path_,
+              [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+        detail::platform::rename_over(native_, destination, path);
+        native_.clear(); // The file now lives under the destination name.
+    }
+
+private:
+    // A hidden name beside the destination, so the rename stays within one directory and one file system.
+    static auto temporary_path(const detail::platform::FileLocation &destination, std::uint64_t suffix) -> std::string {
+        auto digits = std::array<char, 16>{};
+        auto *const end = std::to_chars(digits.data(), digits.data() + digits.size(), suffix, 16).ptr;
+        return destination.prefix + "." + destination.name + "." + std::string{digits.data(), end} + ".tmp";
+    }
+
+    std::string path_;
+    detail::platform::NativePath native_;
+    int fd_{-1};
+};
+
+// replace_file_atomically replaces the file at path with bytes so readers see the previous file or the complete
+// new one, never a partial write. The bytes reach storage under a temporary name beside path before a rename
+// publishes them; a failure before the rename leaves path untouched. The new file gets default permissions.
+inline auto replace_file_atomically(std::string_view path, std::span<const std::byte> bytes) -> void {
+    check(path.find('\0') == std::string_view::npos, "FileReplace: file path contains an embedded null byte");
+    const auto location = detail::platform::split_file_path(path);
+    check(!location.name.empty(), "FileReplace: file path has no file name: {}", path);
+    const auto destination = detail::platform::native_path(path);
+    auto file = ReplacementFile{location};
+    file.publish(bytes, destination, path);
+    detail::platform::sync_directory(location.directory, path);
 }
 
 } // namespace neo_cppjieba::detail

@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <span>
@@ -29,6 +30,7 @@
 
 using namespace neo_cppjieba;
 using namespace neo_cppjieba::detail;
+using namespace std::string_view_literals;
 
 TEST(StringUtilTest, DecodeValueConsumesTheEntireInteger) {
     const auto invalid = std::array<std::string_view, 4>{"12abc", "12 ", "12.5", std::string_view{"12\0", 3}};
@@ -571,4 +573,120 @@ TEST(FileIOIntegrationTest, ZeroCopyVerification) {
         }
         break; // Just verify the first line is enough
     }
+}
+
+// ─── Atomic file replacement tests ───────────────────────────────────────────
+
+namespace {
+
+// Each replacement test owns an isolated directory, so leftover temporary files are visible.
+class FileReplaceTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        directory_ = create_temp_directory("neo-file-replace-");
+    }
+
+    void TearDown() override {
+        if (!directory_.empty()) {
+            auto error = std::error_code{};
+            std::filesystem::remove_all(directory_, error);
+            EXPECT_FALSE(error) << error.message();
+        }
+    }
+
+    [[nodiscard]] auto file_path(std::string_view name) const -> std::string {
+        return path_to_utf8(directory_ / name);
+    }
+
+    [[nodiscard]] auto entries() const -> std::vector<std::string> {
+        auto names = std::vector<std::string>{};
+        for (const auto &entry : std::filesystem::directory_iterator{directory_}) {
+            names.push_back(path_to_utf8(entry.path().filename()));
+        }
+        return names;
+    }
+
+    std::filesystem::path directory_;
+};
+
+auto bytes_of(std::string_view text) -> std::span<const std::byte> {
+    return std::as_bytes(std::span{text});
+}
+
+auto read_back(const std::string &path) -> std::string {
+    return std::string{read_file(path).content()};
+}
+
+} // namespace
+
+TEST_F(FileReplaceTest, CreatesFileWithTheGivenBytes) {
+    const auto path = file_path("new.bin");
+    replace_file_atomically(path, bytes_of("snapshot\0bytes"sv));
+    EXPECT_EQ(read_back(path), "snapshot\0bytes"sv);
+}
+
+TEST_F(FileReplaceTest, EmptyBytesCreateAnEmptyFile) {
+    const auto path = file_path("empty.bin");
+    replace_file_atomically(path, {});
+    EXPECT_EQ(std::filesystem::file_size(directory_ / "empty.bin"), 0u);
+}
+
+TEST_F(FileReplaceTest, ReplacesExistingContentsAndLeavesNoTemporaryFile) {
+    const auto path = file_path("snapshot.bin");
+    replace_file_atomically(path, bytes_of("previous contents"));
+    replace_file_atomically(path, bytes_of("new"));
+    EXPECT_EQ(read_back(path), "new");
+    EXPECT_EQ(entries(), (std::vector<std::string>{"snapshot.bin"}));
+}
+
+TEST_F(FileReplaceTest, ReaderOpenedBeforeReplacementKeepsPreviousContents) {
+    if (!test_platform::replacement_keeps_open_readers()) {
+        GTEST_SKIP() << "Windows cannot replace a file a stream holds open";
+    }
+    const auto path = file_path("snapshot.bin");
+    replace_file_atomically(path, bytes_of("previous"));
+    auto reader = std::ifstream{directory_ / "snapshot.bin", std::ios::binary};
+    ASSERT_TRUE(reader.is_open());
+
+    replace_file_atomically(path, bytes_of("replacement"));
+    const auto contents = std::string{std::istreambuf_iterator<char>{reader}, std::istreambuf_iterator<char>{}};
+    EXPECT_EQ(contents, "previous");
+    EXPECT_EQ(read_back(path), "replacement");
+}
+
+TEST_F(FileReplaceTest, FailedReplacementKeepsTheTargetAndRemovesTheTemporaryFile) {
+    // A nonempty directory cannot be replaced by a file, so the failure comes after the temporary is written.
+    std::filesystem::create_directory(directory_ / "target");
+    {
+        auto inner = std::ofstream{directory_ / "target" / "kept.txt"};
+        inner << "kept";
+    }
+    EXPECT_THROW(replace_file_atomically(file_path("target"), bytes_of("bytes")), LogConfig::Exception);
+    EXPECT_TRUE(std::filesystem::is_directory(directory_ / "target"));
+    EXPECT_TRUE(std::filesystem::exists(directory_ / "target" / "kept.txt"));
+    EXPECT_EQ(entries(), (std::vector<std::string>{"target"}));
+}
+
+TEST_F(FileReplaceTest, RejectsMissingDirectory) {
+    const auto path = path_to_utf8(directory_ / "missing" / "snapshot.bin");
+    try {
+        replace_file_atomically(path, bytes_of("bytes"));
+        FAIL() << "Expected a replacement error";
+    } catch (const LogConfig::Exception &error) {
+        EXPECT_NE(std::string_view{error.what()}.find("failed to create a temporary file"), std::string_view::npos)
+            << error.what();
+    }
+    EXPECT_TRUE(entries().empty());
+}
+
+TEST_F(FileReplaceTest, RejectsPathWithoutFileName) {
+    EXPECT_THROW(replace_file_atomically(path_to_utf8(directory_) + "/", bytes_of("bytes")), LogConfig::Exception);
+    EXPECT_THROW(replace_file_atomically("", bytes_of("bytes")), LogConfig::Exception);
+    EXPECT_TRUE(entries().empty());
+}
+
+TEST_F(FileReplaceTest, RejectsEmbeddedNullByte) {
+    const auto path = file_path("snap") + std::string{"\0shot", 5};
+    EXPECT_THROW(replace_file_atomically(path, bytes_of("bytes")), LogConfig::Exception);
+    EXPECT_TRUE(entries().empty());
 }

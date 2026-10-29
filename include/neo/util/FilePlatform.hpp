@@ -6,6 +6,7 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <fcntl.h>
 #include <limits>
 #include <span>
@@ -180,6 +181,152 @@ inline auto file_metadata(int fd, std::string_view path, FileReadPhase phase) ->
             S_ISREG(st.st_mode),
             {st.st_mtim.tv_sec, st.st_mtim.tv_nsec},
             {st.st_ctim.tv_sec, st.st_ctim.tv_nsec}};
+#endif
+}
+
+/// A file path split for replacement: the prefix up to and including the last separator, the file name after it,
+/// and the directory whose entry the replacement changes.
+struct FileLocation {
+    std::string prefix;
+    std::string name;
+    std::string directory;
+};
+
+// A path without a separator names a file in the current directory.
+inline auto split_file_path(std::string_view path) -> FileLocation {
+#ifdef _WIN32
+    constexpr auto separators = std::string_view{"/\\"};
+#else
+    constexpr auto separators = std::string_view{"/"};
+#endif
+    const auto split = path.find_last_of(separators);
+    if (split == std::string_view::npos) {
+        return {{}, std::string{path}, "."};
+    }
+    const auto prefix = path.substr(0, split + 1);
+    return {std::string{prefix}, std::string{path.substr(split + 1)}, std::string{prefix}};
+}
+
+// A null-terminated path in the file system API's encoding, converted once so cleanup needs no allocation.
+#ifdef _WIN32
+using NativePath = std::wstring;
+#else
+using NativePath = std::string;
+#endif
+
+// Convert a UTF-8 path that has no embedded null byte.
+inline auto native_path(std::string_view path) -> NativePath {
+    assert_check([&] { return path.find('\0') == std::string_view::npos; }, "FileReplace: unchecked file path");
+#ifdef _WIN32
+    return windows_file_path(path);
+#else
+    return std::string{path};
+#endif
+}
+
+// Create a file that must not exist yet, for writing; returns -1 with errno set on failure, EEXIST when the name
+// is taken. The file gets the default permissions of any newly created file.
+inline auto try_create_new_file(const NativePath &path) -> int {
+#ifdef _WIN32
+    return ::_wopen(path.c_str(), _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY | _O_NOINHERIT, _S_IREAD | _S_IWRITE);
+#else
+    return ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+                  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+#endif
+}
+
+// Write every byte, retrying interrupted and short writes; I/O errors are reported through check.
+inline auto write_file_contents(int fd, std::span<const std::byte> source, std::string_view path) -> void {
+    assert_check([fd] { return fd >= 0; }, "FileReplace: invalid internal file descriptor");
+
+    auto offset = size_t{0};
+    while (offset < source.size()) {
+#ifdef _WIN32
+        const auto count = std::min(source.size() - offset, static_cast<size_t>(std::numeric_limits<DWORD>::max()));
+        auto bytes_written = DWORD{0};
+        const auto result = ::WriteFile(reinterpret_cast<HANDLE>(::_get_osfhandle(fd)), source.data() + offset,
+                                        static_cast<DWORD>(count), &bytes_written, nullptr);
+        check(result != 0, "FileReplace: failed to write file: {}: {}", path, [error = ::GetLastError()] {
+            return std::error_code{static_cast<int>(error), std::system_category()}.message();
+        });
+#else
+        const auto count = std::min(source.size() - offset, static_cast<size_t>(std::numeric_limits<ssize_t>::max()));
+        const auto bytes_written = ::write(fd, source.data() + offset, count);
+        const auto error = errno;
+        if (bytes_written == -1 && error == EINTR) {
+            continue;
+        }
+        check(bytes_written >= 0, "FileReplace: failed to write file: {}: {}", path,
+              [error] { return std::error_code{error, std::generic_category()}.message(); });
+#endif
+        check(bytes_written != 0, "FileReplace: writing made no progress: {}", path);
+        offset += static_cast<size_t>(bytes_written);
+    }
+}
+
+// Flush written data to storage before the file becomes visible under its final name.
+inline auto sync_file(int fd, std::string_view path) -> void {
+    assert_check([fd] { return fd >= 0; }, "FileReplace: invalid internal file descriptor");
+#ifdef _WIN32
+    const auto result = ::FlushFileBuffers(reinterpret_cast<HANDLE>(::_get_osfhandle(fd)));
+    check(result != 0, "FileReplace: failed to flush file: {}: {}", path, [error = ::GetLastError()] {
+        return std::error_code{static_cast<int>(error), std::system_category()}.message();
+    });
+#else
+#ifdef __APPLE__
+    // Apple's fsync leaves data in the drive cache; F_FULLFSYNC flushes it where the file system supports it.
+    if (::fcntl(fd, F_FULLFSYNC) == 0) {
+        return;
+    }
+#endif
+    auto result = ::fsync(fd);
+    while (result == -1 && errno == EINTR) {
+        result = ::fsync(fd);
+    }
+    check(result == 0, "FileReplace: failed to flush file: {}: {}", path,
+          [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+#endif
+}
+
+// Atomically move a file over a destination in the same directory, replacing any existing file there.
+// The UTF-8 path only labels diagnostics.
+inline auto rename_over(const NativePath &from, const NativePath &to, std::string_view path) -> void {
+#ifdef _WIN32
+    const auto result = ::MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+    check(result != 0, "FileReplace: failed to replace file: {}: {}", path, [error = ::GetLastError()] {
+        return std::error_code{static_cast<int>(error), std::system_category()}.message();
+    });
+#else
+    check(std::rename(from.c_str(), to.c_str()) == 0, "FileReplace: failed to replace file: {}: {}", path,
+          [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+#endif
+}
+
+// Persist the directory entry a rename changed; MOVEFILE_WRITE_THROUGH already did so on Windows.
+// File systems that cannot sync directories report EINVAL, leaving the rename as durable as they make it.
+inline auto sync_directory(std::string_view directory, std::string_view path) -> void {
+#ifdef _WIN32
+    static_cast<void>(directory);
+    static_cast<void>(path);
+#else
+    const auto null_terminated_directory = std::string{directory};
+    const auto fd = ::open(null_terminated_directory.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY);
+    check(fd != -1, "FileReplace: replaced {} but could not open its directory to sync it: {}", path,
+          [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+    const auto result = ::fsync(fd);
+    const auto error = errno;
+    close_file_descriptor(fd);
+    check(result == 0 || error == EINVAL, "FileReplace: replaced {} but failed to sync its directory: {}", path,
+          [error] { return std::error_code{error, std::generic_category()}.message(); });
+#endif
+}
+
+// Remove a file during cleanup; failures are ignored because the original error is already being reported.
+inline auto remove_file(const NativePath &path) noexcept -> void {
+#ifdef _WIN32
+    static_cast<void>(::_wunlink(path.c_str()));
+#else
+    static_cast<void>(::unlink(path.c_str()));
 #endif
 }
 

@@ -12,6 +12,7 @@
 #include "neo/resource/DictSnapshot.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
+#include "neo/util/FileIO.hpp"
 #include "neo/util/Unicode.hpp"
 #include "neo/value/DictSource.hpp"     // IWYU pragma: export
 #include "neo/value/PosTag.hpp"         // IWYU pragma: export
@@ -66,6 +67,13 @@ public:
         -> std::vector<std::byte> {
         return detail::encode_dict_snapshot(
             detail::DictTrie::level_order(dict, user_dicts, detail::UserWordWeightOption::WordWeightMedian));
+    }
+
+    // Encode the snapshot and publish it at path atomically: readers see the previous file or the complete
+    // snapshot, never a partial write, and a failure leaves the previous file in place.
+    static auto write_dict_snapshot(const DictSource &dict, std::span<const DictSource> user_dicts,
+                                    std::string_view path) -> void {
+        detail::replace_file_atomically(path, encode_dict_snapshot(dict, user_dicts));
     }
 
     Jieba(Jieba &&) noexcept = default;
