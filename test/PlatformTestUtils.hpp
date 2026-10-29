@@ -169,7 +169,9 @@ inline auto expect_fifo_rejected_without_waiting(const std::filesystem::path &fi
             ::alarm(5);
             try {
                 const auto file = neo_cppjieba::detail::read_file(path);
-            } catch (const neo_cppjieba::LogConfig::Exception &) {
+            } catch (const neo_cppjieba::LogConfig::Exception &error) {
+                // Failed checks no longer log, so report the diagnostic for the death-test matcher.
+                std::fputs(error.what(), stderr);
                 std::_Exit(0);
             }
             std::_Exit(1);

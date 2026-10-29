@@ -3,16 +3,18 @@
 #include "neo/util/Logging.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <fcntl.h>
+#include <format>
 #include <limits>
 #include <span>
 #include <string>
 #include <string_view>
-#include <system_error>
 
 #include <sys/stat.h>
 
@@ -28,6 +30,66 @@
 
 #include <sys/types.h>
 #endif
+
+namespace neo_cppjieba::detail::platform {
+
+// Category of an operating-system error code, mirroring std::generic_category and std::system_category.
+enum class ErrorCategory : uint8_t { Generic, System };
+
+// An operating-system error code whose text is produced only while a diagnostic is formatted.
+struct ErrorMessage {
+    ErrorCategory category;
+    int code;
+};
+
+// Capacity for one error description; longer platform text is truncated.
+inline constexpr auto kErrorMessageCapacity = size_t{256};
+
+#ifndef _WIN32
+// GNU strerror_r returns the message, which may be a static string rather than the buffer.
+inline auto strerror_text(const char *message, std::span<const char> /*buffer*/) noexcept -> std::string_view {
+    return message;
+}
+
+// XSI strerror_r fills the buffer and returns zero on success.
+inline auto strerror_text(int status, std::span<const char> buffer) noexcept -> std::string_view {
+    return status == 0 ? std::string_view{buffer.data()} : std::string_view{"Unknown error"};
+}
+#endif
+
+// Write the platform text for an error code into the buffer without allocating; the view borrows the buffer.
+inline auto error_message_text(const ErrorMessage &error, std::span<char, kErrorMessageCapacity> buffer) noexcept
+    -> std::string_view {
+#ifdef _WIN32
+    if (error.category == ErrorCategory::System) {
+        const auto length = ::FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr,
+                                             static_cast<DWORD>(error.code), 0, buffer.data(),
+                                             static_cast<DWORD>(buffer.size()), nullptr);
+        // FormatMessage ends system text with a line break, but diagnostics embed it in one line.
+        const auto text = std::string_view{buffer.data(), length};
+        const auto end = text.find_last_not_of(" \r\n");
+        return end == std::string_view::npos ? std::string_view{"Unknown error"} : text.substr(0, end + 1);
+    }
+    return ::strerror_s(buffer.data(), buffer.size(), error.code) == 0 ? std::string_view{buffer.data()}
+                                                                       : std::string_view{"Unknown error"};
+#else
+    // POSIX reports both categories through errno values.
+    return strerror_text(::strerror_r(error.code, buffer.data(), buffer.size()), buffer);
+#endif
+}
+
+} // namespace neo_cppjieba::detail::platform
+
+// Format error text straight into the diagnostic, so failed checks need no owning string for it.
+template <>
+struct std::formatter<neo_cppjieba::detail::platform::ErrorMessage> : std::formatter<std::string_view> {
+    template <typename FormatContext>
+    auto format(const neo_cppjieba::detail::platform::ErrorMessage &error, FormatContext &context) const {
+        auto buffer = std::array<char, neo_cppjieba::detail::platform::kErrorMessageCapacity>{};
+        return std::formatter<std::string_view>::format(
+            neo_cppjieba::detail::platform::error_message_text(error, buffer), context);
+    }
+};
 
 namespace neo_cppjieba::detail::platform {
 
@@ -53,9 +115,8 @@ inline auto file_timestamps(int fd, std::string_view path) -> FILE_BASIC_INFO {
     auto info = FILE_BASIC_INFO{};
     const auto handle = reinterpret_cast<HANDLE>(::_get_osfhandle(fd));
     const auto result = ::GetFileInformationByHandleEx(handle, FileBasicInfo, &info, sizeof(info));
-    check(result != 0, "FileBuffer: failed to read file timestamps: {}: {}", path, [error = ::GetLastError()] {
-        return std::error_code{static_cast<int>(error), std::system_category()}.message();
-    });
+    check(result != 0, "FileBuffer: failed to read file timestamps: {}: {}", path,
+          ErrorMessage{ErrorCategory::System, static_cast<int>(::GetLastError())});
     return info;
 }
 #endif
@@ -82,9 +143,8 @@ inline auto read_file_contents(int fd, std::span<char> destination, std::string_
         // ReadFile reports access errors without invoking the CRT invalid-parameter handler.
         const auto result = ::ReadFile(reinterpret_cast<HANDLE>(::_get_osfhandle(fd)), destination.data() + offset,
                                        static_cast<DWORD>(count), &bytes_read, nullptr);
-        check(result != 0, "FileBuffer: failed to read file: {}: {}", path, [error = ::GetLastError()] {
-            return std::error_code{static_cast<int>(error), std::system_category()}.message();
-        });
+        check(result != 0, "FileBuffer: failed to read file: {}: {}", path,
+              ErrorMessage{ErrorCategory::System, static_cast<int>(::GetLastError())});
 #else
         const auto count =
             std::min(destination.size() - offset, static_cast<size_t>(std::numeric_limits<ssize_t>::max()));
@@ -94,7 +154,7 @@ inline auto read_file_contents(int fd, std::span<char> destination, std::string_
             continue;
         }
         check(bytes_read >= 0, "FileBuffer: failed to read file: {}: {}", path,
-              [error] { return std::error_code{error, std::generic_category()}.message(); });
+              ErrorMessage{ErrorCategory::Generic, error});
 #endif
         check(bytes_read != 0, "FileBuffer: unexpected EOF (file may have been truncated): {}: read {} of {} bytes",
               path, offset, destination.size());
@@ -118,8 +178,7 @@ inline auto open_file(std::string_view path) -> int {
     const auto fd = ::open(null_terminated_path.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
 #endif
 
-    check(fd != -1, "FileBuffer: failed to open file: {}: {}", path,
-          [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+    check(fd != -1, "FileBuffer: failed to open file: {}: {}", path, ErrorMessage{ErrorCategory::Generic, errno});
     return fd;
 }
 
@@ -155,8 +214,7 @@ inline auto file_metadata(int fd, std::string_view path, FileReadPhase phase) ->
     const auto stat_result = ::fstat(fd, &st);
 #endif
     check(stat_result == 0, "FileBuffer: failed to stat file{}: {}: {}",
-          phase == FileReadPhase::AfterRead ? " after reading" : "", path,
-          [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+          phase == FileReadPhase::AfterRead ? " after reading" : "", path, ErrorMessage{ErrorCategory::Generic, errno});
 #ifdef _WIN32
     const auto regular = (st.st_mode & _S_IFMT) == _S_IFREG;
     if (!regular) {
@@ -246,9 +304,8 @@ inline auto write_file_contents(int fd, std::span<const std::byte> source, std::
         auto bytes_written = DWORD{0};
         const auto result = ::WriteFile(reinterpret_cast<HANDLE>(::_get_osfhandle(fd)), source.data() + offset,
                                         static_cast<DWORD>(count), &bytes_written, nullptr);
-        check(result != 0, "FileReplace: failed to write file: {}: {}", path, [error = ::GetLastError()] {
-            return std::error_code{static_cast<int>(error), std::system_category()}.message();
-        });
+        check(result != 0, "FileReplace: failed to write file: {}: {}", path,
+              ErrorMessage{ErrorCategory::System, static_cast<int>(::GetLastError())});
 #else
         const auto count = std::min(source.size() - offset, static_cast<size_t>(std::numeric_limits<ssize_t>::max()));
         const auto bytes_written = ::write(fd, source.data() + offset, count);
@@ -257,7 +314,7 @@ inline auto write_file_contents(int fd, std::span<const std::byte> source, std::
             continue;
         }
         check(bytes_written >= 0, "FileReplace: failed to write file: {}: {}", path,
-              [error] { return std::error_code{error, std::generic_category()}.message(); });
+              ErrorMessage{ErrorCategory::Generic, error});
 #endif
         check(bytes_written != 0, "FileReplace: writing made no progress: {}", path);
         offset += static_cast<size_t>(bytes_written);
@@ -269,9 +326,8 @@ inline auto sync_file(int fd, std::string_view path) -> void {
     assert_check([fd] { return fd >= 0; }, "FileReplace: invalid internal file descriptor");
 #ifdef _WIN32
     const auto result = ::FlushFileBuffers(reinterpret_cast<HANDLE>(::_get_osfhandle(fd)));
-    check(result != 0, "FileReplace: failed to flush file: {}: {}", path, [error = ::GetLastError()] {
-        return std::error_code{static_cast<int>(error), std::system_category()}.message();
-    });
+    check(result != 0, "FileReplace: failed to flush file: {}: {}", path,
+          ErrorMessage{ErrorCategory::System, static_cast<int>(::GetLastError())});
 #else
 #ifdef __APPLE__
     // Apple's fsync leaves data in the drive cache; F_FULLFSYNC flushes it where the file system supports it.
@@ -283,8 +339,7 @@ inline auto sync_file(int fd, std::string_view path) -> void {
     while (result == -1 && errno == EINTR) {
         result = ::fsync(fd);
     }
-    check(result == 0, "FileReplace: failed to flush file: {}: {}", path,
-          [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+    check(result == 0, "FileReplace: failed to flush file: {}: {}", path, ErrorMessage{ErrorCategory::Generic, errno});
 #endif
 }
 
@@ -293,12 +348,11 @@ inline auto sync_file(int fd, std::string_view path) -> void {
 inline auto rename_over(const NativePath &from, const NativePath &to, std::string_view path) -> void {
 #ifdef _WIN32
     const auto result = ::MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
-    check(result != 0, "FileReplace: failed to replace file: {}: {}", path, [error = ::GetLastError()] {
-        return std::error_code{static_cast<int>(error), std::system_category()}.message();
-    });
+    check(result != 0, "FileReplace: failed to replace file: {}: {}", path,
+          ErrorMessage{ErrorCategory::System, static_cast<int>(::GetLastError())});
 #else
     check(std::rename(from.c_str(), to.c_str()) == 0, "FileReplace: failed to replace file: {}: {}", path,
-          [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+          ErrorMessage{ErrorCategory::Generic, errno});
 #endif
 }
 
@@ -312,12 +366,12 @@ inline auto sync_directory(std::string_view directory, std::string_view path) ->
     const auto null_terminated_directory = std::string{directory};
     const auto fd = ::open(null_terminated_directory.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY);
     check(fd != -1, "FileReplace: replaced {} but could not open its directory to sync it: {}", path,
-          [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+          ErrorMessage{ErrorCategory::Generic, errno});
     const auto result = ::fsync(fd);
     const auto error = errno;
     close_file_descriptor(fd);
     check(result == 0 || error == EINVAL, "FileReplace: replaced {} but failed to sync its directory: {}", path,
-          [error] { return std::error_code{error, std::generic_category()}.message(); });
+          ErrorMessage{ErrorCategory::Generic, error});
 #endif
 }
 

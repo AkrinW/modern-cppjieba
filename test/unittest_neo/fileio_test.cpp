@@ -9,13 +9,16 @@
 
 #include "test_paths.h"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <ios>
 #include <iterator>
@@ -338,8 +341,33 @@ TEST_F(FileBufferTest, MissingFileReportsPathAndSystemError) {
     } catch (const LogConfig::Exception &error) {
         const auto message = std::string_view{error.what()};
         EXPECT_NE(message.find(path), std::string_view::npos);
-        EXPECT_NE(message.find(std::error_code{ENOENT, std::generic_category()}.message()), std::string_view::npos);
+        EXPECT_NE(message.find(std::format("{}", platform::ErrorMessage{platform::ErrorCategory::Generic, ENOENT})),
+                  std::string_view::npos);
     }
+}
+
+TEST(ErrorMessageTest, GenericCodeFormatsStandardErrorText) {
+    const auto text = std::format("{}", platform::ErrorMessage{platform::ErrorCategory::Generic, ENOENT});
+    const auto expected = std::error_code{ENOENT, std::generic_category()}.message();
+    // Standard library category text may differ from the C library text in letter case.
+    EXPECT_TRUE(std::ranges::equal(text, expected, [](char left, char right) {
+        return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right));
+    })) << text;
+}
+
+TEST(ErrorMessageTest, SystemCodeFormatsSingleLineText) {
+#ifdef _WIN32
+    const auto code = static_cast<int>(ERROR_FILE_NOT_FOUND);
+#else
+    const auto code = ENOENT;
+#endif
+    const auto text = std::format("{}", platform::ErrorMessage{platform::ErrorCategory::System, code});
+    EXPECT_FALSE(text.empty());
+    EXPECT_EQ(text.find_first_of("\r\n"), std::string::npos);
+}
+
+TEST(ErrorMessageTest, UnknownCodeStillFormatsText) {
+    EXPECT_FALSE(std::format("{}", platform::ErrorMessage{platform::ErrorCategory::Generic, 987654}).empty());
 }
 
 TEST_F(FileBufferTest, RejectsEmbeddedNullInsteadOfOpeningPathPrefix) {

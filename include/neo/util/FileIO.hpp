@@ -15,7 +15,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 
 namespace neo_cppjieba::detail {
@@ -66,7 +65,7 @@ public:
         // On Linux close releases the descriptor even on EINTR; never retry a possibly reused descriptor.
         const auto close_result = detail::platform::close_file_descriptor(std::exchange(fd_, -1));
         check(close_result == 0, "FileBuffer: failed to close file: {}: {}", path,
-              [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+              detail::platform::ErrorMessage{detail::platform::ErrorCategory::Generic, errno});
     }
 
     ~FileBuffer() noexcept {
@@ -146,7 +145,7 @@ public:
             }
             const auto error = errno;
             check(error == EEXIST, "FileReplace: failed to create a temporary file: {}: {}", path_,
-                  [error] { return std::error_code{error, std::generic_category()}.message(); });
+                  detail::platform::ErrorMessage{detail::platform::ErrorCategory::Generic, error});
         }
         check(false, "FileReplace: found no unused temporary file name beside {}", destination.name);
     }
@@ -172,7 +171,7 @@ public:
         // On Linux close releases the descriptor even on EINTR; never retry a possibly reused descriptor.
         const auto close_result = detail::platform::close_file_descriptor(std::exchange(fd_, -1));
         check(close_result == 0, "FileReplace: failed to close file: {}: {}", path_,
-              [error = errno] { return std::error_code{error, std::generic_category()}.message(); });
+              detail::platform::ErrorMessage{detail::platform::ErrorCategory::Generic, errno});
         detail::platform::rename_over(native_, destination, path);
         native_.clear(); // The file now lives under the destination name.
     }
