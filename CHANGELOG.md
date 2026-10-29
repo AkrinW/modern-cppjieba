@@ -21,6 +21,9 @@
 - `Jieba` 支持运行时就地增删词：`add_word`、`add_word_with_freq`、`remove_word`，权重规则与用户词典一致，
   库内部不加锁；`clone()` 显式复制实例用于写时复制，`compact()` 回收增删留下的存储。
   见 [运行时增删词](docs/usage.md#运行时增删词)。
+- 新增构建选项 `CPPJIEBA_BUILD_FUZZERS`（要求 Clang），构建 UTF 解码、主词典 / 用户词典 / HMM 模型解析和
+  `neo_jieba_v1_cut_utf8_owned` 的 libFuzzer 目标；CI 增加格式、clang-tidy、sanitizer、fuzz 和覆盖率检查。
+  见 [质量检查](docs/building.md#质量检查)。
 
 ### Changed
 
