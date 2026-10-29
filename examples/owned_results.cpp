@@ -1,5 +1,4 @@
 #include "neo/Jieba.hpp"
-#include "neo/Token.hpp"
 
 #include <cstdio>
 #include <exception>

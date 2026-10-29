@@ -2,13 +2,13 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
 #include "neo/Jieba.hpp"
-#include "neo/TokenView.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/Workspace.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/MPSegment.hpp"
-#include "neo/detail/SegmentScratch.hpp"
-#include "neo/detail/Trie.hpp"
+#include "neo/algorithm/MPSegment.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/DictUnit.hpp"
+#include "neo/resource/Trie.hpp"
+#include "neo/util/Unicode.hpp"
+#include "neo/workspace/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
@@ -182,13 +182,13 @@ TEST(CapacityTest, FullPreservesOverlappingWordsAtTheEightBitRuneLimit) {
 }
 
 TEST(CapacityTest, AppendedWordsPreserveTheConfiguredRuneLimit) {
-    const auto dict = DictTrie{DICT_DIR "/jieba.dict.utf8", "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_DIR "/jieba.dict.utf8", "", UserWordWeightOption::WordWeightMedian};
     const auto runes = Unicode{U'𠮷', U'😀'};
     const auto limit = std::numeric_limits<RuneIndex>::max();
     const auto pos = static_cast<RuneIndex>(limit - 2);
     auto words = std::vector<WordRange>{};
     auto scratch = detail::SegmentScratch{};
-    detail::mp_cut_append(dict, runes, words, pos, scratch);
+    detail::mp_cut_append(dict, runes, pos, words, scratch);
     ASSERT_EQ(words.size(), 2u);
     EXPECT_EQ(words.front(), (WordRange{pos, static_cast<RuneIndex>(limit - 1)}));
     EXPECT_EQ(words.back(), (WordRange{static_cast<RuneIndex>(limit - 1), limit}));
@@ -214,7 +214,7 @@ TEST(CapacityTest, DagOffsetsPreserve253OverlappingMatches) {
 }
 
 TEST(CapacityTest, MatchTraversalPreservesTheEightBitRuneEndpoint) {
-    const auto dict = DictTrie{DICT_DIR "/jieba.dict.utf8", "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_DIR "/jieba.dict.utf8", "", UserWordWeightOption::WordWeightMedian};
     auto runes = Unicode(253, U' ');
     runes.insert(runes.end(), {U'北', U'京'});
     auto ends = std::vector<RuneIndex>{};

@@ -24,7 +24,26 @@
 
 ### Changed
 
-- **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 不再保存 `Jieba`。构造函数去掉 `Jieba` 参数，选项参数须显式传入；
+- **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 只持有 IDF 和停用词，构造函数去掉选项参数；
+  `TfIdfOptions`、`TextRankOptions` 改为 `extract` / `extract_into` 在 `top_n` 之后的参数，按 `const &` 传入且不被保存，
+  `options()` 移除。`TextRankOptions::damping` 改为在每次调用入口检查。见 [关键词提取](docs/usage.md#关键词提取)。
+- **不兼容**：移除 `WordRange::to_string`，值类型不再携带编码操作；改用 `Utf::encode<CharT>(range.slice(runes))`。
+- 内部结构按角色进一步解耦，行为不变：`Workspace` 与 `KeywordWorkspace` 都经唯一的 `detail` 访问点拆包，
+  关键词状态按算法分组；回调参数都有 concept，算法积木的参数按统一签名顺序排列；`Trie`、`DictTrie` 去掉解码字符串的
+  查询重载；`DictTrie` 的 `UserWordWeightOption` 移到 `options/`，不再用默认参数。见 [设计原则](docs/design.md)。
+- **不兼容**：头文件按角色重新组织。`include/neo/` 一级目录只保留门面 `Jieba.hpp`、`KeywordExtractor.hpp`、
+  `Utf.hpp`（原 `Unicode.hpp`），编译期配置 `Config.hpp`，以及新增的前向声明头 `Fwd.hpp`；其余头文件按角色移入
+  `value/`、`options/`、`workspace/`、`concept/`、`resource/`、`algorithm/`、`util/`，原 `detail/` 目录取消，
+  `Traits.hpp` 改为 `concept/Text.hpp`，`Token.hpp` 并入 `value/Tokens.hpp`。命名空间不变；用户代码只 include
+  一级目录的头文件。见 [设计原则·目录](docs/design.md#目录)。
+- 公开 API 收缩到门面、结果类型、配置、上下文和输入 concept：Unicode 工具改为 `Utf::is_valid`、`Utf::decode`、
+  `Utf::encode<CharT>`；`is_valid_utf`、`decode`、`encode`、`decode_one`、`encode_one`、`decode_with_offset*`、
+  `as_view`、`as_code_units`、`Unicode`、`Encoding`、`encoding_of`、`ByteType`、`CodeUnit` 移入 `neo_cppjieba::detail`。
+- `TfIdfExtractor`、`TextRankExtractor` 改为只能移动，复制用 `clone()`。
+- 内部分词 policy 统一为 `cut_into(dict, model, runes, out, scratch)` 并由 `SegmentPolicy` concept 约束；
+  `MPSegment::cut` 等静态便捷入口改为 `detail::cut<Policy>(dict, model, runes)`。
+
+- **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 不再保存 `Jieba`。构造函数去掉 `Jieba` 参数；
   `extract` / `extract_into` 的第一个参数改为 `const Jieba &`。见 [关键词提取](docs/usage.md#关键词提取)。
 
 - **不兼容**：词典和模型改为安装到 `share/neo_cppjieba/dict/`，避免与上游 CppJieba 的 `share/cppjieba/dict/` 冲突。
@@ -33,16 +52,16 @@
   命名空间、包名、目标和 C ABI 不变。
 - 移除 `test/testdata/` 中未使用的上游 server 配置、GBK 词典和分片词典等测试数据。
 - 词性标记表移至 [docs/pos_tags.md](docs/pos_tags.md)。
-- 整理内部架构，分词结果不变：`CutMode` 移至 `neo/CutMode.hpp`（`neo/Jieba.hpp` 仍包含它）；
-  运行时 `CutMode` 与编译期 `SegmentationStyle` 只在 `detail/Segmenter.hpp` 中分派，`Jieba` 不再分支；
+- 整理内部架构，分词结果不变：`CutMode` 移至 `neo/options/CutMode.hpp`（`neo/Jieba.hpp` 仍包含它）；
+  运行时 `CutMode` 与编译期 `SegmentationStyle` 只在 `algorithm/Segmenter.hpp` 中分派，`Jieba` 不再分支；
   CPP 风格的分隔符切分、MIX / SEARCH 共用的路由遍历各收敛为一处实现。见 [架构](docs/architecture.md)。
 - `SegmentScratch` 不再携带 DAG：分词直接匹配 Trie，`Trie::find_dag` 仅用于诊断和对照测试。
   移除仅被测试使用的 `detail::mp_cut_segment`、`mp_cut_dag`、`mp_trace_route` 和 `mp_cut_one_segment`。
-- **不兼容**：`detail/` 目录下的内部类型和函数移入 `neo_cppjieba::detail`，包括 `DictTrie`、`DictUnit`、`Trie`、
+- **不兼容**：内部类型和函数移入 `neo_cppjieba::detail`，包括 `DictTrie`、`DictUnit`、`Trie`、
   `TrieStats`、`Dag`、`HMModel`、`HMMState`、`MIN_DOUBLE`、各 `*Segment`、`FileBuffer`、`read_file` 和
   `StringUtil.hpp` 中的解析与分隔符函数。只使用 `Jieba`、结果类型和关键词提取的代码不受影响；
   直接使用内部类型的代码需加 `detail::` 限定。见 [公开边界](docs/architecture.md#公开边界)。
-- `PosTag` 和 `pos::` 常量移至公开头文件 `neo/PosTag.hpp`，命名空间不变；`neo/TaggedToken.hpp` 仍包含它。
+- `PosTag` 和 `pos::` 常量移至 `neo/value/PosTag.hpp`，命名空间不变；`neo/Jieba.hpp` 仍包含它。
 - `with_source_text` 移入 `neo_cppjieba::detail`；用户词典单字集合改用 `gtl::flat_hash_set`，
   且无单字时跳过查询。
 

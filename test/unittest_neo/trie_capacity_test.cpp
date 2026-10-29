@@ -1,13 +1,11 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/DictSource.hpp"
-#include "neo/PosTag.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/UnicodeTypes.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/Logging.hpp"
-#include "neo/detail/Trie.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/DictUnit.hpp"
+#include "neo/resource/Trie.hpp"
 #include "neo/third_party/gtl.hpp"
+#include "neo/util/Unicode.hpp"
 
 #include <array>
 #include <cstddef>
@@ -171,7 +169,7 @@ TEST(TrieCapacityTest, RuntimeWordBeyondNodeRangeThrowsWithoutChange) {
     }
     text += " 1 n\n";
     auto dict = DictTrie{DictSource::memory(text, "capacity.dict"), std::span<const DictSource>{},
-                         DictTrie::UserWordWeightOption::WordWeightMedian};
+                         UserWordWeightOption::WordWeightMedian};
     const auto first = decode(std::string_view{"甲乙"});
     const auto second = decode(std::string_view{"丙丁"});
     const auto prefix = decode(std::string_view{"中中"});

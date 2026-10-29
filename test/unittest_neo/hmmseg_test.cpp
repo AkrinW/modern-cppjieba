@@ -1,13 +1,17 @@
+#include "../SegmentTestUtils.hpp"
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/HMMSegment.hpp"
-#include "neo/detail/HMModel.hpp"
-#include "neo/detail/MixSegment.hpp"
-#include "neo/detail/QuerySegment.hpp"
-#include "neo/detail/SegmentScratch.hpp"
+#include "neo/algorithm/HMMSegment.hpp"
+#include "neo/algorithm/MixSegment.hpp"
+#include "neo/algorithm/QuerySegment.hpp"
+#include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/HMMState.hpp"
+#include "neo/resource/HMModel.hpp"
+#include "neo/util/Unicode.hpp"
+#include "neo/workspace/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
@@ -21,6 +25,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -94,6 +99,21 @@ TEST_F(HMModelTest, FetchesAllEmissionStatesForARune) {
     const auto model = HMModel{model_path()};
     EXPECT_EQ(model.get_emit_probs(U'甲'), (EmitProbabilities{-1.0, -2.0, -3.0, -4.0}));
     EXPECT_EQ(model.get_emit_probs(U'𠮷'), (EmitProbabilities{0.0, MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE}));
+}
+
+TEST_F(HMModelTest, CloneKeepsEveryProbability) {
+    static_assert(!std::is_copy_constructible_v<HMModel> && std::is_nothrow_move_constructible_v<HMModel>);
+    const auto model = HMModel{model_path()};
+    const auto copy = model.clone();
+    constexpr auto states = std::array{HMMState::B, HMMState::E, HMMState::M, HMMState::S};
+    for (const auto from : states) {
+        EXPECT_EQ(copy.get_start_prob(from), model.get_start_prob(from));
+        for (const auto to : states) {
+            EXPECT_EQ(copy.get_trans_prob(from, to), model.get_trans_prob(from, to));
+        }
+    }
+    EXPECT_EQ(copy.get_emit_probs(U'甲'), model.get_emit_probs(U'甲'));
+    EXPECT_EQ(copy.get_emit_probs(U'𠮷'), model.get_emit_probs(U'𠮷'));
 }
 
 TEST_F(HMModelTest, MissingEmissionsRemainIndependentForEachState) {
@@ -282,7 +302,7 @@ TEST_F(HMModelTest, MissingRunesUseTheExistingFallback) {
 TEST_F(HMModelTest, UnknownRunesStillProduceContiguousRanges) {
     const auto model = HMModel{model_path()};
     const auto runes = decode("外𠀀");
-    const auto ranges = HMMSegment::cut(model, runes);
+    const auto ranges = cut<HMMSegment>(unused_dict(), model, runes);
     EXPECT_EQ(to_strings(runes, ranges), (std::vector<std::string>{"外", "𠀀"}));
 }
 
@@ -294,9 +314,11 @@ TEST_F(HMModelTest, ViterbiSelectsTheHighestScoringCompletePath) {
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙丙");
-    EXPECT_EQ(HMMSegment::cut(model, std::span<const Rune>{runes}.first(1)), (std::vector<WordRange>{{0, 1}}));
-    EXPECT_EQ(HMMSegment::cut(model, std::span<const Rune>{runes}.first(2)), (std::vector<WordRange>{{0, 2}}));
-    EXPECT_EQ(HMMSegment::cut(model, runes), (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}}));
+    EXPECT_EQ(cut<HMMSegment>(unused_dict(), model, std::span<const Rune>{runes}.first(1)),
+              (std::vector<WordRange>{{0, 1}}));
+    EXPECT_EQ(cut<HMMSegment>(unused_dict(), model, std::span<const Rune>{runes}.first(2)),
+              (std::vector<WordRange>{{0, 2}}));
+    EXPECT_EQ(cut<HMMSegment>(unused_dict(), model, runes), (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}}));
 }
 
 TEST_F(HMModelTest, ViterbiKeepsTheFirstPredecessorWhenScoresTie) {
@@ -307,7 +329,7 @@ TEST_F(HMModelTest, ViterbiKeepsTheFirstPredecessorWhenScoresTie) {
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(HMMSegment::cut(model, runes), (std::vector<WordRange>{{0, 2}}));
+    EXPECT_EQ(cut<HMMSegment>(unused_dict(), model, runes), (std::vector<WordRange>{{0, 2}}));
 }
 
 TEST_F(HMModelTest, ViterbiPrefersEndStateWhenFinalScoresTie) {
@@ -318,7 +340,7 @@ TEST_F(HMModelTest, ViterbiPrefersEndStateWhenFinalScoresTie) {
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(HMMSegment::cut(model, runes), (std::vector<WordRange>{{0, 2}}));
+    EXPECT_EQ(cut<HMMSegment>(unused_dict(), model, runes), (std::vector<WordRange>{{0, 2}}));
 }
 
 TEST_F(HMModelTest, ViterbiPreservesWordBoundariesAcrossLongRuns) {
@@ -339,10 +361,10 @@ TEST_F(HMModelTest, ViterbiPreservesWordBoundariesAcrossLongRuns) {
         runes.push_back(U'乙');
         expected.push_back({2 * i, 2 * i + 2});
     }
-    EXPECT_EQ(HMMSegment::cut(model, runes), expected);
+    EXPECT_EQ(cut<HMMSegment>(unused_dict(), model, runes), expected);
     runes.push_back(U'𠮷');
     expected.push_back({2 * pair_count, 2 * pair_count + 1});
-    EXPECT_EQ(HMMSegment::cut(model, runes), expected);
+    EXPECT_EQ(cut<HMMSegment>(unused_dict(), model, runes), expected);
 }
 
 TEST_F(HMModelTest, ViterbiReconstructsLongWordsAndSingletonsAcrossAllStates) {
@@ -369,17 +391,17 @@ TEST_F(HMModelTest, ViterbiReconstructsLongWordsAndSingletonsAcrossAllStates) {
         expected.push_back({5 * i, 5 * i + 4});
         expected.push_back({5 * i + 4, 5 * i + 5});
     }
-    EXPECT_EQ(HMMSegment::cut(model, runes), expected);
+    EXPECT_EQ(cut<HMMSegment>(unused_dict(), model, runes), expected);
     runes.pop_back();
     expected.pop_back();
-    EXPECT_EQ(HMMSegment::cut(model, runes), expected);
+    EXPECT_EQ(cut<HMMSegment>(unused_dict(), model, runes), expected);
 }
 
 TEST_F(HMModelTest, ViterbiKeepsRuneOffsetsAcrossAsciiAndSeparatorBoundaries) {
     const auto model = HMModel{model_path()};
     const auto runes = decode("前AB12甲甲甲，3.14甲甲后");
     const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
-    const auto result = HMMSegment::cut(model, input);
+    const auto result = cut<HMMSegment>(unused_dict(), model, input);
 
     EXPECT_EQ(to_strings(input, result), (std::vector<std::string>{"AB12", "甲甲甲", "，", "3.14", "甲甲"}));
     EXPECT_EQ(result, (std::vector<WordRange>{{0, 4}, {4, 7}, {7, 8}, {8, 12}, {12, 14}}));
@@ -400,7 +422,7 @@ TEST_F(HMModelTest, ViterbiPreservesLegacyFallbackBelowMinimumInitialProbability
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲", "乙"}));
+    EXPECT_EQ(to_strings(runes, cut<HMMSegment>(unused_dict(), model, runes)), (std::vector<std::string>{"甲", "乙"}));
 }
 
 TEST_F(HMModelTest, ViterbiPreservesLegacyFloorForAccumulatedProbabilities) {
@@ -418,7 +440,8 @@ TEST_F(HMModelTest, ViterbiPreservesLegacyFloorForAccumulatedProbabilities) {
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙丙丁");
-    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲乙", "丙", "丁"}));
+    EXPECT_EQ(to_strings(runes, cut<HMMSegment>(unused_dict(), model, runes)),
+              (std::vector<std::string>{"甲乙", "丙", "丁"}));
 }
 
 TEST_F(HMModelTest, StoredMinimumEmissionPreservesLegacyFallback) {
@@ -436,7 +459,7 @@ TEST_F(HMModelTest, StoredMinimumEmissionPreservesLegacyFallback) {
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙");
-    EXPECT_EQ(to_strings(runes, HMMSegment::cut(model, runes)), (std::vector<std::string>{"甲", "乙"}));
+    EXPECT_EQ(to_strings(runes, cut<HMMSegment>(unused_dict(), model, runes)), (std::vector<std::string>{"甲", "乙"}));
 }
 
 TEST_F(HMModelTest, UnknownRunesPreserveLegacyStateInHmmMixAndSearch) {
@@ -453,17 +476,17 @@ TEST_F(HMModelTest, UnknownRunesPreserveLegacyStateInHmmMixAndSearch) {
         output.close();
         ASSERT_TRUE(output.good());
     }
-    const auto dict = DictTrie{dict_path.string(), "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{dict_path.string(), "", UserWordWeightOption::WordWeightMedian};
     const auto model = HMModel{model_path()};
     const auto runes = decode("甲乙𠀀甲乙，外甲乙A12");
-    const auto words = HMMSegment::cut(model, runes);
+    const auto words = cut<HMMSegment>(unused_dict(), model, runes);
     const auto expected =
         std::vector<WordRange>{{0, 2}, {2, 3}, {3, 4}, {4, 5}, {5, 6}, {6, 7}, {7, 8}, {8, 9}, {9, 12}};
     EXPECT_EQ(to_strings(runes, words),
               (std::vector<std::string>{"甲乙", "𠀀", "甲", "乙", "，", "外", "甲", "乙", "A12"}));
     EXPECT_EQ(words, expected);
-    EXPECT_EQ(MixSegment<true>::cut(dict, model, runes), expected);
-    EXPECT_EQ(QuerySegment<true>::cut(dict, model, runes), expected);
+    EXPECT_EQ(cut<MixSegment<true>>(dict, model, runes), expected);
+    EXPECT_EQ(cut<QuerySegment<true>>(dict, model, runes), expected);
 }
 
 TEST_F(HMModelTest, HmmSegmentationPreservesOffsetsAtWordRangeLimit) {
@@ -472,7 +495,7 @@ TEST_F(HMModelTest, HmmSegmentationPreservesOffsetsAtWordRangeLimit) {
     constexpr auto limit = std::numeric_limits<RuneIndex>::max();
     auto words = std::vector<WordRange>{};
     auto scratch = detail::SegmentScratch{};
-    detail::hmm_cut_append(model, runes, words, limit - 4, scratch);
+    detail::hmm_cut_append(model, runes, limit - 4, words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{limit - 4, limit - 2}, {limit - 2, limit - 1}, {limit - 1, limit}}));
 }
 
@@ -491,7 +514,7 @@ TEST_F(HMModelTest, ReusedViterbiRowsKeepCurrentBoundariesAfterGrowth) {
 
     // Equal scores select B predecessors and a final E, forming one word over the active input.
     for (const auto input : inputs) {
-        HMMSegment::cut_into(model, std::span<const Rune>{input.data(), input.size()}, words, scratch);
+        HMMSegment::cut_into(unused_dict(), model, std::span<const Rune>{input.data(), input.size()}, words, scratch);
         if (input.empty()) {
             EXPECT_TRUE(words.empty());
         } else {
@@ -501,14 +524,14 @@ TEST_F(HMModelTest, ReusedViterbiRowsKeepCurrentBoundariesAfterGrowth) {
 
     // Missing emissions must overwrite those predecessors with the legacy E fallback.
     constexpr auto missing = std::u32string_view{U"乙😀"};
-    HMMSegment::cut_into(model, std::span<const Rune>{missing.data(), missing.size()}, words, scratch);
+    HMMSegment::cut_into(unused_dict(), model, std::span<const Rune>{missing.data(), missing.size()}, words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{0, 1}, {1, 2}}));
 }
 
 TEST(HMMSegmentTest, EmptyInput) {
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = Unicode{};
-    auto result = HMMSegment::cut(model, std::span<const Rune>{runes});
+    auto result = cut<HMMSegment>(unused_dict(), model, std::span<const Rune>{runes});
     EXPECT_TRUE(result.empty());
 }
 
@@ -516,7 +539,7 @@ TEST(HMMSegmentTest, ChineseWithPunctuation) {
     auto model = HMModel{HMM_MODEL_FILE};
     auto sentence = std::string{"我来自北京邮电大学。。。学号123456"};
     auto runes = decode(sentence);
-    auto result = HMMSegment::cut(model, runes);
+    auto result = cut<HMMSegment>(unused_dict(), model, runes);
     auto words = to_strings(runes, result);
     auto expected = std::vector<std::string>{"我来", "自北京", "邮电大学", "。", "。", "。", "学号", "123456"};
     EXPECT_EQ(words, expected) << "got: " << join(words);
@@ -526,7 +549,7 @@ TEST(HMMSegmentTest, ASCIIWithCommas) {
     auto model = HMModel{HMM_MODEL_FILE};
     auto sentence = std::string{"IBM,1.2,123"};
     auto runes = decode(sentence);
-    auto result = HMMSegment::cut(model, runes);
+    auto result = cut<HMMSegment>(unused_dict(), model, runes);
     auto words = to_strings(runes, result);
     auto expected = std::vector<std::string>{"IBM", ",", "1.2", ",", "123"};
     EXPECT_EQ(words, expected) << "got: " << join(words);
@@ -536,7 +559,7 @@ TEST(HMMSegmentTest, PureChinese) {
     auto model = HMModel{HMM_MODEL_FILE};
     auto sentence = std::string{"我来自北京邮电大学"};
     auto runes = decode(sentence);
-    auto ranges = HMMSegment::cut(model, runes);
+    auto ranges = cut<HMMSegment>(unused_dict(), model, runes);
     auto words = to_strings(std::span<const Rune>{runes}, ranges);
     EXPECT_FALSE(words.empty());
     auto reconstructed = std::string{};
@@ -549,7 +572,7 @@ TEST(HMMSegmentTest, PureChinese) {
 TEST(HMMSegmentTest, SingleCharacter) {
     auto model = HMModel{HMM_MODEL_FILE};
     auto runes = decode(std::string_view{"我"});
-    auto result = HMMSegment::cut(model, runes);
+    auto result = cut<HMMSegment>(unused_dict(), model, runes);
     auto words = to_strings(runes, result);
     ASSERT_EQ(words.size(), 1);
     EXPECT_EQ(words[0], "我");
@@ -559,7 +582,7 @@ TEST(HMMSegmentTest, PureASCII) {
     auto model = HMModel{HMM_MODEL_FILE};
     auto sentence = std::string{"Hello123World"};
     auto runes = decode(sentence);
-    auto result = HMMSegment::cut(model, runes);
+    auto result = cut<HMMSegment>(unused_dict(), model, runes);
     auto words = to_strings(runes, result);
     EXPECT_FALSE(words.empty());
     auto reconstructed = std::string{};

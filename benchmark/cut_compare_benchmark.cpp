@@ -1,6 +1,5 @@
 #include "cppjieba/Jieba.hpp"
 #include "neo/Jieba.hpp"
-#include "neo/Workspace.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "RustJiebaCapi.hpp"

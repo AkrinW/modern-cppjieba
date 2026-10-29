@@ -4,7 +4,7 @@
 ///   - to_strings : convert WordRange vector to UTF-8 string vector
 ///   - join       : concatenate strings with a separator
 
-#include "neo/Unicode.hpp"
+#include "neo/Utf.hpp"
 
 #include <cstddef>
 #include <filesystem>
@@ -45,7 +45,7 @@ inline auto to_strings(std::span<const neo_cppjieba::Rune> runes, const std::vec
     auto result = std::vector<std::string>{};
     result.reserve(ranges.size());
     for (auto &&r : ranges) {
-        result.push_back(neo_cppjieba::encode(runes.subspan(r.begin, r.size())));
+        result.push_back(neo_cppjieba::Utf::encode<char>(runes.subspan(r.begin, r.size())));
     }
     return result;
 }

@@ -5,10 +5,12 @@
 /// implementations (`cut_with_mix_dag`, `cut_with_inline_dag`) produce
 /// identical output, then compares their throughput.
 
-#include "neo/Unicode.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/HMModel.hpp"
-#include "neo/detail/QuerySegment.hpp"
+#include "neo/Utf.hpp"
+#include "neo/algorithm/QuerySegment.hpp"
+#include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/HMModel.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "QuerySegmentCompare.hpp"
@@ -54,7 +56,7 @@ static auto print_report(const BenchResult &r) -> void {
 }
 
 template <typename CutFn>
-static auto bench(const char *label, const CutFn &fn, const std::vector<neo_cppjieba::Unicode> &all_unicodes,
+static auto bench(const char *label, const CutFn &fn, const std::vector<neo_cppjieba::detail::Unicode> &all_unicodes,
                   size_t total_runes, size_t rounds) -> BenchResult {
     auto n = all_unicodes.size();
 
@@ -108,18 +110,18 @@ auto main(int argc, char *argv[]) -> int {
     }
     std::printf("Loaded %zu lines (%zu bytes UTF-8)\n", lines.size(), total_bytes);
 
-    auto all_unicodes = std::vector<neo::Unicode>{};
+    auto all_unicodes = std::vector<neo::detail::Unicode>{};
     all_unicodes.reserve(lines.size());
     auto total_runes = size_t{0};
     for (auto &line : lines) {
-        all_unicodes.push_back(neo::decode(line));
+        all_unicodes.push_back(neo::Utf::decode(line));
         total_runes += all_unicodes.back().size();
     }
     std::printf("Decoded %zu runes total\n\n", total_runes);
 
     std::printf("Loading Neo dictionary/model ...\n");
     auto t0 = Clock::now();
-    auto dict = neo::detail::DictTrie{dict_path};
+    auto dict = neo::detail::DictTrie{dict_path, "", neo::detail::UserWordWeightOption::WordWeightMedian};
     auto model = neo::detail::HMModel{model_path};
     auto t1 = Clock::now();
     std::printf("Loaded in %.2f ms\n\n", Ms(t1 - t0).count());
@@ -129,11 +131,11 @@ auto main(int argc, char *argv[]) -> int {
     for (auto i = size_t{0}; i < all_unicodes.size(); ++i) {
         auto baseline_result = neo::test::query_cut_requery(dict, model, all_unicodes[i]);
         auto buffered_result = neo::test::query_cut_buffered_dag(dict, model, all_unicodes[i]);
-        auto inline_result = neo::detail::QuerySegment<>::cut(dict, model, all_unicodes[i]);
+        auto inline_result = neo::detail::cut<neo::detail::QuerySegment<>>(dict, model, all_unicodes[i]);
         if (baseline_result != buffered_result || baseline_result != inline_result) {
             ++mismatch;
             if (mismatch <= 3) {
-                auto input = neo::encode(all_unicodes[i]);
+                auto input = neo::Utf::encode<char>(all_unicodes[i]);
                 std::printf("  MISMATCH line %zu: \"%.*s\"\n", i, static_cast<int>(std::min(input.size(), size_t{80})),
                             input.data());
             }
@@ -147,20 +149,22 @@ auto main(int argc, char *argv[]) -> int {
 
     auto baseline = bench(
         "QuerySegment baseline (Mix + dict.find 2/3-gram)",
-        [&](const neo::Unicode &runes) { return neo::test::query_cut_requery(dict, model, runes); }, all_unicodes,
-        total_runes, ROUNDS);
+        [&](const neo::detail::Unicode &runes) { return neo::test::query_cut_requery(dict, model, runes); },
+        all_unicodes, total_runes, ROUNDS);
     print_report(baseline);
 
     auto buffered = bench(
         "QuerySegment DAG reuse (buffered Mix DAG + edge lookup)",
-        [&](const neo::Unicode &runes) { return neo::test::query_cut_buffered_dag(dict, model, runes); }, all_unicodes,
-        total_runes, ROUNDS);
+        [&](const neo::detail::Unicode &runes) { return neo::test::query_cut_buffered_dag(dict, model, runes); },
+        all_unicodes, total_runes, ROUNDS);
     print_report(buffered);
 
     auto inline_reuse = bench(
         "QuerySegment DAG reuse (inline segment consume)",
-        [&](const neo::Unicode &runes) { return neo::detail::QuerySegment<>::cut(dict, model, runes); }, all_unicodes,
-        total_runes, ROUNDS);
+        [&](const neo::detail::Unicode &runes) {
+            return neo::detail::cut<neo::detail::QuerySegment<>>(dict, model, runes);
+        },
+        all_unicodes, total_runes, ROUNDS);
     print_report(inline_reuse);
 
     std::printf("══════════════════════════════════════════════════════\n");

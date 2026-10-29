@@ -2,8 +2,6 @@
 
 #include "neo/Config.hpp"
 #include "neo/Jieba.hpp"
-#include "neo/TokenView.hpp"
-#include "neo/Workspace.hpp"
 
 #include <algorithm>
 #include <cstddef>

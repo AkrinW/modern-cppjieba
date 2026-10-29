@@ -2,8 +2,10 @@
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/detail/FileIO.hpp"
-#include "neo/detail/StringUtil.hpp"
+#include "neo/algorithm/Separator.hpp"
+#include "neo/util/FileIO.hpp"
+#include "neo/util/FilePlatform.hpp"
+#include "neo/util/StringUtil.hpp"
 
 #include "test_paths.h"
 

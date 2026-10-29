@@ -1,10 +1,13 @@
+#include "../SegmentTestUtils.hpp"
 #include "../TestUtils.hpp"
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/MPSegment.hpp"
-#include "neo/detail/SegmentScratch.hpp"
+#include "neo/algorithm/MPSegment.hpp"
+#include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/util/Unicode.hpp"
+#include "neo/workspace/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
@@ -20,26 +23,26 @@ using namespace neo_cppjieba::detail;
 inline constexpr auto DICT_FILE = std::string_view{DICT_DIR "/jieba.dict.utf8"};
 
 TEST(MPSegmentTest, EmptyInput) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = Unicode{};
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
     EXPECT_TRUE(result.empty());
 }
 
 TEST(MPSegmentTest, SingleChar) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"我"});
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
     ASSERT_EQ(words.size(), 1);
     EXPECT_EQ(words[0], "我");
 }
 
 TEST(MPSegmentTest, ClassicSentence) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto sentence = std::string_view{"我来自北京邮电大学"};
     auto runes = decode(sentence);
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     auto expected = std::vector<std::string>{"我", "来自", "北京邮电大学"};
@@ -47,9 +50,9 @@ TEST(MPSegmentTest, ClassicSentence) {
 }
 
 TEST(MPSegmentTest, NanjingBridge) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"南京市长江大桥"});
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     auto expected = std::vector<std::string>{"南京市", "长江大桥"};
@@ -57,19 +60,19 @@ TEST(MPSegmentTest, NanjingBridge) {
 }
 
 TEST(MPSegmentTest, HunanChangsha) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"湖南长沙市天心区"});
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     EXPECT_EQ(join(words), "湖南长沙市/天心区") << "actual: " << join(words);
 }
 
 TEST(MPSegmentTest, SeparatorsAndPunctuation) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto sentence = std::string_view{"我来自北京邮电大学。"};
     auto runes = decode(sentence);
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     auto expected = std::vector<std::string>{"我", "来自", "北京邮电大学", "。"};
@@ -77,10 +80,10 @@ TEST(MPSegmentTest, SeparatorsAndPunctuation) {
 }
 
 TEST(MPSegmentTest, AppendsIndependentSegmentsWithRuneOffsets) {
-    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode(std::string_view{"甲 \t南京市长江大桥，，𠮷😀\n的了是。乙"});
     const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
-    const auto result = MPSegment::cut(dict, input);
+    const auto result = cut<MPSegment>(dict, unused_model(), input);
 
     EXPECT_EQ(to_strings(input, result), (std::vector<std::string>{" ", "\t", "南京市", "长江大桥", "，", "，", "𠮷",
                                                                    "😀", "\n", "的", "了", "是", "。"}));
@@ -100,38 +103,38 @@ TEST(MPSegmentTest, AppendsIndependentSegmentsWithRuneOffsets) {
 }
 
 TEST(MPSegmentTest, PreservesExistingOutputWhenAppendingAtTheRuneOffsetLimit) {
-    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     const auto runes = decode(std::string_view{"𠮷😀"});
     const auto pos = std::numeric_limits<RuneIndex>::max() - RuneIndex{2};
     auto result = std::vector<WordRange>{{7, 8}};
     auto scratch = detail::SegmentScratch{};
-    detail::mp_cut_append(dict, runes, result, pos, scratch);
+    detail::mp_cut_append(dict, runes, pos, result, scratch);
 
     EXPECT_EQ(result, (std::vector<WordRange>{{7, 8}, {pos, pos + 1}, {pos + 1, pos + 2}}));
 }
 
 TEST(MPSegmentTest, MixedAsciiAndChinese) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"B超 T恤"});
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     EXPECT_EQ(join(words), "B超/ /T恤") << "actual: " << join(words);
 }
 
 TEST(MPSegmentTest, UnicodeEmojiAndPunctuation) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"天气很好，🙋 我们去郊游。"});
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     EXPECT_EQ(join(words), "天气/很/好/，/🙋/ /我们/去/郊游/。") << "actual: " << join(words);
 }
 
 TEST(MPSegmentTest, WordRangeContiguous) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"小明硕士毕业于中国科学院计算所"});
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
 
     ASSERT_FALSE(result.empty());
     EXPECT_EQ(result.front().begin, 0u);
@@ -143,9 +146,9 @@ TEST(MPSegmentTest, WordRangeContiguous) {
 }
 
 TEST(MPSegmentTest, AllSingleChars) {
-    auto dict = DictTrie{DICT_FILE};
+    auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto runes = decode(std::string_view{"的了是"});
-    auto result = MPSegment::cut(dict, runes);
+    auto result = cut<MPSegment>(dict, unused_model(), runes);
     auto words = to_strings(runes, result);
 
     ASSERT_EQ(words.size(), 3);
@@ -155,21 +158,21 @@ TEST(MPSegmentTest, AllSingleChars) {
 }
 
 TEST(MPSegmentTest, ReusedOutputReplacesPreviousWordsIncludingEmptyInput) {
-    const auto dict = DictTrie{DICT_FILE, "", DictTrie::UserWordWeightOption::WordWeightMedian};
+    const auto dict = DictTrie{DICT_FILE, "", UserWordWeightOption::WordWeightMedian};
     auto scratch = detail::SegmentScratch{};
     auto words = std::vector<WordRange>{{7, 8}};
 
     const auto long_input = decode("南京市长江大桥");
-    MPSegment::cut_into(dict, long_input, words, scratch);
+    MPSegment::cut_into(dict, unused_model(), long_input, words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{0, 3}, {3, 7}}));
 
     const auto short_input = decode("𠮷，甲");
-    MPSegment::cut_into(dict, short_input, words, scratch);
+    MPSegment::cut_into(dict, unused_model(), short_input, words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{0, 1}, {1, 2}, {2, 3}}));
 
-    MPSegment::cut_into(dict, Unicode{}, words, scratch);
+    MPSegment::cut_into(dict, unused_model(), Unicode{}, words, scratch);
     EXPECT_TRUE(words.empty());
 
-    MPSegment::cut_into(dict, long_input, words, scratch);
+    MPSegment::cut_into(dict, unused_model(), long_input, words, scratch);
     EXPECT_EQ(words, (std::vector<WordRange>{{0, 3}, {3, 7}}));
 }

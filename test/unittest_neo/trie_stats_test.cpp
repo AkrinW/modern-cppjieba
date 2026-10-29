@@ -1,9 +1,12 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/detail/FileIO.hpp"
-#include "neo/detail/StringUtil.hpp"
-#include "neo/detail/Trie.hpp"
-#include "neo/detail/TrieStats.hpp"
+#include "neo/resource/Dag.hpp"
+#include "neo/resource/DictUnit.hpp"
+#include "neo/resource/Trie.hpp"
+#include "neo/resource/TrieStats.hpp"
+#include "neo/util/FileIO.hpp"
+#include "neo/util/StringUtil.hpp"
+#include "neo/util/Unicode.hpp"
 
 #include "test_paths.h"
 
@@ -39,12 +42,12 @@ TEST(TrieTest, FindsZeroWeightWordWithoutTreatingItsPrefixAsAWord) {
     auto trie = Trie{};
     trie.build(keys, values);
 
-    const auto found = trie.find("𠮷中");
+    const auto found = trie.find(decode("𠮷中"));
     ASSERT_TRUE(found.has_value());
     EXPECT_FLOAT_EQ(found.weight, 0.0f);
-    EXPECT_FALSE(trie.find("𠮷").has_value());
-    EXPECT_FALSE(trie.find("").has_value());
-    EXPECT_FALSE(trie.find("外").has_value());
+    EXPECT_FALSE(trie.find(decode("𠮷")).has_value());
+    EXPECT_FALSE(trie.find(decode("")).has_value());
+    EXPECT_FALSE(trie.find(decode("外")).has_value());
 }
 
 TEST(TrieTest, DagDistinguishesZeroWeightWordsFromUnknownRunes) {
@@ -53,7 +56,7 @@ TEST(TrieTest, DagDistinguishesZeroWeightWordsFromUnknownRunes) {
     auto trie = Trie{};
     trie.build(keys, values);
 
-    const auto dag = trie.find_dag("𠮷中外");
+    const auto dag = trie.find_dag(decode("𠮷中外"));
     const auto matches = dag.get_edges(0);
     ASSERT_EQ(matches.size(), 2u);
     EXPECT_EQ(matches[0].next_pos, 1u);
@@ -71,7 +74,7 @@ TEST(TrieTest, LastDuplicateValueAndTagWin) {
     auto trie = Trie{};
     trie.build(keys, values);
 
-    const auto found = trie.find("词条");
+    const auto found = trie.find(decode("词条"));
     ASSERT_TRUE(found.has_value());
     EXPECT_FLOAT_EQ(found.weight, -2.0f);
     EXPECT_EQ(found.tag, PosTag{"v"});
@@ -84,11 +87,11 @@ TEST(TrieTest, DuplicatePrefixCanBecomeZeroWeightWithoutLosingDescendants) {
     auto trie = Trie{};
     trie.build(keys, values);
 
-    const auto prefix = trie.find("词");
+    const auto prefix = trie.find(decode("词"));
     ASSERT_TRUE(prefix.has_value());
     EXPECT_FLOAT_EQ(prefix.weight, 0.0f);
     EXPECT_EQ(prefix.tag, PosTag{"v"});
-    const auto descendant = trie.find("词条");
+    const auto descendant = trie.find(decode("词条"));
     ASSERT_TRUE(descendant.has_value());
     EXPECT_FLOAT_EQ(descendant.weight, -2.0f);
     EXPECT_EQ(descendant.tag, PosTag{"n"});
@@ -112,14 +115,14 @@ TEST(TrieTest, PreservesPrefixValuesWhenTransitionTableGrows) {
         EXPECT_FLOAT_EQ(found.weight, values[i].weight);
         EXPECT_EQ(found.tag, values[i].tag);
     }
-    EXPECT_FALSE(trie.find("aa").has_value());
-    EXPECT_FALSE(trie.find("abc").has_value());
+    EXPECT_FALSE(trie.find(decode("aa")).has_value());
+    EXPECT_FALSE(trie.find(decode("abc")).has_value());
     EXPECT_FALSE(trie.collect_stats().to_string().empty());
 }
 
 TEST(TrieTest, EmptyTrieProducesDagWithoutEdges) {
     const auto trie = Trie{};
-    const auto dag = trie.find_dag("𠮷中");
+    const auto dag = trie.find_dag(decode("𠮷中"));
     ASSERT_EQ(dag.size(), 2u);
     EXPECT_TRUE(dag.get_edges(0).empty());
     EXPECT_TRUE(dag.get_edges(1).empty());
@@ -130,7 +133,7 @@ TEST(TrieTest, DagIncludesUnknownRunesAndMatchingPrefixes) {
     const auto values = std::vector<DictUnit>{{-1.0f, PosTag{"n"}}, {-2.0f, PosTag{"n"}}};
     auto trie = Trie{};
     trie.build(keys, values);
-    const auto dag = trie.find_dag("𠮷中外");
+    const auto dag = trie.find_dag(decode("𠮷中外"));
     ASSERT_EQ(dag.size(), 3u);
     const auto matches = dag.get_edges(0);
     ASSERT_EQ(matches.size(), 2u);
@@ -206,10 +209,10 @@ TEST(TrieTest, FindsHighFanoutChildrenAcrossUnicodeRange) {
         EXPECT_FLOAT_EQ(found.weight, values[i].weight);
         EXPECT_EQ(found.tag, values[i].tag);
     }
-    EXPECT_FALSE(trie.find("词").has_value());
-    EXPECT_FALSE(trie.find("词外").has_value());
-    EXPECT_FALSE(trie.find("𠮷").has_value());
-    EXPECT_FALSE(trie.find("词𠮷").has_value());
+    EXPECT_FALSE(trie.find(decode("词")).has_value());
+    EXPECT_FALSE(trie.find(decode("词外")).has_value());
+    EXPECT_FALSE(trie.find(decode("𠮷")).has_value());
+    EXPECT_FALSE(trie.find(decode("词𠮷")).has_value());
 }
 
 TEST(TrieTest, HighFanoutDagPreservesMatchingPrefixesAndUnknownRunes) {
@@ -266,9 +269,9 @@ TEST(TrieTest, TerminalWordsDoNotReuseRootTransitions) {
     const auto values = std::vector<DictUnit>{{0.0f, PosTag{}}, {-1.0f, PosTag{}}, {-2.0f, PosTag{}}};
     auto trie = Trie{};
     trie.build(keys, values);
-    EXPECT_FALSE(trie.find("𠮷😀").has_value());
-    EXPECT_FALSE(trie.find("中𠮷").has_value());
-    const auto dag = trie.find_dag("𠮷😀中");
+    EXPECT_FALSE(trie.find(decode("𠮷😀")).has_value());
+    EXPECT_FALSE(trie.find(decode("中𠮷")).has_value());
+    const auto dag = trie.find_dag(decode("𠮷😀中"));
     ASSERT_EQ(dag.size(), 3u);
     for (size_t i = 0; i < dag.size(); ++i) {
         const auto edges = dag.get_edges(i);
@@ -286,13 +289,13 @@ TEST(TrieTest, RebuildReplacesDirectAndHashedWords) {
     auto trie = Trie{};
     trie.build(old_keys, old_values);
     trie.build(new_keys, new_values);
-    EXPECT_FALSE(trie.find("中").has_value());
-    EXPECT_FALSE(trie.find("𠮷中").has_value());
-    EXPECT_FLOAT_EQ(trie.find("新词").weight, -2.0f);
+    EXPECT_FALSE(trie.find(decode("中")).has_value());
+    EXPECT_FALSE(trie.find(decode("𠮷中")).has_value());
+    EXPECT_FLOAT_EQ(trie.find(decode("新词")).weight, -2.0f);
     EXPECT_EQ(trie.collect_stats().value_count, 1u);
     trie.build(std::span<const Unicode>{}, std::span<const DictUnit>{});
     EXPECT_TRUE(trie.empty());
-    EXPECT_FALSE(trie.find("新词").has_value());
+    EXPECT_FALSE(trie.find(decode("新词")).has_value());
     EXPECT_EQ(trie.collect_stats().total_estimated_bytes, 0u);
 }
 
@@ -302,14 +305,14 @@ TEST(TrieTest, MovedFromTrieCanBeQueriedAndRebuilt) {
     auto source = Trie{};
     source.build(keys, values);
     const auto moved = Trie{std::move(source)};
-    EXPECT_FLOAT_EQ(moved.find("𠮷中").weight, 0.0f);
+    EXPECT_FLOAT_EQ(moved.find(decode("𠮷中")).weight, 0.0f);
     EXPECT_TRUE(source.empty());
     EXPECT_EQ(source.node_count(), 0u);
-    EXPECT_FALSE(source.find("𠮷中").has_value());
-    EXPECT_TRUE(source.find_dag("𠮷中").edges.empty());
+    EXPECT_FALSE(source.find(decode("𠮷中")).has_value());
+    EXPECT_TRUE(source.find_dag(decode("𠮷中")).edges.empty());
     EXPECT_EQ(source.collect_stats().edge_count, 0u);
     source.build(keys, values);
-    EXPECT_FLOAT_EQ(source.find("𠮷中").weight, 0.0f);
+    EXPECT_FLOAT_EQ(source.find(decode("𠮷中")).weight, 0.0f);
 }
 
 TEST(TrieTest, MoveAssignmentReplacesWordsAcrossDifferentChildCounts) {
@@ -322,14 +325,14 @@ TEST(TrieTest, MoveAssignmentReplacesWordsAcrossDifferentChildCounts) {
     destination.build(std::array{decode("旧词")}, std::array{DictUnit{.weight = -2.0f}});
     destination = std::move(source);
 
-    EXPECT_FALSE(destination.find("旧词").has_value());
+    EXPECT_FALSE(destination.find(decode("旧词")).has_value());
     for (const auto &key : keys) {
         EXPECT_FLOAT_EQ(destination.find(key).weight, -1.0f);
     }
     EXPECT_TRUE(source.empty());
-    EXPECT_FALSE(source.find("甲一").has_value());
+    EXPECT_FALSE(source.find(decode("甲一")).has_value());
     source.build(keys, values);
-    EXPECT_FLOAT_EQ(source.find("甲一乙").weight, -1.0f);
+    EXPECT_FLOAT_EQ(source.find(decode("甲一乙")).weight, -1.0f);
 }
 
 TEST(TrieTest, DagMatchesIndependentDictionaryAcrossSharedUnicodePrefixes) {
@@ -410,7 +413,7 @@ TEST(TrieStatsTest, SupplementaryRootsNeedNoBmpTable) {
     EXPECT_EQ(stats.root_table_bytes, 0u);
     EXPECT_EQ(stats.direct_root_edge_count, 0u);
     EXPECT_EQ(stats.hashed_edge_count, 1u);
-    EXPECT_FLOAT_EQ(trie.find("𠮷").weight, 0.0f);
+    EXPECT_FLOAT_EQ(trie.find(decode("𠮷")).weight, 0.0f);
 }
 
 /// Helper: load jieba.dict.utf8 and build a neo Trie.

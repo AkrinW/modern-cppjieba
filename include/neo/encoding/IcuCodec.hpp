@@ -1,11 +1,9 @@
 #pragma once
 
 #include "neo/Config.hpp"
-#include "neo/Traits.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/UnicodeTypes.hpp"
-#include "neo/detail/Logging.hpp"
-#include "neo/detail/Unicode.hpp"
+#include "neo/util/Logging.hpp"
+#include "neo/util/Unicode.hpp"
+#include "neo/value/Rune.hpp"
 
 #include <array>
 #include <cassert>
@@ -130,7 +128,10 @@ inline auto append_icu_encoded_rune(UConverter *converter, const char *name, Run
     assert(error != U_BUFFER_OVERFLOW_ERROR);
     check(U_SUCCESS(error), "{} encoding failed for U+{:X} at UTF-8 byte offset {}: {}", name,
           static_cast<uint32_t>(rune), utf8_offset, u_errorName(error));
-    assert(written > 0 && static_cast<size_t>(written) <= bytes.size());
+    // ICU's STOP callback still skips unmappable default-ignorable scalars, such as U+200D, and reports success.
+    check(written > 0, "{} encoding failed for U+{:X} at UTF-8 byte offset {}: unrepresentable scalar was skipped",
+          name, static_cast<uint32_t>(rune), utf8_offset);
+    assert(static_cast<size_t>(written) <= bytes.size());
     out.append(bytes.data(), static_cast<size_t>(written));
 }
 
@@ -185,9 +186,9 @@ public:
     }
 
     [[nodiscard]] static auto to_utf8(std::string_view input, EncodingId encoding) -> std::string {
-        auto runes = Unicode{};
+        auto runes = detail::Unicode{};
         detail::decode_icu_source_into<detail::OffsetMode::Omit>(input, encoding, runes);
-        return encode<char>(runes);
+        return detail::encode<char>(runes);
     }
 
     [[nodiscard]] static auto from_utf8(std::string_view input, EncodingId encoding) -> std::string {

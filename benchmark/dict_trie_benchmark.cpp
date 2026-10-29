@@ -14,7 +14,9 @@
 #include "cppjieba/DictTrie.hpp"
 
 // ── Neo DictTrie (neo_cppjieba namespace) ──
-#include "neo/detail/DictTrie.hpp"
+#include "neo/Utf.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
+#include "neo/resource/DictTrie.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "test_paths.h"
@@ -188,14 +190,14 @@ static auto bench_neo(const std::string &dict_path, const std::vector<std::strin
     namespace neo = neo_cppjieba;
 
     // Build DictTrie (not timed)
-    auto dict_trie = neo::detail::DictTrie{dict_path};
+    auto dict_trie = neo::detail::DictTrie{dict_path, "", neo::detail::UserWordWeightOption::WordWeightMedian};
 
     // ── Pre-decode all query keys (excluded from timing) ─────────────────
     auto n = words.size();
 
-    auto keys = std::vector<neo::Unicode>(n);
+    auto keys = std::vector<neo::detail::Unicode>(n);
     for (auto i = size_t{0}; i < n; ++i) {
-        keys[i] = neo::decode(words[i]);
+        keys[i] = neo::Utf::decode(words[i]);
     }
 
     // Shuffled indices
@@ -205,7 +207,7 @@ static auto bench_neo(const std::string &dict_path, const std::vector<std::strin
     std::ranges::shuffle(shuffled, rng);
 
     // Miss keys: replace the first rune
-    auto miss_keys = std::vector<neo::Unicode>(n);
+    auto miss_keys = std::vector<neo::detail::Unicode>(n);
     for (auto i = size_t{0}; i < n; ++i) {
         miss_keys[i] = keys[i];
         if (!miss_keys[i].empty()) {
@@ -215,7 +217,7 @@ static auto bench_neo(const std::string &dict_path, const std::vector<std::strin
 
     // Short miss keys: single rune
     constexpr auto kMissRunes = std::array<neo::Rune, 4>{0x10FFFE, 0x10FFFD, 0x10FFFC, 0x10FFFB};
-    auto short_miss_keys = std::vector<neo::Unicode>(n);
+    auto short_miss_keys = std::vector<neo::detail::Unicode>(n);
     for (auto i = size_t{0}; i < n; ++i) {
         short_miss_keys[i] = {kMissRunes[i % 4]};
     }

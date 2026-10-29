@@ -2,8 +2,7 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
 #include "neo/Jieba.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/Workspace.hpp"
+#include "neo/Utf.hpp"
 
 #include "test_paths.h"
 
@@ -184,7 +183,7 @@ TEST(SegmentationStyleTest, PreciseModesUseTheSelectedCrlfBoundary) {
 }
 
 TEST(SegmentationStyleTest, PreciseModesPreserveSupplementaryRunesAndEmbeddedNul) {
-    const auto input = neo_cppjieba::encode<char>(Unicode{U'😀', U'\0', U'𠀀'});
+    const auto input = neo_cppjieba::Utf::encode<char>(detail::Unicode{U'😀', U'\0', U'𠀀'});
     const auto expected = std::vector<std::string>{"😀", std::string(1, '\0'), "𠀀"};
     for (const auto mode : {CutMode::MIX, CutMode::MP, CutMode::SEARCH, CutMode::SEARCH_NO_HMM}) {
         EXPECT_EQ(style_jieba().cut_strings(input, mode), expected);
@@ -288,7 +287,7 @@ TEST(SegmentationStyleTest, FullEmptyTokensRetainUtf8ByteAndRuneOffsetsAcrossOut
 }
 
 TEST(SegmentationStyleTest, PreciseTokensRetainUtf16AndRuneOffsetsAroundSupplementaryCharacters) {
-    const auto input = neo_cppjieba::encode<char16_t>(Unicode{U'甲', U'😀', U'\0', U'乙'});
+    const auto input = neo_cppjieba::Utf::encode<char16_t>(detail::Unicode{U'甲', U'😀', U'\0', U'乙'});
     const auto tokens = style_jieba().cut(input, CutMode::MP);
     const auto expected =
         std::vector<TokenPosition>{{{0, 1}, {0, 1}}, {{1, 2}, {1, 3}}, {{2, 3}, {3, 4}}, {{3, 4}, {4, 5}}};
@@ -297,7 +296,7 @@ TEST(SegmentationStyleTest, PreciseTokensRetainUtf16AndRuneOffsetsAroundSuppleme
 
 TEST(SegmentationStyleTest, RuneAndStringPipelinesUseTheSameStyle) {
     const auto input = std::string_view{"《写得成》 IBM123\r\n甲　乙"};
-    const auto runes = decode(input);
+    const auto runes = Utf::decode(input);
     for (const auto mode : modes) {
         EXPECT_EQ(to_strings(runes, style_jieba().cut_runes(runes, mode)), style_jieba().cut_strings(input, mode));
     }

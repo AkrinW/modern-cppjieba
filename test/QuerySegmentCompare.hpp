@@ -1,14 +1,15 @@
 #pragma once
 
 #include "neo/Config.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/HMMSegment.hpp"
-#include "neo/detail/HMModel.hpp"
-#include "neo/detail/MPSegment.hpp"
-#include "neo/detail/MixSegment.hpp"
-#include "neo/detail/SegmentScratch.hpp"
-#include "neo/detail/StringUtil.hpp"
+#include "neo/algorithm/HMMSegment.hpp"
+#include "neo/algorithm/MPSegment.hpp"
+#include "neo/algorithm/MixSegment.hpp"
+#include "neo/algorithm/SegmentCommon.hpp"
+#include "neo/algorithm/Separator.hpp"
+#include "neo/resource/Dag.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/HMModel.hpp"
+#include "neo/workspace/SegmentScratch.hpp"
 
 #include <span>
 #include <vector>
@@ -132,8 +133,8 @@ inline auto append_mix_words(const DictTrie &dict, const HMModel &model, std::ve
         auto run_begin = mp_words[i].begin;
         auto run_end = mp_words[j - 1].end;
         auto scratch = neo_cppjieba::detail::SegmentScratch{};
-        neo_cppjieba::detail::hmm_cut_append(model, runes.subspan(run_begin, run_end - run_begin), result,
-                                             pos + run_begin, scratch);
+        neo_cppjieba::detail::hmm_cut_append(model, runes.subspan(run_begin, run_end - run_begin), pos + run_begin,
+                                             result, scratch);
 
         i = j;
     }
@@ -186,7 +187,7 @@ inline auto mix_cut_with_dag_buffered(const DictTrie &dict, const HMModel &model
 template <bool hmm>
 inline auto query_cut_with_requery(const DictTrie &dict, const HMModel &model, std::span<const Rune> runes)
     -> std::vector<WordRange> {
-    auto mix_words = MixSegment<hmm>::cut(dict, model, runes);
+    auto mix_words = cut<MixSegment<hmm>>(dict, model, runes);
     auto result = std::vector<WordRange>{};
     result.reserve(mix_words.size() * 2);
 

@@ -1,18 +1,23 @@
 #pragma once
 
-#include "neo/Config.hpp"
-#include "neo/CutMode.hpp"
-#include "neo/DictSource.hpp"
-#include "neo/Token.hpp"
-#include "neo/Traits.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/Workspace.hpp"
-#include "neo/detail/DictTrie.hpp"
-#include "neo/detail/HMModel.hpp"
-#include "neo/detail/Logging.hpp"
-#include "neo/detail/Output.hpp"
-#include "neo/detail/Segmenter.hpp"
-#include "neo/detail/Tagging.hpp"
+#include "neo/Fwd.hpp"
+#include "neo/algorithm/Output.hpp"
+#include "neo/algorithm/PosTagging.hpp"
+#include "neo/algorithm/Segmenter.hpp"
+#include "neo/concept/Output.hpp"
+#include "neo/concept/Text.hpp"
+#include "neo/options/CutMode.hpp"
+#include "neo/options/Tagging.hpp"
+#include "neo/options/UserWordWeightOption.hpp"
+#include "neo/resource/DictTrie.hpp"
+#include "neo/resource/HMModel.hpp"
+#include "neo/util/Unicode.hpp"
+#include "neo/value/DictSource.hpp"
+#include "neo/value/PosTag.hpp"
+#include "neo/value/Rune.hpp"
+#include "neo/value/TaggedToken.hpp"
+#include "neo/value/Tokens.hpp"
+#include "neo/workspace/Workspace.hpp"
 
 #include <cstddef>
 #include <limits>
@@ -24,17 +29,6 @@
 
 namespace neo_cppjieba {
 
-namespace detail {
-
-// Rune indices must fit WordRange, with room for the trailing offset sentinel.
-inline auto assert_rune_count(size_t rune_count) noexcept -> void {
-    assert_check(
-        [&] { return size_fits_capacity<RuneIndex>(rune_count) && rune_count < std::numeric_limits<size_t>::max(); },
-        "Jieba: input has {} runes, exceeding the configured index range", rune_count);
-}
-
-} // namespace detail
-
 /// Jieba is the top-level facade for Chinese word segmentation. It owns the dictionary and HMM model;
 /// every segmentation entry point is const and keeps per-call state in a Workspace.
 /// Runtime word edits are non-const and need exclusive access; the library takes no locks.
@@ -45,17 +39,17 @@ inline auto assert_rune_count(size_t rune_count) noexcept -> void {
 ///   - cut_strings: independent strings in the input's encoding.
 ///   - cut_into / cut_each: caller-owned output vectors or a visitor, reusing a Workspace.
 ///   - cut_runes / cut_runes_into: predecoded runes in, rune ranges out.
-/// The algorithm behind each CutMode is selected in detail/Segmenter.hpp.
+/// The algorithm behind each CutMode is selected in algorithm/Segmenter.hpp.
 class Jieba {
 public:
     // An empty user dictionary path explicitly disables user dictionary loading.
     explicit Jieba(std::string_view dict_path, std::string_view model_path, std::string_view user_dict_path)
-        : dict_(dict_path, user_dict_path), model_(model_path) {
+        : dict_(dict_path, user_dict_path, detail::UserWordWeightOption::WordWeightMedian), model_(model_path) {
     }
 
     // Load from files or memory; user dictionaries load in order and a repeated word takes the last entry.
     explicit Jieba(const DictSource &dict, const DictSource &model, std::span<const DictSource> user_dicts = {})
-        : dict_(dict, user_dicts), model_(model) {
+        : dict_(dict, user_dicts, detail::UserWordWeightOption::WordWeightMedian), model_(model) {
     }
 
     Jieba(Jieba &&) noexcept = default;
@@ -83,7 +77,7 @@ public:
     template <Tagging tagging = Tagging::None, StringViewSource Input>
     [[nodiscard]] auto cut_with_workspace(Input &&input, CutMode mode, Workspace &workspace) const
         -> Tokens<output_char_type_t<Input>, tagging> {
-        const auto source = as_view(std::forward<Input>(input));
+        const auto source = detail::as_view(std::forward<Input>(input));
         auto positions = std::vector<detail::token_record_t<tagging>>{};
         cut_into(source, mode, positions, workspace);
         return Tokens<output_char_type_t<Input>, tagging>{source, std::move(positions)};
@@ -99,13 +93,12 @@ public:
                  || detail::TaggedOutputValue<Output, output_char_type_t<Input>>
     auto cut_into(const Input &input, CutMode mode, std::vector<Output> &out, Workspace &workspace) const -> void {
         out.clear();
-        const auto source = as_view(input);
-        const auto ranges = prepare_and_cut(source, mode, workspace);
+        const auto source = detail::as_view(input);
+        const auto &state = segment_source(source, mode, workspace);
         if constexpr (detail::TaggedOutputValue<Output, output_char_type_t<Input>>) {
-            detail::fill_tagged_output(dict_, source, workspace.decoded_.runes, ranges, workspace.decoded_.offsets,
-                                       out);
+            detail::fill_tagged_output(dict_, source, state.decoded.runes, state.ranges, state.decoded.offsets, out);
         } else {
-            detail::fill_output(source, ranges, workspace.decoded_.offsets, out);
+            detail::fill_output(source, state.ranges, state.decoded.offsets, out);
         }
     }
 
@@ -114,13 +107,12 @@ public:
     template <Tagging tagging = Tagging::None, StringLike Input, typename Emit>
         requires detail::ViewVisitor<Emit, detail::token_view_t<tagging, output_char_type_t<Input>>>
     auto cut_each(const Input &input, CutMode mode, Emit &&emit, Workspace &workspace) const -> void {
-        const auto source = as_view(input);
-        const auto ranges = prepare_and_cut(source, mode, workspace);
+        const auto source = detail::as_view(input);
+        const auto &state = segment_source(source, mode, workspace);
         if constexpr (tagging == Tagging::Pos) {
-            detail::emit_tagged_tokens(dict_, source, workspace.decoded_.runes, ranges, workspace.decoded_.offsets,
-                                       emit);
+            detail::emit_tagged_tokens(dict_, source, state.decoded.runes, state.ranges, state.decoded.offsets, emit);
         } else {
-            detail::emit_tokens(source, ranges, workspace.decoded_.offsets, emit);
+            detail::emit_tokens(source, state.ranges, state.decoded.offsets, emit);
         }
     }
 
@@ -159,7 +151,7 @@ public:
         out.clear();
         detail::check_cut_mode(mode);
         detail::assert_rune_count(runes.size());
-        detail::segment_into(dict_, model_, runes, mode, out, workspace.scratch_);
+        detail::segment_into(dict_, model_, runes, mode, out, detail::segment_state(workspace).scratch);
     }
 
     // Tag one complete word without segmenting it, like CppJieba's LookupTag.
@@ -169,7 +161,7 @@ public:
 
     template <StringLike Input>
     [[nodiscard]] auto lookup_tag(const Input &word) const -> PosTag {
-        const auto runes = decode(word);
+        const auto runes = detail::decode(word);
         return lookup_tag(std::span<const Rune>{runes});
     }
 
@@ -177,20 +169,20 @@ public:
     // Callers serialize edits against all other calls, e.g. with a lock, copy-on-write, or a single thread.
     template <StringLike Input>
     auto add_word(const Input &word, PosTag tag) -> void {
-        const auto runes = decode(word);
+        const auto runes = detail::decode(word);
         dict_.add_word(runes, tag);
     }
 
     template <StringLike Input>
     auto add_word_with_freq(const Input &word, int freq, PosTag tag) -> void {
-        const auto runes = decode(word);
+        const auto runes = detail::decode(word);
         dict_.add_word_with_freq(runes, freq, tag);
     }
 
     // Removal drops main and user dictionary words alike; returns false when the word is absent.
     template <StringLike Input>
     auto remove_word(const Input &word) -> bool {
-        const auto runes = decode(word);
+        const auto runes = detail::decode(word);
         return dict_.remove_word(runes);
     }
 
@@ -200,20 +192,22 @@ public:
     }
 
 private:
+    // Decode and segment into the workspace; the returned state holds the runes, offsets and word ranges.
     template <CharType CharT>
-    auto prepare_and_cut(std::basic_string_view<CharT> source, CutMode mode, Workspace &workspace) const
-        -> std::span<const WordRange> {
+    auto segment_source(std::basic_string_view<CharT> source, CutMode mode, Workspace &workspace) const
+        -> const detail::SegmentState & {
         detail::check_cut_mode(mode);
-        decode_with_offset_into(source, workspace.decoded_);
+        auto &state = detail::segment_state(workspace);
+        detail::decode_with_offset_into(source, state.decoded);
         // Decoding bounds source offsets; the rune count cannot exceed the source code-unit count.
         // Rune and source capacities may be configured independently.
-        detail::assert_rune_count(workspace.decoded_.runes.size());
-        detail::segment_into(dict_, model_, workspace.decoded_.runes, mode, workspace.ranges_, workspace.scratch_);
-        return workspace.ranges_;
+        detail::assert_rune_count(state.decoded.runes.size());
+        detail::segment_into(dict_, model_, state.decoded.runes, mode, state.ranges, state.scratch);
+        return state;
     }
 
     // Copying is reserved for clone() so whole-dictionary copies stay explicit at call sites.
-    Jieba(const Jieba &other) : dict_(other.dict_.clone()), model_(other.model_) {
+    Jieba(const Jieba &other) : dict_(other.dict_.clone()), model_(other.model_.clone()) {
     }
 
     detail::DictTrie dict_;

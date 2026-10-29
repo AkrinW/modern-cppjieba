@@ -1,8 +1,7 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
-#include "neo/Traits.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/detail/Unicode.hpp"
+#include "neo/Utf.hpp"
+#include "neo/util/Unicode.hpp"
 
 #include <array>
 #include <concepts>
@@ -10,10 +9,12 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 using namespace neo_cppjieba;
+using namespace neo_cppjieba::detail;
 
 namespace {
 
@@ -240,16 +241,17 @@ TYPED_TEST(UnicodeCharacterTest, ScalarBoundariesRoundTrip) {
     EXPECT_EQ(decode(encoded), runes);
 }
 
-TYPED_TEST(UnicodeCharacterTest, WordRangeEncodesSelectedRunes) {
+TYPED_TEST(UnicodeCharacterTest, WordRangeSliceEncodesSelectedRunes) {
     const auto runes = std::array{U'A', U'\0', U'中', U'😀'};
     const auto range = WordRange{1, 4};
-    EXPECT_EQ(range.to_string<TypeParam>(runes), (std::basic_string<TypeParam>{sample_text<TypeParam>().substr(1)}));
+    EXPECT_EQ(Utf::encode<TypeParam>(range.slice(runes)),
+              (std::basic_string<TypeParam>{sample_text<TypeParam>().substr(1)}));
 }
 
-TYPED_TEST(UnicodeCharacterTest, EmptyWordRangeEncodesToEmptyString) {
+TYPED_TEST(UnicodeCharacterTest, EmptyWordRangeSliceEncodesToEmptyString) {
     const auto runes = std::array{U'中', U'😀'};
     const auto range = WordRange{1, 1};
-    EXPECT_TRUE(range.to_string<TypeParam>(runes).empty());
+    EXPECT_TRUE(Utf::encode<TypeParam>(range.slice(runes)).empty());
 }
 
 TYPED_TEST(UnicodeCharacterTest, InvalidScalarsThrowConfiguredException) {
@@ -682,3 +684,33 @@ TEST(UnicodeWithSourceTest, ConsistencyWithDecode) {
         }
     }
 }
+
+TEST(UtfFacadeTest, DecodeAndEncodeRoundTripEveryEncoding) {
+    const auto runes = neo_cppjieba::Utf::decode(std::string_view{"中文abc𠮷"});
+    EXPECT_EQ(runes, (std::vector<Rune>{U'中', U'文', U'a', U'b', U'c', U'𠮷'}));
+    EXPECT_EQ(neo_cppjieba::Utf::encode<char>(runes), "中文abc𠮷");
+    EXPECT_EQ(neo_cppjieba::Utf::encode<char16_t>(runes), u"中文abc𠮷");
+    EXPECT_EQ(neo_cppjieba::Utf::encode<char32_t>(runes), U"中文abc𠮷");
+    EXPECT_EQ(neo_cppjieba::Utf::decode(std::u16string_view{u"中文abc𠮷"}), runes);
+}
+
+TEST(UtfFacadeTest, EmptyInputDecodesToNoRunes) {
+    EXPECT_TRUE(neo_cppjieba::Utf::decode(std::string_view{}).empty());
+    EXPECT_TRUE(neo_cppjieba::Utf::encode<char>(std::span<const Rune>{}).empty());
+    EXPECT_TRUE(neo_cppjieba::Utf::is_valid(std::string_view{}));
+}
+
+TEST(UtfFacadeTest, MalformedInputIsInvalidAndDecodeThrows) {
+    const auto malformed = std::string_view{"a\xE4\xB8"};
+    EXPECT_FALSE(neo_cppjieba::Utf::is_valid(malformed));
+    EXPECT_THROW(static_cast<void>(neo_cppjieba::Utf::decode(malformed)), LogConfig::Exception);
+    EXPECT_FALSE(neo_cppjieba::Utf::is_valid(std::u16string_view{u"\xD800"}));
+}
+
+TEST(UtfFacadeTest, EmbeddedNulIsKept) {
+    const auto text = std::string_view{"a\0b", 3};
+    EXPECT_TRUE(neo_cppjieba::Utf::is_valid(text));
+    EXPECT_EQ(neo_cppjieba::Utf::decode(text), (std::vector<Rune>{U'a', U'\0', U'b'}));
+}
+
+static_assert(!std::is_default_constructible_v<neo_cppjieba::Utf>);

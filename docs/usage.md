@@ -2,7 +2,9 @@
 
 [快速开始](../README.md#快速开始) · [构建与安装](building.md) · [应用示例](../examples/README.md)
 
-公共入口是 `neo/Jieba.hpp` 中的 `neo_cppjieba::Jieba`。
+公共入口是 `neo/Jieba.hpp` 中的 `neo_cppjieba::Jieba`。`include/neo/` 一级目录只有用户需要 include 的头文件：
+门面 `Jieba.hpp`、`KeywordExtractor.hpp`、`Utf.hpp`，编译期配置 `Config.hpp`，以及只声明不定义公开类型的 `Fwd.hpp`
+（自己的头文件只需在声明中写出类型名时 include 它）。二级目录是内部组织，不直接 include。
 构造时依次提供主词典、HMM 模型和用户词典路径；用户词典参数 `""` 表示仅使用主词典。
 路径相对于进程工作目录解析，Windows 路径使用 UTF-8。文件格式见 [词典说明](../dict/README.md)。
 从内存加载和多个用户词典见 [从内存加载词典](#从内存加载词典)。
@@ -61,6 +63,9 @@ GBK / GB18030 输入先通过 [编码适配器](encoding.md) 转换为 UTF-8。
 | `cut_each(text, mode, emit, workspace)` | 通过返回 `void` 的回调逐词接收 token |
 | `cut_runes(runes, mode)` / `cut_runes_into(runes, mode, out, workspace)` | 对已校验的 Unicode 标量分词，输出 `WordRange` |
 
+`cut_runes` 的输入可用 `neo/Utf.hpp` 的 `Utf` 门面准备：`Utf::decode(text)` 返回码点数组，
+`Utf::encode<CharT>(runes)` 编码回字符串，`Utf::is_valid(text)` 只做校验。其余编码工具都在 `detail` 中。
+
 `token.word` 借用原文；在原文修改或销毁前完成读取。`cut_owned` 的结果移动后，重新获取 token 视图。
 需要让每个词独立存活时，选择 `cut_strings`。完整的所有权示例见 [owned_results.cpp](../examples/owned_results.cpp)。
 
@@ -106,13 +111,13 @@ Python jieba 的 `posseg` 使用独立的词性 HMM 模型，本库不提供该�
 
 ## 关键词提取
 
-可选头文件 `neo/KeywordExtractor.hpp` 提供两种提取器。提取器只持有 IDF、停用词和选项，不保存 `Jieba`；
-每次调用显式传入用于分词的 `const Jieba &`，因此同一个提取器可配合任意实例使用，包括增删词后的 `clone()`：
+可选头文件 `neo/KeywordExtractor.hpp` 提供两种提取器。提取器只持有 IDF 和停用词这类资源；用于分词的 `const Jieba &`
+和选项都随每次调用传入，因此同一个提取器可配合任意实例和任意选项使用，包括增删词后的 `clone()`：
 
 | 提取器 | 打分方式 | 需要的文件 |
 | --- | --- | --- |
-| `TfIdfExtractor(idf_path, stop_words_path, options)` | 词在本文中的出现次数 × 该词的 IDF；IDF 文件中没有的词取文件内 IDF 的平均值 | [`idf.utf8`](../dict/idf.utf8)、[`stop_words.utf8`](../dict/stop_words.utf8) |
-| `TextRankExtractor(stop_words_path, options)` | 在窗口内共现的词之间连边，按类似 PageRank 的迭代打分，最高分归一为 1 | [`stop_words.utf8`](../dict/stop_words.utf8) |
+| `TfIdfExtractor(idf_path, stop_words_path)` | 词在本文中的出现次数 × 该词的 IDF；IDF 文件中没有的词取文件内 IDF 的平均值 | [`idf.utf8`](../dict/idf.utf8)、[`stop_words.utf8`](../dict/stop_words.utf8) |
+| `TextRankExtractor(stop_words_path)` | 在窗口内共现的词之间连边，按类似 PageRank 的迭代打分，最高分归一为 1 | [`stop_words.utf8`](../dict/stop_words.utf8) |
 
 两者先用 `CutMode::MIX` 分词，丢弃单字词和停用词，再对剩下的不同词打分，按分数从高到低取前 `top_n` 个；
 分数相同时先出现的词在前。结果是 `std::vector<Keyword<CharT>>`，每项含独立的 `word`、`weight`、
@@ -122,8 +127,9 @@ Python jieba 的 `posseg` 使用独立的词性 HMM 模型，本库不提供该�
 #include "neo/KeywordExtractor.hpp"
 
 using namespace neo_cppjieba;
-const auto extractor = TfIdfExtractor{"dict/idf.utf8", "dict/stop_words.utf8", TfIdfOptions{}};
-for (const auto &keyword : extractor.extract(jieba, "我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。", 5)) {
+const auto extractor = TfIdfExtractor{"dict/idf.utf8", "dict/stop_words.utf8"};
+const auto text = std::string_view{"我是拖拉机学院手扶拖拉机专业的。不用多久，我就会升职加薪，当上CEO，走上人生巅峰。"};
+for (const auto &keyword : extractor.extract(jieba, text, 5, TfIdfOptions{})) {
     std::println("{} {:.4f} @{}", keyword.word, keyword.weight, keyword.positions.front().source.begin);
 }
 // CEO 11.7392 @93 / 升职 10.8562 @72 / 加薪 10.6426 @78 / 手扶拖拉机 10.0089 @21 / 巅峰 9.4940 @111
@@ -137,13 +143,13 @@ for (const auto &keyword : extractor.extract(jieba, "我是拖拉机学院手扶
 
 ```cpp
 using namespace neo_cppjieba;
-const auto nouns = TfIdfExtractor{"dict/idf.utf8", "dict/stop_words.utf8",
-                                  TfIdfOptions{.allowed_tags = {pos::n, pos::nz, pos::vn}}};
+const auto nouns = TfIdfOptions{.allowed_tags = {pos::n, pos::nz, pos::vn}};
+const auto keywords = extractor.extract(jieba, text, 5, nouns);
 // 手扶拖拉机/n 巅峰/n 拖拉机/n 人生/n 学院/n
 
-const auto textrank = TextRankExtractor{
-    "dict/stop_words.utf8",
-    TextRankOptions{.allowed_tags = {python_textrank_tags.begin(), python_textrank_tags.end()}}};
+const auto textrank = TextRankExtractor{"dict/stop_words.utf8"};
+const auto python = TextRankOptions{.allowed_tags = {python_textrank_tags.begin(), python_textrank_tags.end()}};
+const auto ranked = textrank.extract(jieba, text, 5, python);
 ```
 
 TF-IDF 对每个词独立打分，过滤只删去不符合的词，其余分数不变。TextRank 中被过滤的词与停用词一样
@@ -151,9 +157,10 @@ TF-IDF 对每个词独立打分，过滤只删去不符合的词，其余分数�
 词性来自词典，而非 Python jieba `posseg` 的词性模型，例如主词典把"加薪"标为 `nr`，
 因此过滤结果与 Python jieba 不完全相同。
 
-连续处理文本时，用 `extract_into(jieba, text, top_n, out, keyword_workspace)` 复用 `KeywordWorkspace` 和输出数组；
-同一工作区可在两种提取器之间共用。`TextRankOptions{}` 的 `window`、`iterations`、`damping`
-为 5、10、0.85，对应 CppJieba `Extract` 的 `span`、`rankTime` 和固定的阻尼系数。
+连续处理文本时，用 `extract_into(jieba, text, top_n, options, out, keyword_workspace)` 复用 `KeywordWorkspace`
+和输出数组；同一工作区可在两种提取器之间共用。选项按 `const &` 传入，只在调用期间读取，不被保存；
+`TextRankOptions` 在每次调用入口检查 `damping` 是否在 [0, 1] 内。`TextRankOptions{}` 的 `window`、`iterations`、
+`damping` 为 5、10、0.85，对应 CppJieba 同样随每次 `Extract` 传入的 `span`、`rankTime` 和固定的阻尼系数。
 
 结果与 CppJieba 的 `KeywordExtractor` / `TextRankExtractor` 一致，分数逐位相同。两处差别：
 CppJieba 对同分词的顺序未作规定；TextRank 中没有任何共现边的词（例如全文只剩一个候选词），
@@ -162,14 +169,15 @@ Python jieba 的 `extract_tags` / `textrank` 采用不同的规则（词频归�
 
 | CppJieba | neo-cppjieba |
 | --- | --- |
-| `KeywordExtractor(dict, hmm, idf, stop_words, user_dict)` | `Jieba{dict, hmm, user_dict}` 加 `TfIdfExtractor{idf, stop_words, TfIdfOptions{}}` |
-| `TextRankExtractor(dict, hmm, stop_words, user_dict)` | `Jieba{dict, hmm, user_dict}` 加 `TextRankExtractor{stop_words, TextRankOptions{}}` |
-| `Extract(s, words, topN)` | `extract(jieba, s, top_n)` |
+| `KeywordExtractor(dict, hmm, idf, stop_words, user_dict)` | `Jieba{dict, hmm, user_dict}` 加 `TfIdfExtractor{idf, stop_words}` |
+| `TextRankExtractor(dict, hmm, stop_words, user_dict)` | `Jieba{dict, hmm, user_dict}` 加 `TextRankExtractor{stop_words}` |
+| `KeywordExtractor::Extract(s, words, topN)` | `extract(jieba, s, top_n, TfIdfOptions{})` |
+| `TextRankExtractor::Extract(s, words, topN, span, rankTime)` | `extract(jieba, s, top_n, TextRankOptions{.window = span, .iterations = rankTime})` |
 | `Word::offsets` | `Keyword::positions[i].source.begin` |
 
 ## 从内存加载词典
 
-`neo/DictSource.hpp` 的 `DictSource` 表示一份输入：`DictSource::file(path)` 在加载时读取文件，
+`DictSource`（随 `neo/Jieba.hpp` 提供）表示一份输入：`DictSource::file(path)` 在加载时读取文件，
 `DictSource::memory(text, name)` 直接解析内存中的 UTF-8 文本，适合把词典编译进程序（如 `#embed`、
 资源段）或在 WASM 等不便访问文件系统的环境中使用。格式与对应文件相同；`name` 只用于错误信息。
 内存文本是借用的，只需在构造期间有效；构造完成后的对象不再引用它。
@@ -189,8 +197,7 @@ const auto jieba = Jieba{DictSource::memory(embedded_dict, "jieba.dict"), DictSo
 文件与内存来源可以混用。`TfIdfExtractor`、`TextRankExtractor` 同样接受 `DictSource`：
 
 ```cpp
-const auto extractor = TfIdfExtractor{DictSource::memory(embedded_idf), DictSource::memory(embedded_stop_words),
-                                      TfIdfOptions{}};
+const auto extractor = TfIdfExtractor{DictSource::memory(embedded_idf), DictSource::memory(embedded_stop_words)};
 ```
 
 ## 运行时增删词
@@ -255,5 +262,5 @@ next.add_word("杭研", PosTag{"nz"});
 
 文本入口在解码时校验 UTF，词典、模型和外部数据错误通过 `LogConfig::Exception` 报告。
 发生异常后，丢弃该次调用可能留下的部分输出；后续调用可继续复用工作区。
-内部不变量由断言检查。独立编码预检可使用 `neo/Unicode.hpp` 的 `is_valid_utf(input)`；
+内部不变量由断言检查。独立编码预检可使用 `neo/Utf.hpp` 的 `Utf::is_valid(input)`；
 其用途和编码识别的区别见 [UTF validation](encoding.md#utf-validation)。

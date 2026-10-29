@@ -2,8 +2,8 @@
 #include "gtest/gtest.h"
 #include "neo/Config.hpp"
 #include "neo/Jieba.hpp"
-#include "neo/Unicode.hpp"
-#include "neo/Workspace.hpp"
+#include "neo/Utf.hpp"
+#include "neo/util/Unicode.hpp"
 
 #include "test_paths.h"
 
@@ -52,7 +52,7 @@ auto encode_ranges(std::basic_string_view<CharT> source, std::span<const SourceO
     auto words = std::vector<std::basic_string<CharT>>{};
     words.reserve(ranges.size());
     for (const auto range : ranges) {
-        words.push_back(neo_cppjieba::encode(source, offsets, range));
+        words.push_back(neo_cppjieba::detail::encode(source, offsets, range));
     }
     return words;
 }
@@ -62,7 +62,7 @@ auto encode_rune_ranges(std::span<const Rune> runes, std::span<const WordRange> 
     auto words = std::vector<std::string>{};
     words.reserve(ranges.size());
     for (const auto range : ranges) {
-        words.push_back(neo_cppjieba::encode<char>(range.slice(runes)));
+        words.push_back(neo_cppjieba::Utf::encode<char>(range.slice(runes)));
     }
     return words;
 }
@@ -127,16 +127,16 @@ TEST(JiebaNeoTest, ExplicitlySizedPointerInputPreservesEmbeddedNul) {
 
 TYPED_TEST(JiebaCharacterTest, OutputFormsPreserveWordsAndBothCoordinatesInEveryMode) {
     const auto &jieba = test_jieba();
-    const auto inputs = std::array{Unicode{}, Unicode{U'中', U'国', U'科', U'学', U'院'},
-                                   Unicode{U'甲', U' ', U'A', U'\0', U'中', U'国', U'😀', U'𠀀', U'乙', U'!'}};
+    const auto inputs = std::array{detail::Unicode{}, detail::Unicode{U'中', U'国', U'科', U'学', U'院'},
+                                   detail::Unicode{U'甲', U' ', U'A', U'\0', U'中', U'国', U'😀', U'𠀀', U'乙', U'!'}};
     auto buffer = Workspace{};
     auto source_ranges = std::vector<SourceRange>{};
     auto positions = std::vector<TokenPosition>{};
     auto strings = std::vector<std::basic_string<TypeParam>>{};
     for (const auto &runes : inputs) {
-        const auto text = neo_cppjieba::encode<TypeParam>(runes);
-        const auto source = as_view(text);
-        const auto decoded = decode_with_offset(source);
+        const auto text = neo_cppjieba::Utf::encode<TypeParam>(runes);
+        const auto source = detail::as_view(text);
+        const auto decoded = detail::decode_with_offset(source);
         for (const auto mode : all_modes) {
             const auto ranges = jieba.cut_runes(decoded.runes, mode);
             const auto expected = encode_ranges(source, decoded.offsets, ranges);
@@ -231,7 +231,8 @@ TEST(JiebaNeoTest, DirectCutUsesTheSameViewForDecodingAndCopying) {
 TEST(JiebaNeoTest, PublicSourceEncodingStillRejectsInvalidOffsets) {
     const auto source = std::string_view{"abc"};
     const auto offsets = std::array<SourceOffset, 2>{0, 4};
-    EXPECT_THROW(static_cast<void>(neo_cppjieba::encode(source, offsets, WordRange{0, 1})), LogConfig::Exception);
+    EXPECT_THROW(static_cast<void>(neo_cppjieba::detail::encode(source, offsets, WordRange{0, 1})),
+                 LogConfig::Exception);
 }
 
 TEST(JiebaNeoTest, DirectStringCutReturnsInputEncoding) {
@@ -260,9 +261,9 @@ TEST(JiebaNeoTest, ByteInputsReturnUtf8Words) {
 TEST(JiebaNeoTest, ByteOffsetPipelinePreservesOriginalUtf8Words) {
     const auto input = std::u8string_view{u8"中国科学院"};
     const auto bytes = std::as_bytes(std::span{input.data(), input.size()});
-    const auto decoded = decode_with_offset(bytes);
+    const auto decoded = detail::decode_with_offset(bytes);
     const auto ranges = test_jieba().cut_runes(decoded.runes, CutMode::SEARCH);
-    EXPECT_EQ(encode_ranges(as_view(bytes), decoded.offsets, ranges),
+    EXPECT_EQ(encode_ranges(detail::as_view(bytes), decoded.offsets, ranges),
               (std::vector<std::string>{"中国", "科学", "学院", "科学院", "中国科学院"}));
 }
 
@@ -276,7 +277,7 @@ TEST(JiebaNeoTest, InvalidByteInputThrowsTheConfiguredException) {
 }
 
 TEST(JiebaNeoTest, DirectRuneCutReturnsLocalWordRanges) {
-    const auto runes = decode("甲中国科学院乙");
+    const auto runes = Utf::decode("甲中国科学院乙");
     const auto input = std::span<const Rune>{runes}.subspan(1, runes.size() - 2);
     const auto ranges = test_jieba().cut_runes(input, CutMode::SEARCH);
     EXPECT_EQ(encode_rune_ranges(input, ranges),
@@ -284,7 +285,7 @@ TEST(JiebaNeoTest, DirectRuneCutReturnsLocalWordRanges) {
 }
 
 TYPED_TEST(JiebaRuneSpanTest, SearchReturnsLocalRangesForEveryRuneSpanType) {
-    auto runes = decode("甲中国科学院乙");
+    auto runes = Utf::decode("甲中国科学院乙");
     const auto input = TypeParam{runes.data() + 1, size_t{5}};
     const auto ranges = test_jieba().cut_runes(input, CutMode::SEARCH);
     EXPECT_EQ(ranges, (std::vector<WordRange>{{0, 2}, {2, 4}, {3, 5}, {2, 5}, {0, 5}}));
@@ -294,7 +295,7 @@ TYPED_TEST(JiebaRuneSpanTest, SearchReturnsLocalRangesForEveryRuneSpanType) {
 
 TYPED_TEST(JiebaRuneSpanTest, PartitionModesAgreeForEveryRuneSpanType) {
     const auto &jieba = test_jieba();
-    auto runes = decode("中国科学院");
+    auto runes = Utf::decode("中国科学院");
     const auto input = TypeParam{runes.data(), size_t{5}};
     const auto whole_word = std::vector<WordRange>{{0, 5}};
     EXPECT_EQ(jieba.cut_runes(input, CutMode::MIX), whole_word);
@@ -311,7 +312,7 @@ TEST(JiebaNeoTest, EmptyFixedRuneSpansProduceNoWordsInEveryMode) {
 }
 
 TEST(JiebaNeoTest, ManualUnicodePipelineReturnsWordRanges) {
-    const auto runes = decode("我来自北京邮电大学");
+    const auto runes = Utf::decode("我来自北京邮电大学");
     const auto ranges = test_jieba().cut_runes(runes, CutMode::FULL);
     EXPECT_EQ(encode_rune_ranges(runes, ranges),
               (std::vector<std::string>{"我", "来自", "北京", "北京邮电", "北京邮电大学", "邮电", "邮电大学", "电大",
@@ -320,7 +321,7 @@ TEST(JiebaNeoTest, ManualUnicodePipelineReturnsWordRanges) {
 
 TEST(JiebaNeoTest, ManualOffsetPipelineMatchesDirectSearchCut) {
     const auto sentence = std::string_view{"中国科学院，后在日本京都大学深造"};
-    const auto decoded = decode_with_offset(sentence);
+    const auto decoded = detail::decode_with_offset(sentence);
     const auto ranges = test_jieba().cut_runes(decoded.runes, CutMode::SEARCH);
     EXPECT_EQ(encode_ranges(sentence, decoded.offsets, ranges), test_jieba().cut_strings(sentence, CutMode::SEARCH));
 }
@@ -382,7 +383,7 @@ TEST(JiebaNeoTest, SeparateResultsSurviveWorkspaceReuseAndRelease) {
 
 TEST(JiebaNeoTest, RuneOutputCanBeReusedWithoutChangingCoordinates) {
     auto buffer = Workspace{};
-    const auto runes = decode("中国科学院");
+    const auto runes = Utf::decode("中国科学院");
     auto out = std::vector<WordRange>{{99, 100}};
     out.reserve(32);
     const auto capacity = out.capacity();
@@ -395,7 +396,7 @@ TEST(JiebaNeoTest, RuneOutputCanBeReusedWithoutChangingCoordinates) {
 
 TEST(JiebaNeoTest, RuneOutputAndWorkspaceCanBeReusedAfterInvalidMode) {
     auto workspace = Workspace{};
-    const auto runes = decode("中国科学院");
+    const auto runes = Utf::decode("中国科学院");
     auto out = std::vector<WordRange>{{99, 100}};
     const auto invalid_mode = static_cast<CutMode>(uint8_t{255});
 
@@ -485,7 +486,7 @@ TEST(JiebaNeoTest, TextEntriesRejectMalformedUtfInEveryMode) {
 
 TEST(JiebaNeoTest, TextEntryChecksCurrentBytesAfterSuccessfulPreflight) {
     auto input = std::string{"中国"};
-    ASSERT_TRUE(is_valid_utf(input));
+    ASSERT_TRUE(Utf::is_valid(input));
     input.back() = char{0x7F};
     EXPECT_THROW(static_cast<void>(test_jieba().cut(input, CutMode::MIX)), LogConfig::Exception);
 }
@@ -496,7 +497,7 @@ TEST(JiebaNeoTest, UnknownModesUseTheConfiguredErrorPathForEveryEntryPoint) {
     auto buffer = Workspace{};
     auto source_ranges = std::vector<SourceRange>{};
     auto rune_ranges = std::vector<WordRange>{};
-    const auto runes = decode("中国");
+    const auto runes = Utf::decode("中国");
     EXPECT_THROW(static_cast<void>(jieba.cut("中国", mode)), LogConfig::Exception);
     EXPECT_THROW(static_cast<void>(jieba.cut_with_workspace("中国", mode, buffer)), LogConfig::Exception);
     const auto recovered = jieba.cut_with_workspace("北京", CutMode::MIX, buffer);
