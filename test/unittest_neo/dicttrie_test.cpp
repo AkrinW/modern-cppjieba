@@ -73,7 +73,7 @@ protected:
 } // namespace
 
 TEST_F(DictTrieInputTest, RejectsMainDictionaryLinesWithMissingFields) {
-    for (const auto line : {"词\n", "词 10\n"}) {
+    for (const auto *const line : {"词\n", "词 10\n"}) {
         ASSERT_NO_FATAL_FAILURE(write_file("main.dict", line));
         EXPECT_THROW((DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian}),
                      LogConfig::Exception);
@@ -86,7 +86,7 @@ TEST_F(DictTrieInputTest, RejectsMainDictionaryLinesWithExtraFields) {
 }
 
 TEST_F(DictTrieInputTest, RejectsNonPositiveMainFrequenciesEvenWhenSumIsPositive) {
-    for (const auto content : {"词 0 n\n基础 20 n\n", "词 -1 n\n基础 20 n\n"}) {
+    for (const auto *const content : {"词 0 n\n基础 20 n\n", "词 -1 n\n基础 20 n\n"}) {
         ASSERT_NO_FATAL_FAILURE(write_file("main.dict", content));
         EXPECT_THROW((DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian}),
                      LogConfig::Exception);
@@ -842,7 +842,7 @@ TEST(DictTrieTest, TrieAccessor) {
 TEST_F(DictTrieInputTest, ReusedDagReplacesPreviousMatchesIncludingEmptyInput) {
     const auto trie = DictTrie{file_path("main.dict"), "", UserWordWeightOption::WordWeightMedian};
     auto dag = Dag{};
-    for (const auto text : {"甲乙甲乙甲乙", "外", "", "甲乙"}) {
+    for (const auto *const text : {"甲乙甲乙甲乙", "外", "", "甲乙"}) {
         const auto runes = decode(std::string_view{text});
         const auto expected = trie.find_dag(runes);
         trie.find_dag_into(runes, dag);

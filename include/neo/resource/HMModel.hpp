@@ -61,12 +61,12 @@ public:
         return HMModel{*this};
     }
 
-    constexpr auto get_start_prob(HMMState state) const noexcept -> double {
+    [[nodiscard]] constexpr auto get_start_prob(HMMState state) const noexcept -> double {
         assert_check([=] { return static_cast<size_t>(state) < kHMMStatesNum; }, "HMModel: invalid start state");
         return start_prob[static_cast<size_t>(state)];
     }
 
-    constexpr auto get_trans_prob(HMMState from, HMMState to) const noexcept -> double {
+    [[nodiscard]] constexpr auto get_trans_prob(HMMState from, HMMState to) const noexcept -> double {
         assert_check([=] { return static_cast<size_t>(from) < kHMMStatesNum; },
                      "HMModel: invalid transition source state");
         assert_check([=] { return static_cast<size_t>(to) < kHMMStatesNum; },

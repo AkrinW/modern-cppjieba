@@ -49,7 +49,7 @@ public:
     StyleTestFile(const StyleTestFile &) = delete;
     auto operator=(const StyleTestFile &) -> StyleTestFile & = delete;
 
-    auto path() const -> const std::string & {
+    [[nodiscard]] auto path() const -> const std::string & {
         return path_;
     }
 

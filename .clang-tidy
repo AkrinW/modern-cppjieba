@@ -2,9 +2,10 @@
 HeaderFilterRegex: '^(include/neo|test|benchmark)/'
 ExcludeHeaderFilterRegex: '(^benchmark/Perf\.hpp$|(^|/)include/neo/third_party/)'
 
+# misc-include-cleaner stays off until the facade headers mark the role headers they re-export.
 Checks: >
   -*,
-  unused-includes,
+  -misc-include-cleaner,
   readability-braces-around-statements,
   readability-simplify-boolean-expr,
   misc-unused-parameters,
@@ -14,7 +15,7 @@ Checks: >
   modernize-use-override,
   modernize-use-using,
   modernize-use-auto,
-  # cppcoreguidelines-pro-type-cstyle-cast,
+  -cppcoreguidelines-pro-type-cstyle-cast,
   modernize-loop-convert,
   performance-inefficient-vector-operation,
   modernize-use-nullptr,
@@ -30,7 +31,7 @@ Checks: >
   readability-isolate-declaration,
   readability-redundant-string-init,
   cppcoreguidelines-prefer-member-initializer,
-  modernize-return-braced-init-lis,
+  modernize-return-braced-init-list,
   modernize-use-trailing-return-type,
   google-readability-casting
 

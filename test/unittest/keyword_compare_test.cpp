@@ -105,14 +105,14 @@ auto corpus() -> std::vector<std::string> {
     return texts;
 }
 
-} // namespace
-
 class KeywordCompareTest : public testing::TestWithParam<bool> {
 protected:
     [[nodiscard]] auto user_dict() const -> std::string_view {
         return GetParam() ? USER_DICT_FILE : std::string_view{};
     }
 };
+
+} // namespace
 
 TEST_P(KeywordCompareTest, TfIdfMatchesCppJieba) {
     const auto upstream =

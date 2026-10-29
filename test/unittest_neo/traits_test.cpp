@@ -37,10 +37,10 @@ struct ThrowingViewSource {
 // Character extraction must use the same const range access as as_view.
 struct ConstOnlyRange {
     std::array<char, 2> characters{'a', 'b'};
-    auto begin() const -> const char * {
+    [[nodiscard]] auto begin() const -> const char * {
         return characters.data();
     }
-    auto end() const -> const char * {
+    [[nodiscard]] auto end() const -> const char * {
         return characters.data() + characters.size();
     }
     auto begin() -> char * = delete;

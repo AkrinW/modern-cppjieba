@@ -368,8 +368,7 @@ auto main(int argc, char *argv[]) -> int {
             {"FULL", neo_full.total_ms},
             {"SEARCH", neo_search.total_ms},
         }};
-        const auto fastest =
-            std::min_element(entries.begin(), entries.end(), [](auto &a, auto &b) { return a.ms < b.ms; });
+        const auto &fastest = *std::ranges::min_element(entries, {}, &Entry::ms);
 
         std::printf("──────────────────────────────────────────────────────────────\n");
         std::printf("  Neo methods (ratio = time / fastest)\n");
@@ -377,9 +376,9 @@ auto main(int argc, char *argv[]) -> int {
         std::printf("  %-8s  %10s  %8s  %s\n", "Method", "Time (ms)", "Ratio", "");
         std::printf("  ────────  ──────────  ────────  ─────────────────────────\n");
         for (auto &e : entries) {
-            auto ratio = e.ms / fastest->ms;
+            auto ratio = e.ms / fastest.ms;
             auto rps = static_cast<double>(total_runes * ROUNDS) / (e.ms / 1000.0);
-            const auto *m = (e.ms == fastest->ms) ? " ◀ fastest" : "";
+            const auto *m = (e.ms == fastest.ms) ? " ◀ fastest" : "";
             std::printf("  %-8s  %10.2f  %7.2fx  %6.2f Mr/s%s\n", e.name, e.ms, ratio, rps / 1e6, m);
         }
         std::printf("──────────────────────────────────────────────────────────────\n\n");

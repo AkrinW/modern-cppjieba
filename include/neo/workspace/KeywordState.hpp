@@ -17,8 +17,8 @@ namespace neo_cppjieba::detail {
 
 // A distinct candidate word; ids follow first occurrence, which also breaks score ties.
 struct KeywordCandidate {
-    TokenPosition first;
-    double weight;
+    TokenPosition first{};
+    double weight{0.0};
     PosTag tag;
 
     // The word as code points of the decoded input it was collected from.

@@ -104,12 +104,12 @@ public:
     [[nodiscard]] auto source() const & noexcept -> std::basic_string_view<char_type> {
         return source_;
     }
-    auto source() const && noexcept -> std::basic_string_view<char_type> = delete;
+    [[nodiscard]] auto source() const && noexcept -> std::basic_string_view<char_type> = delete;
 
     [[nodiscard]] auto positions() const & noexcept -> std::span<const Position> {
         return positions_;
     }
-    auto positions() const && noexcept -> std::span<const Position> = delete;
+    [[nodiscard]] auto positions() const && noexcept -> std::span<const Position> = delete;
 
     [[nodiscard]] auto operator[](size_t index) const & noexcept -> value_type {
         assert_check([&] { return index < positions_.size(); }, "Token index exceeds the result size");
@@ -120,12 +120,12 @@ public:
     [[nodiscard]] auto begin() const & noexcept -> const_iterator {
         return {source(), positions_.cbegin()};
     }
-    auto begin() const && noexcept -> const_iterator = delete;
+    [[nodiscard]] auto begin() const && noexcept -> const_iterator = delete;
 
     [[nodiscard]] auto end() const & noexcept -> const_iterator {
         return {source(), positions_.cend()};
     }
-    auto end() const && noexcept -> const_iterator = delete;
+    [[nodiscard]] auto end() const && noexcept -> const_iterator = delete;
 
 private:
     friend class ::neo_cppjieba::Jieba;

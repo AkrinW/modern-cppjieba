@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <ranges>
 #include <span>
 
 namespace neo_cppjieba::detail {
@@ -73,8 +74,9 @@ namespace neo_cppjieba::detail {
         0x11C50, 0x11D50, 0x11DA0, 0x11F50, 0x16130, 0x16A60, 0x16AC0, 0x16B50, 0x16D70, 0x1CCF0, 0x1D7CE,
         0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6, 0x1E140, 0x1E2F0, 0x1E4F0, 0x1E5F1, 0x1E950, 0x1FBF0,
     });
-    const auto it = std::ranges::upper_bound(zeros, rune);
-    return it != zeros.begin() && rune - *(it - 1) < 10;
+    // Zeros not above the rune; the last one starts its decimal block.
+    const auto lower = std::ranges::subrange{zeros.begin(), std::ranges::upper_bound(zeros, rune)};
+    return !lower.empty() && rune - lower.back() < 10;
 }
 
 // Rust's HMM and search paths recognize connectors inside alphanumeric compounds.

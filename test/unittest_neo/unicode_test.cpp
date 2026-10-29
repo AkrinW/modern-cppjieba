@@ -156,11 +156,11 @@ concept CanBorrowRunes = requires(T &&decoded) { std::forward<T>(decoded).get_ru
 template <typename T>
 concept CanBorrowOffsets = requires(T &&decoded) { std::forward<T>(decoded).get_offsets(); };
 
-} // namespace
-
 // All declared character types must support the same public Unicode operations.
 template <typename CharT>
 class UnicodeCharacterTest : public ::testing::Test {};
+
+} // namespace
 
 using UnicodeCharacterTypes = ::testing::Types<char, char8_t, char16_t, char32_t, wchar_t>;
 TYPED_TEST_SUITE(UnicodeCharacterTest, UnicodeCharacterTypes);
