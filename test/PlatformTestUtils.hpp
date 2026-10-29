@@ -104,6 +104,15 @@ inline auto write_only_read_error() noexcept -> std::error_code {
 #endif
 }
 
+// The native code a Win32 API or POSIX call reports for a missing file.
+inline auto missing_file_system_error() noexcept -> int {
+#ifdef _WIN32
+    return static_cast<int>(ERROR_FILE_NOT_FOUND);
+#else
+    return ENOENT;
+#endif
+}
+
 // Disable POSIX core dumps inside the subprocess that tests external file truncation.
 inline auto prepare_fileio_death_test() noexcept -> void {
 #ifndef _WIN32

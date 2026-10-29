@@ -356,11 +356,7 @@ TEST(ErrorMessageTest, GenericCodeFormatsStandardErrorText) {
 }
 
 TEST(ErrorMessageTest, SystemCodeFormatsSingleLineText) {
-#ifdef _WIN32
-    const auto code = static_cast<int>(ERROR_FILE_NOT_FOUND);
-#else
-    const auto code = ENOENT;
-#endif
+    const auto code = test_platform::missing_file_system_error();
     const auto text = std::format("{}", platform::ErrorMessage{platform::ErrorCategory::System, code});
     EXPECT_FALSE(text.empty());
     EXPECT_EQ(text.find_first_of("\r\n"), std::string::npos);
@@ -413,6 +409,25 @@ TEST_F(FileBufferTest, RejectingDirectoryClosesDescriptor) {
 
 TEST_F(FileBufferTest, RejectsFifoWithoutWaitingForWriter) {
     test_platform::expect_fifo_rejected_without_waiting(directory_ / "fifo");
+}
+
+TEST_F(FileBufferTest, OpenForReadingReportsMissingFileAsStatus) {
+    const auto opened = platform::open_for_reading(platform::native_path(file_path("missing")));
+    EXPECT_EQ(opened.fd, -1);
+    EXPECT_FALSE(opened.status.succeeded);
+    EXPECT_EQ(opened.status.error.category, platform::ErrorCategory::Generic);
+    EXPECT_EQ(opened.status.error.code, ENOENT);
+}
+
+TEST_F(FileBufferTest, ReadSomeReportsEndOfFileAsZeroBytes) {
+    ASSERT_NO_FATAL_FAILURE(write_file("empty", ""));
+    const auto opened = platform::open_for_reading(platform::native_path(file_path("empty")));
+    ASSERT_TRUE(opened.status.succeeded);
+    auto buffer = std::array<char, 8>{};
+    const auto result = platform::read_some(opened.fd, buffer);
+    EXPECT_EQ(platform::close_file_descriptor(opened.fd), 0);
+    EXPECT_TRUE(result.status.succeeded);
+    EXPECT_EQ(result.bytes, 0u);
 }
 
 TEST_F(FileBufferTest, AtomicReplacementPreservesLoadedContent) {
