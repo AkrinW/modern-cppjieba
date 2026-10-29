@@ -12,7 +12,6 @@
 #include "neo/workspace/SegmentScratch.hpp"
 
 #include <cassert>
-#include <cstddef>
 #include <limits>
 #include <span>
 #include <vector>

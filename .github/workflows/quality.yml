@@ -1,0 +1,172 @@
+name: Quality
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Preinstalled on ubuntu-26.04; format locally with the same clang-format major version.
+  LLVM_VERSION: "22"
+  # Package and GoogleTest discovery checks configure separate projects; the main CMake workflow runs them.
+  CTEST_EXCLUDE: "^neo_(cpp_api_install|c_api_install|googletest_)"
+
+jobs:
+  format:
+    name: clang-format
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check formatting
+        run: CLANG_FORMAT="clang-format-$LLVM_VERSION" tools/clang-format-recursive.sh --check
+
+  headers:
+    name: header self-containment
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      # Builds with BUILD_TESTING also compile each header alone through the neo_header_check target.
+      - name: Check that each header compiles alone and templates find their callees
+        run: CLANG_CXX="clang++-$LLVM_VERSION" tools/check-headers.sh
+
+  tidy:
+    name: clang-tidy
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Initialize comparison dependencies
+        run: git submodule update --init deps/cppjieba deps/limonp deps/jieba-rs
+      # Every optional component is configured so each checked source has a real compile command.
+      - name: Configure the compilation database
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER="clang-$LLVM_VERSION" -DCMAKE_CXX_COMPILER="clang++-$LLVM_VERSION"
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON -DCPPJIEBA_BUILD_LEGACY_TESTS=ON
+          -DCPPJIEBA_BUILD_BENCHMARKS=ON -DCPPJIEBA_BUILD_RUST_BENCHMARKS=ON
+          -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_FUZZERS=ON
+      - name: Check clang-tidy
+        env:
+          BUILD_DIR: ${{ github.workspace }}/build
+          GCC_TOOLCHAIN: ""
+        run: CLANG_TIDY="clang-tidy-$LLVM_VERSION" tools/clang-tidy-recursive.sh --check
+
+  sanitizers:
+    name: GCC ${{ matrix.name }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ASan + UBSan
+            artifact: asan-ubsan
+            flags: -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+          - name: TSan
+            artifact: tsan
+            flags: -O1 -g -fsanitize=thread -fno-omit-frame-pointer
+    env:
+      # The symbol and C-host private-runtime checks expect the bundled allocator, which sanitizers replace;
+      # the C API workflow runs them on release-style builds.
+      SANITIZER_CTEST_EXCLUDE: "^neo_(cpp_api_install|c_api_install|googletest_|c_api_symbols$|c_api_c_host$)"
+      ASAN_OPTIONS: detect_leaks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+      TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+    steps:
+      - uses: actions/checkout@v7
+      - name: Limit ASLR entropy to what sanitizer shadow memory supports
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      # GCC links its sanitizer runtimes dynamically, so the shared C ABI keeps -z defs and is tested too.
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=gcc-15 -DCMAKE_CXX_COMPILER=g++-15
+          "-DCMAKE_C_FLAGS=${{ matrix.flags }}" "-DCMAKE_CXX_FLAGS=${{ matrix.flags }}"
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON
+          -DCPPJIEBA_C_API_BUILD_SHARED=ON -DCPPJIEBA_C_API_BUILD_STATIC=ON
+      - name: Build
+        run: cmake --build build --parallel 4
+      - name: Test unit and C ABI contracts
+        run: >-
+          ctest --test-dir build -E "$SANITIZER_CTEST_EXCLUDE" --no-tests=error --output-on-failure
+          --parallel 4 --output-junit sanitizer-tests.xml
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ut-gcc-${{ matrix.artifact }}
+          path: |
+            build/sanitizer-tests.xml
+            build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  fuzz:
+    name: libFuzzer
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      # Debug keeps library assertions fatal; -O1 keeps the execution rate useful.
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_COMPILER="clang++-$LLVM_VERSION" -DCMAKE_CXX_FLAGS=-O1
+          -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_FUZZERS=ON
+      - name: Build
+        run: cmake --build build --parallel 4
+      - name: Fuzz each target for 60 seconds
+        run: tools/fuzz.sh build 60
+      - name: Upload crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts
+          path: build/fuzz-run/artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  coverage:
+    name: llvm-cov
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      # The shared C ABI links the profile runtime privately and writes its own profile, so both variants count.
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER="clang-$LLVM_VERSION" -DCMAKE_CXX_COMPILER="clang++-$LLVM_VERSION"
+          "-DCMAKE_C_FLAGS=-fprofile-instr-generate -fcoverage-mapping"
+          "-DCMAKE_CXX_FLAGS=-fprofile-instr-generate -fcoverage-mapping"
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON
+          -DCPPJIEBA_C_API_BUILD_SHARED=ON -DCPPJIEBA_C_API_BUILD_STATIC=ON
+      - name: Build
+        run: cmake --build build --parallel 4
+      - name: Measure coverage
+        run: >-
+          LLVM_PROFDATA="llvm-profdata-$LLVM_VERSION" LLVM_COV="llvm-cov-$LLVM_VERSION"
+          tools/llvm-coverage.sh build coverage
+      - name: Publish coverage summary
+        run: |
+          {
+            printf '## Coverage of include/neo and the C ABI adapter\n\n'
+            printf 'Report only; no threshold is enforced. HTML and lcov reports are in the coverage artifact.\n\n'
+            printf '```text\n'
+            cat coverage/summary.txt
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-linux-x64
+          path: |
+            coverage/html/
+            coverage/coverage.lcov
+            coverage/summary.txt
+          if-no-files-found: error
+          retention-days: 14

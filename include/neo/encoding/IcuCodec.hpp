@@ -19,6 +19,7 @@
 
 #include <unicode/ucnv.h>
 #include <unicode/ucnv_err.h>
+#include <unicode/umachine.h>
 #include <unicode/utypes.h>
 
 namespace neo_cppjieba {
@@ -93,7 +94,7 @@ auto decode_icu_source_into(std::string_view input, EncodingId encoding,
 
     if (!input.empty()) {
         const auto converter = open_icu_converter(name);
-        auto cursor = input.data();
+        const auto *cursor = input.data();
         const auto *limit = cursor + input.size();
         while (cursor != limit) {
             const auto *start = cursor;

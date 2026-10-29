@@ -86,6 +86,7 @@ target_link_libraries(my_app PRIVATE neo_cppjieba::icu)
 | `CPPJIEBA_BUILD_C_API` | OFF | 构建 C ABI 库 |
 | `CPPJIEBA_C_API_BUILD_SHARED` | ON | 启用 C API 后构建共享库 |
 | `CPPJIEBA_C_API_BUILD_STATIC` | ON | 启用 C API 后构建静态库 |
+| `CPPJIEBA_BUILD_FUZZERS` | OFF | 构建 libFuzzer 目标，要求 Clang |
 | `CPPJIEBA_INSTALL_LEGACY_DICT_DIR` | OFF | 过渡选项：词典同时安装到 1.2 及更早版本的 `share/cppjieba/dict/` |
 
 C API 至少选择一种库形式。测试与比较依赖的版本、初始化和离线配置见 [依赖指南](../deps/README.md)。
@@ -102,6 +103,27 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 单元测试覆盖分词、编码、输出契约和容量变体，安装消费端测试检查包导出及可选组件。
 启用 ICU 或 C API 后，CTest 增加相应的验证。性能测量命令见 [benchmark 指南](../benchmark/README.md)。
 
+## 质量检查
+
+[Quality 工作流](../.github/workflows/quality.yml) 直接使用 `ubuntu-26.04` 预装的工具链：格式、静态分析、fuzz 和覆盖率
+使用 LLVM 22，sanitizer 使用默认的 GCC 15。本地格式化请使用 clang-format 22，与 CI 结果保持一致。各项检查的本地命令如下：
+
+| 检查 | 本地命令 |
+| --- | --- |
+| clang-format | `tools/clang-format-recursive.sh --check`；去掉 `--check` 即就地格式化 |
+| clang-tidy | `BUILD_DIR=build tools/clang-tidy-recursive.sh --check`；去掉 `--check` 即循环应用修复 |
+| 头文件自足 | `tools/check-headers.sh`，`CLANG_CXX` 指定 Clang；`BUILD_TESTING` 构建同时编译 `neo_header_check` |
+| ASan + UBSan、TSan | 以 GCC 和工作流中的 `-fsanitize` 参数配置 Debug 构建，再运行 `ctest` |
+| libFuzzer | 以 `-DCPPJIEBA_BUILD_FUZZERS=ON` 构建，再运行 `tools/fuzz.sh <构建目录> [每个目标的秒数] [目标...]` |
+| 覆盖率 | 以 `-fprofile-instr-generate -fcoverage-mapping` 构建，再运行 `tools/llvm-coverage.sh <构建目录> <输出目录>` |
+
+- clang-tidy 读取 `compile_commands.json`，构建目录需启用工作流中列出的全部可选组件。
+  `CLANG_FORMAT`、`CLANG_TIDY` 指定工具路径；`GCC_TOOLCHAIN` 设为空值时使用编译器默认的 GCC。
+- Sanitizer 与覆盖率构建同时启用共享和静态 C ABI。GCC 的 sanitizer 运行库以动态库链接，满足共享库的 `-z defs`；
+  sanitizer 会替换分配器，因此 sanitizer 任务跳过检查私有运行库的 `neo_c_api_symbols` 和 `neo_c_api_c_host`，
+  二者由 C API 工作流在常规构建中运行。
+- Fuzz 目标在 Debug 下构建以保留库断言，导致崩溃的输入写入 `<构建目录>/fuzz-run/artifacts/`。
+
 ## 仓库布局
 
 | 目录 | 职责 |
@@ -111,8 +133,8 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 | `cmake/` | 项目选项、安装导出和共享测试数据 |
 | `deps/` | 测试、比较依赖的配置及子模块 |
 | `dict/`、`examples/` | 词典模型、可运行示例 |
-| `test/` | 单元测试、消费端测试、测试数据和 CMake 验证脚本 |
+| `test/` | 单元测试、fuzz 目标、消费端测试、测试数据和 CMake 验证脚本 |
 | `benchmark/`、`docs/benchmarks/` | 测量程序、报告生成工具及已发布的数据快照 |
-| `tools/` | 格式化和静态分析脚本 |
+| `tools/` | 格式化、静态分析、fuzz 和覆盖率脚本 |
 
 `build*/`、`cmake-build-*/`、`install/` 和 `benchmark/results/` 用于生成输出及本地测量记录。

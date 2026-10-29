@@ -66,14 +66,15 @@
 
 ### CI 质量门禁
 
-当前 CI 未运行 sanitizer、fuzz、覆盖率，仓库中的 [`.clang-tidy`](.clang-tidy) 和
-[`tools/`](tools) 脚本也未接入 CI。
+[Quality 工作流](.github/workflows/quality.yml) 运行以下检查，本地命令见 [质量检查](docs/building.md#质量检查)。
 
-- [ ] ASan + UBSan 任务，覆盖单元测试和 C ABI 测试。
-- [ ] TSan 任务，配合 C ABI 并发契约。
-- [ ] libFuzzer 目标：UTF 解码、主词典 / 用户词典 / HMM 模型解析、`neo_jieba_v1_cut_utf8_owned`。
-- [ ] clang-format 与 clang-tidy 检查。
-- [ ] llvm-cov 覆盖率报告。
+- [x] ASan + UBSan 任务，覆盖单元测试和共享、静态两种 C ABI 测试。
+- [x] TSan 任务，覆盖 C++ 并发分词、关键词提取和 `clone()` 写时复制；C ABI 并发测试随 1.4 的并发契约加入。
+- [x] libFuzzer 目标：UTF 解码、主词典 / 用户词典 / HMM 模型解析、`neo_jieba_v1_cut_utf8_owned`。
+- [x] clang-format 与 clang-tidy 检查。
+- [x] 启用 `misc-include-cleaner`：门面头文件以 `// IWYU pragma: export` 标注转出的角色头文件，其余代码直接 include。
+- [x] 头文件自足检查：每个库头文件单独编译，模板中依赖实参的调用不依赖包含方先引入的声明。
+- [x] llvm-cov 覆盖率报告。
 
 ### 日志与错误处理
 

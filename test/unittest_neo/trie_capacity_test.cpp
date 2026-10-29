@@ -6,6 +6,8 @@
 #include "neo/resource/Trie.hpp"
 #include "neo/third_party/gtl.hpp"
 #include "neo/util/Unicode.hpp"
+#include "neo/value/DictSource.hpp"
+#include "neo/value/Rune.hpp"
 
 #include <array>
 #include <cstddef>

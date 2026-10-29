@@ -1,10 +1,10 @@
 #pragma once
 
 #include <cassert>
-#include <cstdio>
 #include <ctime>
 
 #ifdef _WIN32
+#include <cstdio>
 #include <io.h>
 #include <process.h>
 #else

@@ -21,11 +21,13 @@ add_executable(test_neo.run
     tagging_test.cpp
     keyword_extractor_test.cpp
     dict_loading_test.cpp
+    concurrency_test.cpp
 )
 
 target_compile_definitions(test_neo.run PRIVATE LOGGING_LEVEL=LL_WARNING)
 # Add include directories
-target_link_libraries(test_neo.run PRIVATE neo_cppjieba::neo_cppjieba cppjieba_test_support)
+find_package(Threads REQUIRED)
+target_link_libraries(test_neo.run PRIVATE neo_cppjieba::neo_cppjieba cppjieba_test_support Threads::Threads)
 if(CPPJIEBA_ENABLE_ICU)
     target_sources(test_neo.run PRIVATE encoded_text_test.cpp)
     target_link_libraries(test_neo.run PRIVATE neo_cppjieba::icu)

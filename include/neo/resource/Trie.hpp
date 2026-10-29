@@ -70,7 +70,7 @@ class Trie {
 
     /// Small child sets keep complete entries together without per-edge hash keys.
     struct CompactTransition {
-        Rune rune;
+        Rune rune{};
         Entry entry;
     };
     static constexpr auto kCompactFanout = size_t{4};

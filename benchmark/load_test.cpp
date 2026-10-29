@@ -6,9 +6,10 @@
 
 #include "test_paths.h"
 
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <ctime>
-#include <fstream>
-#include <iostream>
 
 using namespace cppjieba;
 namespace {

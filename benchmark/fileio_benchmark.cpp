@@ -112,10 +112,9 @@ static auto BenchNewMethod(const std::string &path, int iterations) -> std::chro
     }
     return total / iterations;
 }
-} // namespace
 
 // Compare full-dictionary loading after warming the filesystem cache.
-static auto run_benchmark() -> void {
+auto run_benchmark() -> void {
     auto path = std::string(DICT_DIR) + "/jieba.dict.utf8";
     constexpr auto ITERATIONS = 5;
 
@@ -149,6 +148,7 @@ static auto run_benchmark() -> void {
     // The new method should be faster (at least not slower)
     // Report this expectation without making timing a pass/fail condition.
 }
+} // namespace
 
 // Report invalid benchmark input as a failing command with a readable diagnostic.
 auto main() -> int {

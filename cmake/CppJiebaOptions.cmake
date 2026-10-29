@@ -14,6 +14,7 @@ option(CPPJIEBA_BUILD_BENCHMARKS "Build standalone benchmarks" OFF)
 option(CPPJIEBA_BUILD_RUST_BENCHMARKS "Build the pinned Rust comparison benchmark (requires Cargo)" OFF)
 option(CPPJIEBA_ENABLE_ICU "Enable the optional GBK/GB18030 codec" OFF)
 option(CPPJIEBA_BUILD_C_API "Build the C ABI libraries" OFF)
+option(CPPJIEBA_BUILD_FUZZERS "Build libFuzzer targets (requires Clang)" OFF)
 option(CPPJIEBA_INSTALL_LEGACY_DICT_DIR "Also install dictionaries to the pre-1.3 share/cppjieba/dict" OFF)
 
 if(CPPJIEBA_BUILD_LEGACY_TESTS AND NOT BUILD_TESTING)

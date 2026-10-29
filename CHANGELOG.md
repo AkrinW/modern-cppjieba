@@ -21,9 +21,14 @@
 - `Jieba` 支持运行时就地增删词：`add_word`、`add_word_with_freq`、`remove_word`，权重规则与用户词典一致，
   库内部不加锁；`clone()` 显式复制实例用于写时复制，`compact()` 回收增删留下的存储。
   见 [运行时增删词](docs/usage.md#运行时增删词)。
+- 新增构建选项 `CPPJIEBA_BUILD_FUZZERS`（要求 Clang），构建 UTF 解码、主词典 / 用户词典 / HMM 模型解析和
+  `neo_jieba_v1_cut_utf8_owned` 的 libFuzzer 目标；CI 增加格式、clang-tidy、sanitizer、fuzz 和覆盖率检查。
+  见 [质量检查](docs/building.md#质量检查)。
 
 ### Changed
 
+- 门面头文件以 `// IWYU pragma: export` 标注公开类型所在的头文件，clangd 等 include-cleaner 工具把门面视为这些类型的
+  提供者；内部头文件去掉未使用的标准库头文件，依赖门面间接引入 `<limits>`、`<cstddef>` 等头文件的代码需自行 include。
 - **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 只持有 IDF 和停用词，构造函数去掉选项参数；
   `TfIdfOptions`、`TextRankOptions` 改为 `extract` / `extract_into` 在 `top_n` 之后的参数，按 `const &` 传入且不被保存，
   `options()` 移除。`TextRankOptions::damping` 改为在每次调用入口检查。见 [关键词提取](docs/usage.md#关键词提取)。

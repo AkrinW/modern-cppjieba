@@ -9,6 +9,10 @@
 
 #include "test_paths.h"
 
+#include <cstddef>
+#include <cstdlib>
+#include <ctime>
+
 using namespace cppjieba;
 
 TEST(MixSegmentTest, Test1) {

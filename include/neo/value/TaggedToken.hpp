@@ -14,7 +14,7 @@ namespace neo_cppjieba {
 
 // Token metadata with the word's part-of-speech tag; contains no pointers into the input.
 struct TaggedPosition {
-    TokenPosition position;
+    TokenPosition position{};
     PosTag tag;
 
     constexpr auto operator==(const TaggedPosition &) const noexcept -> bool = default;
@@ -33,7 +33,7 @@ struct TaggedWord {
 template <CharType CharT>
 struct TaggedTokenView {
     std::basic_string_view<CharT> word;
-    TokenPosition position;
+    TokenPosition position{};
     PosTag tag;
 };
 

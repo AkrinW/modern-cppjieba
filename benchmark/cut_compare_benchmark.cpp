@@ -14,6 +14,7 @@
 #include <exception>
 #include <fstream>
 #include <iomanip>
+#include <ios>
 #include <locale>
 #include <ostream>
 #include <stdexcept>

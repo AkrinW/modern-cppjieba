@@ -1,19 +1,19 @@
 #pragma once
 
-#include "neo/Fwd.hpp"
-#include "neo/Jieba.hpp"
+#include "neo/Fwd.hpp"   // IWYU pragma: export
+#include "neo/Jieba.hpp" // IWYU pragma: export
 #include "neo/algorithm/KeywordRank.hpp"
-#include "neo/concept/Text.hpp"
+#include "neo/concept/Text.hpp" // IWYU pragma: export
 #include "neo/options/CutMode.hpp"
-#include "neo/options/KeywordOptions.hpp"
+#include "neo/options/KeywordOptions.hpp" // IWYU pragma: export
 #include "neo/resource/KeywordResource.hpp"
 #include "neo/util/Unicode.hpp"
-#include "neo/value/DictSource.hpp"
-#include "neo/value/Keyword.hpp"
-#include "neo/value/PosTag.hpp"
-#include "neo/value/Rune.hpp"
+#include "neo/value/DictSource.hpp" // IWYU pragma: export
+#include "neo/value/Keyword.hpp"    // IWYU pragma: export
+#include "neo/value/PosTag.hpp"     // IWYU pragma: export
+#include "neo/value/Rune.hpp"       // IWYU pragma: export
 #include "neo/workspace/KeywordState.hpp"
-#include "neo/workspace/KeywordWorkspace.hpp"
+#include "neo/workspace/KeywordWorkspace.hpp" // IWYU pragma: export
 
 #include <cstddef>
 #include <span>

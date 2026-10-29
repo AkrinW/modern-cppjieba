@@ -11,6 +11,7 @@
 #include "neo/resource/HMMState.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
+#include "neo/value/Rune.hpp"
 #include "neo/workspace/SegmentScratch.hpp"
 
 #include "test_paths.h"
@@ -20,13 +21,13 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <limits>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <type_traits>
-#include <utility>
 #include <vector>
 
 using namespace neo_cppjieba;
@@ -185,7 +186,7 @@ TEST_F(HMModelTest, AcceptsSupportedProbabilityBounds) {
 }
 
 TEST_F(HMModelTest, RejectsInvalidLogProbabilitiesInEveryParameterSet) {
-    for (const auto token : {"nan", "inf", "-inf", "0.1", "-3.15e100"}) {
+    for (const auto *const token : {"nan", "inf", "-inf", "0.1", "-3.15e100"}) {
         for (auto row = size_t{0}; row < model_lines_.size(); ++row) {
             auto lines = model_lines_;
             lines[row] = row < 5 ? std::string{token} + " -1 -1 -1" : "甲:" + std::string{token};
@@ -197,7 +198,7 @@ TEST_F(HMModelTest, RejectsInvalidLogProbabilitiesInEveryParameterSet) {
 }
 
 TEST_F(HMModelTest, RejectsMalformedProbabilityTokens) {
-    for (const auto token : {"", "-1oops", "1e400"}) {
+    for (const auto *const token : {"", "-1oops", "1e400"}) {
         for (const auto row : {size_t{0}, size_t{1}, size_t{5}}) {
             auto lines = model_lines_;
             lines[row] = row < 5 ? std::string{token} + " -1 -1 -1" : "甲:" + std::string{token};
@@ -209,7 +210,7 @@ TEST_F(HMModelTest, RejectsMalformedProbabilityTokens) {
 }
 
 TEST_F(HMModelTest, RejectsWrongProbabilityColumnCounts) {
-    for (const auto probability_line : {"0 0 0", "0 0 0 0 0"}) {
+    for (const auto *const probability_line : {"0 0 0", "0 0 0 0 0"}) {
         for (auto row = size_t{0}; row < 5; ++row) {
             auto lines = model_lines_;
             lines[row] = probability_line;
@@ -228,7 +229,7 @@ TEST_F(HMModelTest, RejectsMissingModelData) {
 
 TEST_F(HMModelTest, RejectsAdditionalModelData) {
     auto lines = model_lines_;
-    lines.push_back("甲:-1");
+    lines.emplace_back("甲:-1");
     ASSERT_NO_FATAL_FAILURE(write_model(lines));
     EXPECT_THROW((HMModel{model_path()}), LogConfig::Exception);
 }
@@ -236,7 +237,7 @@ TEST_F(HMModelTest, RejectsAdditionalModelData) {
 TEST_F(HMModelTest, LoadsCrLfModelWithCommentsAndBlankLines) {
     auto lines = model_lines_;
     lines.insert(lines.begin(), {"# header", "", " \t# indented comment", " \t"});
-    lines.push_back("# trailing comment");
+    lines.emplace_back("# trailing comment");
     for (auto &line : lines) {
         line += '\r';
     }
@@ -256,7 +257,7 @@ TEST_F(HMModelTest, RejectsEmptyEmissionTables) {
 }
 
 TEST_F(HMModelTest, RejectsDuplicateEmissionKeys) {
-    for (const auto emission_line : {"甲:-1,甲:-2", "甲:-1,甲:-1", "甲:-3.14e100,甲:0", "𠮷:-3.14e100,𠮷:0"}) {
+    for (const auto *const emission_line : {"甲:-1,甲:-2", "甲:-1,甲:-1", "甲:-3.14e100,甲:0", "𠮷:-3.14e100,𠮷:0"}) {
         for (auto row = size_t{5}; row < model_lines_.size(); ++row) {
             auto lines = model_lines_;
             lines[row] = emission_line;
@@ -274,7 +275,7 @@ TEST_F(HMModelTest, RejectsEmissionEntriesWithoutAColon) {
 }
 
 TEST_F(HMModelTest, RejectsEmissionKeysThatAreNotSingleUnicodeScalars) {
-    for (const auto emission_line : {":-1", "甲乙:-1", "\xFF:-1"}) {
+    for (const auto *const emission_line : {":-1", "甲乙:-1", "\xFF:-1"}) {
         auto lines = model_lines_;
         lines[5] = emission_line;
         ASSERT_NO_FATAL_FAILURE(write_model(lines));

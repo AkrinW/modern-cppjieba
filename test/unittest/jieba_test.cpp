@@ -3,6 +3,9 @@
 
 #include "test_paths.h"
 
+#include <cstddef>
+#include <cstdlib>
+
 using namespace cppjieba;
 
 TEST(JiebaTest, Test0) {

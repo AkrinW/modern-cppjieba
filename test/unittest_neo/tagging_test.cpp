@@ -6,6 +6,7 @@
 #include "test_paths.h"
 
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <format>
 #include <span>

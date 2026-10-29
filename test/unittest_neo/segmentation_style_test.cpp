@@ -10,6 +10,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <span>
 #include <string>
 #include <string_view>
@@ -49,7 +50,7 @@ public:
     StyleTestFile(const StyleTestFile &) = delete;
     auto operator=(const StyleTestFile &) -> StyleTestFile & = delete;
 
-    auto path() const -> const std::string & {
+    [[nodiscard]] auto path() const -> const std::string & {
         return path_;
     }
 

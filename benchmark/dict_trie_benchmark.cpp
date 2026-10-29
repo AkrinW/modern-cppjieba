@@ -22,11 +22,13 @@
 #include "test_paths.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <numeric>
 #include <random>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>

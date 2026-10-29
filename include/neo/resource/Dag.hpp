@@ -7,7 +7,6 @@
 #include "neo/value/Rune.hpp"
 
 #include <cstddef>
-#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
