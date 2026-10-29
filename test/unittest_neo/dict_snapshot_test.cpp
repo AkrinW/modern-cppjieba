@@ -12,6 +12,7 @@
 #include "neo/value/DictSource.hpp"
 #include "neo/value/PosTag.hpp"
 #include "neo/value/Rune.hpp"
+#include "neo/value/SnapshotSource.hpp"
 
 #include "TestUtils.hpp"
 #include "test_paths.h"
@@ -336,15 +337,16 @@ TEST(DictSnapshotTest, BundledDictionariesMatchTextLoading) {
 
     const auto text = read_text(DICT_FILE) + read_text(USER_DICT_FILE) + read_text(TEST_USER_DICT_FILE);
     const auto corpus = read_text(CORPUS_FILE);
-    expect_same_dictionary(load_dict_snapshot(bytes, "bundled"), DictTrie{dict, users, opt}, words_of(text),
-                           lines_of(corpus));
+    expect_same_dictionary(load_dict_snapshot(SnapshotSource::memory(bytes, "bundled")), DictTrie{dict, users, opt},
+                           words_of(text), lines_of(corpus));
 }
 
 TEST(DictSnapshotTest, EveryUserWordWeightOptionMatchesTextLoading) {
     for (const auto opt : {UserWordWeightOption::WordWeightMin, UserWordWeightOption::WordWeightMedian,
                            UserWordWeightOption::WordWeightMax}) {
         const auto bytes = encode_dict_snapshot(golden_level_order(opt));
-        expect_same_dictionary(load_dict_snapshot(bytes, "golden"), golden_text_trie(opt), golden_words(), sentences);
+        expect_same_dictionary(load_dict_snapshot(SnapshotSource::memory(bytes, "golden")), golden_text_trie(opt),
+                               golden_words(), sentences);
     }
 }
 
@@ -365,7 +367,8 @@ TEST(DictSnapshotTest, LaterUserEntriesWinAsInTextLoading) {
     const auto main_dict = DictSource::memory("大学 80 n\n北京 100 ns\n", "main");
     const auto users = std::array{DictSource::memory("大学 5 x\n", "first"), DictSource::memory("大学 nt\n", "second")};
     const auto opt = UserWordWeightOption::WordWeightMin;
-    const auto loaded = load_dict_snapshot(encode_dict_snapshot(DictTrie::level_order(main_dict, users, opt)), "users");
+    const auto bytes = encode_dict_snapshot(DictTrie::level_order(main_dict, users, opt));
+    const auto loaded = load_dict_snapshot(SnapshotSource::memory(bytes, "users"));
     const auto text = DictTrie{main_dict, users, opt};
 
     const auto word = decode("大学");
@@ -381,13 +384,13 @@ TEST(DictSnapshotTest, FileLoadMatchesTextLoading) {
         auto output = std::ofstream{path, std::ios::binary};
         output.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     }
-    const auto loaded = load_dict_snapshot_file(path_to_utf8(path));
+    const auto loaded = load_dict_snapshot(SnapshotSource::file(path_to_utf8(path)));
     std::filesystem::remove_all(directory);
     expect_same_dictionary(loaded, golden_text_trie(UserWordWeightOption::WordWeightMedian), golden_words(), sentences);
 }
 
 TEST(DictSnapshotTest, FormatVersion1GoldenStillMatchesTextLoading) {
-    expect_same_dictionary(load_dict_snapshot_file(GOLDEN_V1_SNAPSHOT),
+    expect_same_dictionary(load_dict_snapshot(SnapshotSource::file(GOLDEN_V1_SNAPSHOT)),
                            golden_text_trie(UserWordWeightOption::WordWeightMedian), golden_words(), sentences);
 }
 

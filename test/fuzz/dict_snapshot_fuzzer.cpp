@@ -2,6 +2,7 @@
 #include "neo/resource/DictSnapshot.hpp"
 #include "neo/util/ByteOrder.hpp"
 #include "neo/util/Xxh64.hpp"
+#include "neo/value/SnapshotSource.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -23,7 +24,7 @@ extern "C" auto LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t siz
         }
     }
     try {
-        const auto dict = detail::load_dict_snapshot(bytes, "<fuzz>");
+        const auto dict = detail::load_dict_snapshot(SnapshotSource::memory(bytes, "<fuzz>"));
         static_cast<void>(dict);
     } catch (const LogConfig::Exception &) {
     }

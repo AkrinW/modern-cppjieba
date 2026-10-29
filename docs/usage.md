@@ -200,6 +200,33 @@ const auto jieba = Jieba{DictSource::memory(embedded_dict, "jieba.dict"), DictSo
 const auto extractor = TfIdfExtractor{DictSource::memory(embedded_idf), DictSource::memory(embedded_stop_words)};
 ```
 
+## 词典快照
+
+主词典和用户词典可以预先编译成快照，加载时跳过文本解析和逐词建树。
+内置词典从文本加载约 85 ms，从快照加载约 15 ms（发布构建，文件已在页缓存中）。
+
+```cpp
+#include "neo/Jieba.hpp"
+
+using namespace neo_cppjieba;
+
+// 生成：与 Jieba{dict, model, user_dicts} 构建的词典相同；保存 bytes 由调用方负责
+const auto user_dicts = std::array{DictSource::file("user.dict.utf8")};
+const auto bytes = Jieba::encode_dict_snapshot(DictSource::file("jieba.dict.utf8"), user_dicts);
+
+// 加载：HMM 模型仍从 DictSource 读取
+const auto jieba = Jieba::from_snapshot(SnapshotSource::file("jieba.snapshot"), DictSource::file("hmm_model.utf8"));
+```
+
+- 从快照加载的实例与从生成它的源词典加载的实例分词、词性和权重完全相同；权重在加载时按当前版本的规则推导。
+- `SnapshotSource::file(path)` 在加载时把文件完整读入自有内存；`SnapshotSource::memory(bytes, name)` 借用内存，
+  只需在加载期间有效。加载完成后实例不再引用文件或内存，文件随后被修改、截断或删除都不影响它；
+  加载过程中文件被修改由校验和发现并报错。更新快照文件时，先写临时文件再重命名替换，可避免其他进程启动时读到半份文件。
+- 新版本的库读取旧版本写出的快照。若某次升级改变了词典文本的解析规则，旧快照会以错误报告并提示从源词典重新生成。
+  格式与兼容规则见 [词典快照格式](snapshot.md)。
+- 损坏、截断、版本过新或不是快照的数据通过 `LogConfig::Exception` 报告，错误信息包含来源名称。
+- 运行时增删词、`clone()` 和 `compact()` 对快照加载的实例同样适用。
+
 ## 运行时增删词
 
 `Jieba` 可在构建后就地加词、删词，对应 CppJieba 的 `InsertUserWord` 和 Python jieba 的 `add_word` / `del_word`：

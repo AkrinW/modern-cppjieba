@@ -9,17 +9,20 @@
 #include "neo/options/CutMode.hpp" // IWYU pragma: export
 #include "neo/options/Tagging.hpp" // IWYU pragma: export
 #include "neo/options/UserWordWeightOption.hpp"
+#include "neo/resource/DictSnapshot.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
-#include "neo/value/DictSource.hpp"    // IWYU pragma: export
-#include "neo/value/PosTag.hpp"        // IWYU pragma: export
-#include "neo/value/Rune.hpp"          // IWYU pragma: export
-#include "neo/value/TaggedToken.hpp"   // IWYU pragma: export
-#include "neo/value/TokenView.hpp"     // IWYU pragma: export
-#include "neo/value/Tokens.hpp"        // IWYU pragma: export
-#include "neo/workspace/Workspace.hpp" // IWYU pragma: export
+#include "neo/value/DictSource.hpp"     // IWYU pragma: export
+#include "neo/value/PosTag.hpp"         // IWYU pragma: export
+#include "neo/value/Rune.hpp"           // IWYU pragma: export
+#include "neo/value/SnapshotSource.hpp" // IWYU pragma: export
+#include "neo/value/TaggedToken.hpp"    // IWYU pragma: export
+#include "neo/value/TokenView.hpp"      // IWYU pragma: export
+#include "neo/value/Tokens.hpp"         // IWYU pragma: export
+#include "neo/workspace/Workspace.hpp"  // IWYU pragma: export
 
+#include <cstddef>
 #include <span>
 #include <string>
 #include <string_view>
@@ -49,6 +52,20 @@ public:
     // Load from files or memory; user dictionaries load in order and a repeated word takes the last entry.
     explicit Jieba(const DictSource &dict, const DictSource &model, std::span<const DictSource> user_dicts = {})
         : dict_(dict, user_dicts, detail::UserWordWeightOption::WordWeightMedian), model_(model) {
+    }
+
+    // Load the dictionary from a snapshot made by encode_dict_snapshot. It cuts exactly as the sources it was
+    // encoded from would, with weights derived under this build's rules; errors use the checked exception.
+    [[nodiscard]] static auto from_snapshot(const SnapshotSource &dict_snapshot, const DictSource &model) -> Jieba {
+        return Jieba{detail::load_dict_snapshot(dict_snapshot), detail::HMModel{model}};
+    }
+
+    // Encode the dictionary the constructor taking these sources would build. Equal dictionaries give equal bytes,
+    // and later builds keep reading the snapshots earlier builds wrote.
+    [[nodiscard]] static auto encode_dict_snapshot(const DictSource &dict, std::span<const DictSource> user_dicts)
+        -> std::vector<std::byte> {
+        return detail::encode_dict_snapshot(
+            detail::DictTrie::level_order(dict, user_dicts, detail::UserWordWeightOption::WordWeightMedian));
     }
 
     Jieba(Jieba &&) noexcept = default;
@@ -203,6 +220,10 @@ private:
         detail::assert_rune_count(state.decoded.runes.size());
         detail::segment_into(dict_, model_, state.decoded.runes, mode, state.ranges, state.scratch);
         return state;
+    }
+
+    // Snapshot loading builds the dictionary directly; the model still loads from its source.
+    Jieba(detail::DictTrie dict, detail::HMModel model) noexcept : dict_(std::move(dict)), model_(std::move(model)) {
     }
 
     // Copying is reserved for clone() so whole-dictionary copies stay explicit at call sites.

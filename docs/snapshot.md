@@ -1,6 +1,7 @@
 # 词典快照格式
 
 词典快照是 `DictTrie` 的预编译形式：加载时跳过文本解析和逐词建树，直接按层序布局构造 Trie。
+公开入口是 `Jieba::encode_dict_snapshot` 和 `Jieba::from_snapshot`，用法见 [词典快照](usage.md#词典快照)。
 实现位于 `include/neo/resource/DictSnapshot.hpp`，层序布局与校验位于 `Trie.hpp` 和 `DictTrie.hpp`。
 
 ## 兼容性原则
@@ -70,7 +71,7 @@ Section 表紧接 header，每项：`u32 kind`、`u16 encoding`、`u16 flags`（
 
 ## 加载与安全
 
-`load_dict_snapshot_file` 先把文件完整读入自有内存（沿用 `FileBuffer` 的读前读后元数据检查），再校验和解码，
+`SnapshotSource::file` 在加载时先把文件完整读入自有内存（沿用 `FileBuffer` 的读前读后元数据检查），再校验和解码，
 因此加载后文件被修改、截断或删除都不会影响词典；读取过程中的并发修改由校验和发现。
 所有结构错误都通过 `check` 报告为可处理的错误：越界计数、未知 flag、乱序 rune、不可达节点、超出 `TrieNodeId` 范围的节点数、
 不一致的统计量等。`test/fuzz/dict_snapshot_fuzzer.cpp` 在每次变异后重算校验和，以覆盖校验和之后的解码路径。

@@ -10,6 +10,7 @@
 #include "neo/value/DictSource.hpp"
 #include "neo/value/PosTag.hpp"
 #include "neo/value/Rune.hpp"
+#include "neo/value/SnapshotSource.hpp"
 
 #include "test_paths.h"
 
@@ -200,7 +201,7 @@ TEST(TrieCapacityTest, SnapshotWrittenWithOtherNodeIdsMatchesTextLoading) {
     const auto users = std::array{DictSource::file(TEST_DATA_DIR "/snapshot/user.dict.utf8")};
     const auto text = DictTrie{DictSource::file(TEST_DATA_DIR "/snapshot/main.dict.utf8"), users,
                                UserWordWeightOption::WordWeightMedian};
-    const auto loaded = load_dict_snapshot_file(TEST_DATA_DIR "/snapshot/format_v1.bin");
+    const auto loaded = load_dict_snapshot(SnapshotSource::file(TEST_DATA_DIR "/snapshot/format_v1.bin"));
 
     EXPECT_EQ(loaded.trie().node_count(), text.trie().node_count());
     for (const auto *const word : {"北京大学", "中午", "𠀀", "AT&T", "清华大学", "大学", "龘", "云计算", "中", "北"}) {

@@ -4,11 +4,11 @@
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/Trie.hpp"
 #include "neo/util/ByteOrder.hpp"
-#include "neo/util/FileIO.hpp"
 #include "neo/util/Logging.hpp"
 #include "neo/util/Xxh64.hpp"
 #include "neo/value/PosTag.hpp"
 #include "neo/value/Rune.hpp"
+#include "neo/value/SnapshotSource.hpp"
 
 #include <algorithm>
 #include <array>
@@ -596,16 +596,12 @@ struct EncodedSnapshotSection {
     return assemble_snapshot_v1(sections);
 }
 
-/// Build a dictionary from snapshot bytes; name labels diagnostics.
-[[nodiscard]] inline auto load_dict_snapshot(std::span<const std::byte> bytes, std::string_view name) -> DictTrie {
-    return DictTrie{decode_dict_snapshot(bytes, name)};
-}
-
-/// Read a snapshot file into owned memory before decoding, so later changes to the file cannot reach the
-/// dictionary; a change during the read fails the checksum.
-[[nodiscard]] inline auto load_dict_snapshot_file(std::string_view path) -> DictTrie {
-    const auto file = read_file(path);
-    return load_dict_snapshot(std::as_bytes(std::span{file.content()}), path);
+/// Build a dictionary from a snapshot. A file is read into owned memory before decoding, so later changes to it
+/// cannot reach the dictionary; a change during the read fails the checksum.
+[[nodiscard]] inline auto load_dict_snapshot(const SnapshotSource &source) -> DictTrie {
+    return with_snapshot_bytes(source, [](std::span<const std::byte> bytes, std::string_view name) {
+        return DictTrie{decode_dict_snapshot(bytes, name)};
+    });
 }
 
 } // namespace neo_cppjieba::detail
