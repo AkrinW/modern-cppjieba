@@ -7,10 +7,12 @@
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
+#include "neo/value/Rune.hpp"
 #include "neo/workspace/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
+#include <cstddef>
 #include <span>
 #include <string>
 #include <string_view>

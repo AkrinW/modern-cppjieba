@@ -6,6 +6,8 @@
 
 #include <cstdint>
 #include <fstream>
+#include <iostream>
+#include <ostream>
 #include <set>
 #include <string>
 #include <string_view>

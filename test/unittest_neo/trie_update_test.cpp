@@ -2,6 +2,7 @@
 #include "neo/Config.hpp"
 #include "neo/resource/DictUnit.hpp"
 #include "neo/resource/Trie.hpp"
+#include "neo/value/Rune.hpp"
 
 #include <array>
 #include <cstddef>

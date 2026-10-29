@@ -72,7 +72,7 @@
 - [x] TSan 任务，覆盖 C++ 并发分词、关键词提取和 `clone()` 写时复制；C ABI 并发测试随 1.4 的并发契约加入。
 - [x] libFuzzer 目标：UTF 解码、主词典 / 用户词典 / HMM 模型解析、`neo_jieba_v1_cut_utf8_owned`。
 - [x] clang-format 与 clang-tidy 检查。
-- [ ] 启用 `misc-include-cleaner`：门面头文件先以 `// IWYU pragma: export` 标注转出的角色头文件，再修复其余告警。
+- [x] 启用 `misc-include-cleaner`：门面头文件以 `// IWYU pragma: export` 标注转出的角色头文件，其余代码直接 include。
 - [x] llvm-cov 覆盖率报告。
 
 ### 日志与错误处理

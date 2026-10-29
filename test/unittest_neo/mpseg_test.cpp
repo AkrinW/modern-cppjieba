@@ -7,10 +7,12 @@
 #include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/util/Unicode.hpp"
+#include "neo/value/Rune.hpp"
 #include "neo/workspace/SegmentScratch.hpp"
 
 #include "test_paths.h"
 
+#include <cstddef>
 #include <limits>
 #include <span>
 #include <string>

@@ -16,6 +16,7 @@
 #include "neo/util/FileIO.hpp"
 #include "neo/util/StringUtil.hpp"
 #include "neo/util/Unicode.hpp"
+#include "neo/value/Rune.hpp"
 
 #include "BenchmarkUtils.hpp"
 

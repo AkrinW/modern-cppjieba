@@ -2,6 +2,10 @@
 #include "cppjieba/Utils.hpp"
 #include "gtest/gtest.h"
 
+#include <cstddef>
+#include <cstdlib>
+#include <ctime>
+
 using namespace cppjieba;
 using namespace std;
 

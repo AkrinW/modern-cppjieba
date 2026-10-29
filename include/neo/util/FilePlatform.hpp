@@ -12,7 +12,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <utility>
 
 #include <sys/stat.h>
 
@@ -25,6 +24,8 @@
 #include <windows.h>
 #else
 #include <unistd.h>
+
+#include <sys/types.h>
 #endif
 
 namespace neo_cppjieba::detail::platform {

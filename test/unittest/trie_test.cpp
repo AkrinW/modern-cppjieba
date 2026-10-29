@@ -4,6 +4,8 @@
 
 #include "test_paths.h"
 
+#include <cstddef>
+
 using namespace cppjieba;
 
 static const char *const DICT_FILE = TEST_DATA_DIR "/extra_dict/jieba.dict.small.utf8";

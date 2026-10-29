@@ -27,6 +27,8 @@
 
 ### Changed
 
+- 门面头文件以 `// IWYU pragma: export` 标注公开类型所在的头文件，clangd 等 include-cleaner 工具把门面视为这些类型的
+  提供者；内部头文件去掉未使用的标准库头文件，依赖门面间接引入 `<limits>`、`<cstddef>` 等头文件的代码需自行 include。
 - **不兼容**：`TfIdfExtractor`、`TextRankExtractor` 只持有 IDF 和停用词，构造函数去掉选项参数；
   `TfIdfOptions`、`TextRankOptions` 改为 `extract` / `extract_into` 在 `top_n` 之后的参数，按 `const &` 传入且不被保存，
   `options()` 移除。`TextRankOptions::damping` 改为在每次调用入口检查。见 [关键词提取](docs/usage.md#关键词提取)。

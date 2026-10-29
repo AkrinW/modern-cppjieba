@@ -13,7 +13,6 @@
 // ── Neo headers ──
 #include "neo/Utf.hpp"
 #include "neo/options/UserWordWeightOption.hpp"
-#include "neo/resource/Dag.hpp"
 #include "neo/resource/DictTrie.hpp"
 
 #include "BenchmarkUtils.hpp"

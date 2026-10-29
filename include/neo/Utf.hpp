@@ -1,9 +1,9 @@
 #pragma once
 
-#include "neo/Fwd.hpp"
-#include "neo/concept/Text.hpp"
+#include "neo/Fwd.hpp"          // IWYU pragma: export
+#include "neo/concept/Text.hpp" // IWYU pragma: export
 #include "neo/util/Unicode.hpp"
-#include "neo/value/Rune.hpp"
+#include "neo/value/Rune.hpp" // IWYU pragma: export
 
 #include <span>
 #include <string>

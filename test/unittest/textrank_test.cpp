@@ -3,6 +3,8 @@
 
 #include "test_paths.h"
 
+#include <cstddef>
+
 using namespace cppjieba;
 
 TEST(TextRankExtractorTest, Test1) {

@@ -10,6 +10,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <span>
 #include <string>
 #include <string_view>

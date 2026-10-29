@@ -1,11 +1,11 @@
 #include "gtest/gtest.h"
+#include "neo/concept/Text.hpp"
 #include "neo/util/Unicode.hpp"
 
 #include <array>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <memory_resource>
 #include <span>
 #include <stdexcept>
 #include <string>

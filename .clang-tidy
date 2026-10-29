@@ -2,10 +2,10 @@
 HeaderFilterRegex: '^(include/neo|test|benchmark)/'
 ExcludeHeaderFilterRegex: '(^benchmark/Perf\.hpp$|(^|/)include/neo/third_party/)'
 
-# misc-include-cleaner stays off until the facade headers mark the role headers they re-export.
+# misc-include-cleaner treats the facades' IWYU export pragmas as the public include surface.
 Checks: >
   -*,
-  -misc-include-cleaner,
+  misc-include-cleaner,
   readability-braces-around-statements,
   readability-simplify-boolean-expr,
   misc-unused-parameters,
@@ -38,3 +38,6 @@ Checks: >
 CheckOptions:
   - key: modernize-use-trailing-return-type.TransformLambdas
     value: none
+  # Third-party include layouts are not ours to fix; patterns match anywhere in a header's real path.
+  - key: misc-include-cleaner.IgnoreHeaders
+    value: 'deps/(cppjieba|limonp)/.*;include/neo/third_party/.*'

@@ -1,26 +1,25 @@
 #pragma once
 
-#include "neo/Fwd.hpp"
+#include "neo/Fwd.hpp" // IWYU pragma: export
 #include "neo/algorithm/Output.hpp"
 #include "neo/algorithm/PosTagging.hpp"
 #include "neo/algorithm/Segmenter.hpp"
 #include "neo/concept/Output.hpp"
-#include "neo/concept/Text.hpp"
-#include "neo/options/CutMode.hpp"
-#include "neo/options/Tagging.hpp"
+#include "neo/concept/Text.hpp"    // IWYU pragma: export
+#include "neo/options/CutMode.hpp" // IWYU pragma: export
+#include "neo/options/Tagging.hpp" // IWYU pragma: export
 #include "neo/options/UserWordWeightOption.hpp"
 #include "neo/resource/DictTrie.hpp"
 #include "neo/resource/HMModel.hpp"
 #include "neo/util/Unicode.hpp"
-#include "neo/value/DictSource.hpp"
-#include "neo/value/PosTag.hpp"
-#include "neo/value/Rune.hpp"
-#include "neo/value/TaggedToken.hpp"
-#include "neo/value/Tokens.hpp"
-#include "neo/workspace/Workspace.hpp"
+#include "neo/value/DictSource.hpp"    // IWYU pragma: export
+#include "neo/value/PosTag.hpp"        // IWYU pragma: export
+#include "neo/value/Rune.hpp"          // IWYU pragma: export
+#include "neo/value/TaggedToken.hpp"   // IWYU pragma: export
+#include "neo/value/TokenView.hpp"     // IWYU pragma: export
+#include "neo/value/Tokens.hpp"        // IWYU pragma: export
+#include "neo/workspace/Workspace.hpp" // IWYU pragma: export
 
-#include <cstddef>
-#include <limits>
 #include <span>
 #include <string>
 #include <string_view>

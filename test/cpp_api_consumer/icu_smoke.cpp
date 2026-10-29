@@ -1,6 +1,5 @@
 #include "neo/encoding/IcuCodec.hpp"
 
-#include <string>
 #include <string_view>
 
 // Verify that the installed ICU target supplies the codec's include and link dependencies.

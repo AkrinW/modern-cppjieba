@@ -19,6 +19,7 @@
 
 #include <unicode/ucnv.h>
 #include <unicode/ucnv_err.h>
+#include <unicode/umachine.h>
 #include <unicode/utypes.h>
 
 namespace neo_cppjieba {

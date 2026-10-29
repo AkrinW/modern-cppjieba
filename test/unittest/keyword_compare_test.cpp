@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <fstream>
+#include <ios>
 #include <limits>
 #include <sstream>
 #include <string>

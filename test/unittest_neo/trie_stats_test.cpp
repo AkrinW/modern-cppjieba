@@ -7,10 +7,12 @@
 #include "neo/util/FileIO.hpp"
 #include "neo/util/StringUtil.hpp"
 #include "neo/util/Unicode.hpp"
+#include "neo/value/Rune.hpp"
 
 #include "test_paths.h"
 
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <map>
@@ -19,6 +21,7 @@
 #include <ranges>
 #include <span>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 

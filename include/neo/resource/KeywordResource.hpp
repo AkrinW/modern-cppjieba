@@ -10,7 +10,6 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
-#include <span>
 #include <string>
 #include <string_view>
 

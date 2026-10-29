@@ -18,7 +18,6 @@
 
 #include <concepts>
 #include <cstddef>
-#include <cstdint>
 #include <ranges>
 #include <span>
 #include <string>

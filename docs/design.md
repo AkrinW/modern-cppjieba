@@ -43,6 +43,8 @@
 - 公开与内部由命名空间区分，不由目录区分：`neo_cppjieba` 中不在 `detail` 的名字是公开 API，
   `neo_cppjieba::detail` 是内部实现。同一角色的公开类型和它的内部状态放在同一目录，例如 `Workspace` 与 `SegmentScratch`。
 - 用户只 include 一级目录的头文件，每个门面头文件自足；二级目录的路径属于内部组织，可随重构调整。
+- 门面以 `// IWYU pragma: export` 标注定义其公开类型的头文件，`misc-include-cleaner` 和 clangd 据此把门面视为
+  这些类型的提供者；新增公开类型所在的头文件时同步标注。其余代码直接 include 所用名字的定义头文件，不依赖间接包含。
 - 一个头文件只承载一种角色，文件名与其中的主要类型同名。门面的拆包胶水（如 `detail::segment_candidates`）随门面留在一级。
 - `Fwd.hpp` 前向声明全部公开类型，是公开名字的总表。定义这些类型的头文件 include 它，由编译器检查两处声明一致；
   `Tokens` 等别名模板需要完整定义，不在其中。

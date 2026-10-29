@@ -15,7 +15,6 @@
 
 #include "neo/Utf.hpp"
 #include "neo/algorithm/Separator.hpp"
-#include "neo/util/Logging.hpp"
 
 #include "BenchmarkUtils.hpp"
 #include "test_paths.h"
