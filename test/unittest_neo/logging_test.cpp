@@ -26,7 +26,7 @@
 #include <vector>
 
 using namespace neo_cppjieba;
-using neo_cppjieba::detail::log;
+// detail::log stays qualified: a global using-declaration reads as the C library's log to include-cleaner.
 using neo_cppjieba::detail::LogReceiver;
 using neo_cppjieba::detail::LogRecordView;
 using neo_cppjieba::detail::null_log_receiver;
@@ -344,7 +344,7 @@ auto capture_stderr(auto &&fn) -> std::string {
 
 TEST(LoggingTest, LogDeliversFormattedMessageToReceiver) {
     auto records = std::vector<CapturedRecord>{};
-    log<LogLevel::LL_INFO>(capture_records(records), "a={} b={} c={}", 1, "two", 3.0);
+    detail::log<LogLevel::LL_INFO>(capture_records(records), "a={} b={} c={}", 1, "two", 3.0);
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].level, LogLevel::LL_INFO);
     EXPECT_EQ(records[0].message, "a=1 b=two c=3");
@@ -353,7 +353,7 @@ TEST(LoggingTest, LogDeliversFormattedMessageToReceiver) {
 TEST(LoggingTest, LogRecordCarriesCallerLocation) {
     auto records = std::vector<CapturedRecord>{};
     const auto expected_line = std::source_location::current().line() + 1;
-    log<LogLevel::LL_INFO>(capture_records(records), "located");
+    detail::log<LogLevel::LL_INFO>(capture_records(records), "located");
     ASSERT_EQ(records.size(), 1u);
     EXPECT_NE(std::string_view{records[0].location.file_name()}.find("logging_test.cpp"), std::string_view::npos);
     EXPECT_EQ(records[0].location.line(), expected_line);
@@ -361,25 +361,25 @@ TEST(LoggingTest, LogRecordCarriesCallerLocation) {
 
 TEST(LoggingTest, PrivateLogRecordOmitsCallerLocation) {
     auto records = std::vector<CapturedRecord>{};
-    log<LogLevel::LL_INFO, PrivateLogConfig>(capture_records(records), "private message");
+    detail::log<LogLevel::LL_INFO, PrivateLogConfig>(capture_records(records), "private message");
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(std::string_view{records[0].location.file_name()}.find("logging_test.cpp"), std::string_view::npos);
 }
 
 TEST(LoggingTest, LogWithoutMessageDeliversEmptyRecord) {
     auto records = std::vector<CapturedRecord>{};
-    log<LogLevel::LL_WARNING>(capture_records(records));
+    detail::log<LogLevel::LL_WARNING>(capture_records(records));
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].level, LogLevel::LL_WARNING);
     EXPECT_TRUE(records[0].message.empty());
 }
 
 TEST(LoggingTest, LogNeverThrowsOrTerminates) {
-    static_assert(noexcept(log<LogLevel::LL_ERROR>(null_log_receiver(), "error {}", 1)));
-    static_assert(noexcept(log<LogLevel::LL_FATAL>(null_log_receiver())));
+    static_assert(noexcept(detail::log<LogLevel::LL_ERROR>(null_log_receiver(), "error {}", 1)));
+    static_assert(noexcept(detail::log<LogLevel::LL_FATAL>(null_log_receiver())));
     auto records = std::vector<CapturedRecord>{};
-    log<LogLevel::LL_ERROR>(capture_records(records), "error");
-    log<LogLevel::LL_FATAL>(capture_records(records), "fatal");
+    detail::log<LogLevel::LL_ERROR>(capture_records(records), "error");
+    detail::log<LogLevel::LL_FATAL>(capture_records(records), "fatal");
     ASSERT_EQ(records.size(), 2u);
     EXPECT_EQ(records[0].level, LogLevel::LL_ERROR);
     EXPECT_EQ(records[1].level, LogLevel::LL_FATAL);
@@ -387,14 +387,14 @@ TEST(LoggingTest, LogNeverThrowsOrTerminates) {
 
 TEST(LoggingTest, NullReceiverSkipsLazyArguments) {
     auto calls = 0;
-    log<LogLevel::LL_ERROR>(null_log_receiver(), "{}", [&]() noexcept { return ++calls; });
+    detail::log<LogLevel::LL_ERROR>(null_log_receiver(), "{}", [&]() noexcept { return ++calls; });
     EXPECT_EQ(calls, 0);
 }
 
 TEST(LoggingTest, LogDebugSkipsLazyArgumentsInRelease) {
     auto records = std::vector<CapturedRecord>{};
     auto calls = 0;
-    log<LogLevel::LL_DEBUG>(capture_records(records), "lazy debug: {}", [&]() noexcept { return ++calls; });
+    detail::log<LogLevel::LL_DEBUG>(capture_records(records), "lazy debug: {}", [&]() noexcept { return ++calls; });
     if constexpr (compile_config::is_debug_build) {
         EXPECT_EQ(calls, 1);
         ASSERT_EQ(records.size(), 1u);
@@ -408,7 +408,7 @@ TEST(LoggingTest, LogDebugSkipsLazyArgumentsInRelease) {
 TEST(LoggingTest, LogEvaluatesLazyArgumentsOnce) {
     auto records = std::vector<CapturedRecord>{};
     auto calls = 0;
-    log<LogLevel::LL_INFO>(capture_records(records), "lazy info: {}", [&]() noexcept { return ++calls; });
+    detail::log<LogLevel::LL_INFO>(capture_records(records), "lazy info: {}", [&]() noexcept { return ++calls; });
     EXPECT_EQ(calls, 1);
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].message, "lazy info: 1");
@@ -419,7 +419,7 @@ TEST(LoggingTest, LogAcceptsMoveOnlyLazyProducer) {
     auto producer = [value = std::make_unique<int>(42)]() noexcept {
         return *value;
     };
-    log<LogLevel::LL_INFO>(capture_records(records), "move-only producer: {}", std::move(producer));
+    detail::log<LogLevel::LL_INFO>(capture_records(records), "move-only producer: {}", std::move(producer));
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].message, "move-only producer: 42");
 }
@@ -427,7 +427,8 @@ TEST(LoggingTest, LogAcceptsMoveOnlyLazyProducer) {
 TEST(LoggingTest, LogFormatsLazyLvalueReference) {
     auto records = std::vector<CapturedRecord>{};
     const auto value = std::string{"referenced value"};
-    log<LogLevel::LL_INFO>(capture_records(records), "{}", [&]() noexcept -> const std::string & { return value; });
+    detail::log<LogLevel::LL_INFO>(capture_records(records), "{}",
+                                   [&]() noexcept -> const std::string & { return value; });
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].message, value);
 }
@@ -435,8 +436,8 @@ TEST(LoggingTest, LogFormatsLazyLvalueReference) {
 TEST(LoggingTest, LogFormatsLazyRvalueReference) {
     auto records = std::vector<CapturedRecord>{};
     auto value = std::string{"rvalue reference"};
-    log<LogLevel::LL_INFO>(capture_records(records), "{}",
-                           [&]() noexcept -> std::string && { return std::move(value); });
+    detail::log<LogLevel::LL_INFO>(capture_records(records), "{}",
+                                   [&]() noexcept -> std::string && { return std::move(value); });
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].message, "rvalue reference");
 }
@@ -444,8 +445,8 @@ TEST(LoggingTest, LogFormatsLazyRvalueReference) {
 TEST(LoggingTest, NestedLogFromLazyArgumentIsDeliveredBeforeOuterRecord) {
     auto records = std::vector<CapturedRecord>{};
     const auto receiver = capture_records(records);
-    log<LogLevel::LL_WARNING>(receiver, "outer {}", [&]() noexcept {
-        log<LogLevel::LL_WARNING>(receiver, "inner");
+    detail::log<LogLevel::LL_WARNING>(receiver, "outer {}", [&]() noexcept {
+        detail::log<LogLevel::LL_WARNING>(receiver, "inner");
         return 1;
     });
     ASSERT_EQ(records.size(), 2u);
@@ -460,17 +461,17 @@ TEST(LoggingTest, ConfiguredThresholdSkipsLowerLevelsIncludingError) {
     const auto producer = [&]() noexcept {
         return ++calls;
     };
-    log<LogLevel::LL_DEBUG, HighThresholdLogConfig>(receiver, "{}", producer);
-    log<LogLevel::LL_INFO, HighThresholdLogConfig>(receiver, "{}", producer);
-    log<LogLevel::LL_WARNING, HighThresholdLogConfig>(receiver, "{}", producer);
-    log<LogLevel::LL_ERROR, HighThresholdLogConfig>(receiver, "{}", producer);
+    detail::log<LogLevel::LL_DEBUG, HighThresholdLogConfig>(receiver, "{}", producer);
+    detail::log<LogLevel::LL_INFO, HighThresholdLogConfig>(receiver, "{}", producer);
+    detail::log<LogLevel::LL_WARNING, HighThresholdLogConfig>(receiver, "{}", producer);
+    detail::log<LogLevel::LL_ERROR, HighThresholdLogConfig>(receiver, "{}", producer);
     EXPECT_EQ(calls, 0);
     EXPECT_TRUE(records.empty());
 }
 
 TEST(LoggingTest, ConfiguredThresholdDeliversRecordsAtItsLevel) {
     auto records = std::vector<CapturedRecord>{};
-    log<LogLevel::LL_FATAL, HighThresholdLogConfig>(capture_records(records), "fatal remains enabled");
+    detail::log<LogLevel::LL_FATAL, HighThresholdLogConfig>(capture_records(records), "fatal remains enabled");
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].message, "fatal remains enabled");
 }
@@ -478,7 +479,7 @@ TEST(LoggingTest, ConfiguredThresholdDeliversRecordsAtItsLevel) {
 TEST(LoggingTest, LogTruncatesMessageAtConfiguredBufferCapacity) {
     auto records = std::vector<CapturedRecord>{};
     const auto message = std::string(256, 'x');
-    log<LogLevel::LL_INFO, SmallBufferLogConfig>(capture_records(records), "{}", message);
+    detail::log<LogLevel::LL_INFO, SmallBufferLogConfig>(capture_records(records), "{}", message);
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].message, std::string(SmallBufferLogConfig::buffer_size, 'x'));
 }
@@ -486,7 +487,7 @@ TEST(LoggingTest, LogTruncatesMessageAtConfiguredBufferCapacity) {
 TEST(LoggingTest, LargerConfiguredBufferPreservesLongMessages) {
     auto records = std::vector<CapturedRecord>{};
     const auto message = std::string(600, 'x');
-    log<LogLevel::LL_INFO, LargeBufferLogConfig>(capture_records(records), "{}", message);
+    detail::log<LogLevel::LL_INFO, LargeBufferLogConfig>(capture_records(records), "{}", message);
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].message, message);
 }
@@ -494,32 +495,34 @@ TEST(LoggingTest, LargerConfiguredBufferPreservesLongMessages) {
 // ─── stderr receiver ────────────────────────────────────────────────────────
 
 TEST(LoggingTest, StderrReceiverWritesLevelAndMessage) {
-    const auto output = capture_stderr([] { log<LogLevel::LL_WARNING>(stderr_log_receiver(), "warn: {}", 99); });
+    const auto output =
+        capture_stderr([] { detail::log<LogLevel::LL_WARNING>(stderr_log_receiver(), "warn: {}", 99); });
     EXPECT_NE(output.find("WARN"), std::string::npos);
     EXPECT_NE(output.find("warn: 99"), std::string::npos);
 }
 
 TEST(LoggingTest, StderrReceiverWritesSourceLocation) {
-    const auto output = capture_stderr([] { log<LogLevel::LL_INFO>(stderr_log_receiver(), "loc check"); });
+    const auto output = capture_stderr([] { detail::log<LogLevel::LL_INFO>(stderr_log_receiver(), "loc check"); });
     EXPECT_NE(output.find("logging_test.cpp"), std::string::npos);
 }
 
 TEST(LoggingTest, StderrReceiverWritesProcessAndThreadIds) {
-    const auto output = capture_stderr([] { log<LogLevel::LL_INFO>(stderr_log_receiver(), "id check"); });
+    const auto output = capture_stderr([] { detail::log<LogLevel::LL_INFO>(stderr_log_receiver(), "id check"); });
     const auto pid_str = std::string{"pid:"} + std::to_string(detail::platform::process_id());
     EXPECT_NE(output.find(pid_str), std::string::npos);
     EXPECT_NE(output.find("tid:"), std::string::npos);
 }
 
 TEST(LoggingTest, StderrReceiverLineEndsWithNewline) {
-    const auto output = capture_stderr([] { log<LogLevel::LL_INFO>(stderr_log_receiver(), "newline test"); });
+    const auto output = capture_stderr([] { detail::log<LogLevel::LL_INFO>(stderr_log_receiver(), "newline test"); });
     ASSERT_FALSE(output.empty());
     EXPECT_EQ(output.back(), '\n');
 }
 
 TEST(LoggingTest, PrivateStderrReceiverOmitsSourceLocation) {
-    const auto output = capture_stderr(
-        [] { log<LogLevel::LL_INFO, PrivateLogConfig>(stderr_log_receiver<PrivateLogConfig>(), "private message"); });
+    const auto output = capture_stderr([] {
+        detail::log<LogLevel::LL_INFO, PrivateLogConfig>(stderr_log_receiver<PrivateLogConfig>(), "private message");
+    });
     EXPECT_NE(output.find("private message"), std::string::npos);
     EXPECT_EQ(output.find("logging_test.cpp"), std::string::npos);
     EXPECT_EQ(output.find("\033[35m"), std::string::npos);
@@ -529,7 +532,8 @@ TEST(LoggingTest, PrivateStderrReceiverOmitsSourceLocation) {
 TEST(LoggingTest, StderrReceiverTruncatesLineAtConfiguredBufferCapacity) {
     const auto message = std::string(256, 'x');
     const auto output = capture_stderr([&] {
-        log<LogLevel::LL_INFO, SmallBufferLogConfig>(stderr_log_receiver<SmallBufferLogConfig>(), "{}", message);
+        detail::log<LogLevel::LL_INFO, SmallBufferLogConfig>(stderr_log_receiver<SmallBufferLogConfig>(), "{}",
+                                                             message);
     });
     ASSERT_EQ(output.size(), SmallBufferLogConfig::buffer_size);
     EXPECT_EQ(output.back(), '\n');
@@ -537,14 +541,16 @@ TEST(LoggingTest, StderrReceiverTruncatesLineAtConfiguredBufferCapacity) {
 
 TEST(LoggingTest, StderrReceiverTruncatesPrefixToOneTerminatingNewline) {
     const auto output = capture_stderr([] {
-        log<LogLevel::LL_INFO, OneByteBufferLogConfig>(stderr_log_receiver<OneByteBufferLogConfig>(), "message");
+        detail::log<LogLevel::LL_INFO, OneByteBufferLogConfig>(stderr_log_receiver<OneByteBufferLogConfig>(),
+                                                               "message");
     });
     EXPECT_EQ(output, "\n");
 }
 
 TEST(LoggingTest, ExplicitDebugThresholdEnablesDebugInBothBuildModes) {
     const auto output = capture_stderr([] {
-        log<LogLevel::LL_DEBUG, SmallBufferLogConfig>(stderr_log_receiver<SmallBufferLogConfig>(), "explicit debug");
+        detail::log<LogLevel::LL_DEBUG, SmallBufferLogConfig>(stderr_log_receiver<SmallBufferLogConfig>(),
+                                                              "explicit debug");
     });
     EXPECT_NE(output.find("explicit debug"), std::string::npos);
 }
@@ -910,8 +916,8 @@ TEST(LoggingTest, LogExceptionRejectsInvalidExceptionTypes) {
 TEST(LoggingTest, LoggingApisRejectInvalidConfigurations) {
     constexpr auto rejected = []<typename Config>() {
         return !requires { stderr_log_receiver<Config>(); }
-               && !requires { log<LogLevel::LL_ERROR, Config>(null_log_receiver()); }
-               && !requires { log<LogLevel::LL_ERROR, Config>(null_log_receiver(), "invalid config"); }
+               && !requires { detail::log<LogLevel::LL_ERROR, Config>(null_log_receiver()); }
+               && !requires { detail::log<LogLevel::LL_ERROR, Config>(null_log_receiver(), "invalid config"); }
                && !requires { check<Config>(true); } && !requires { check<Config>(true, "invalid config"); }
                && !requires { assert_check<Config>([] { return true; }); }
                && !requires { assert_check<Config>([] { return true; }, "invalid config"); };
@@ -930,7 +936,7 @@ TEST(LoggingTest, LoggingApisRejectInvalidConfigurations) {
 TEST(LoggingTest, DiagnosticApisRequireNothrowLazyArguments) {
     constexpr auto accepted = []<typename Argument>() {
         return requires(Argument &&argument) {
-            log<LogLevel::LL_INFO>(null_log_receiver(), "{}", std::forward<Argument>(argument));
+            detail::log<LogLevel::LL_INFO>(null_log_receiver(), "{}", std::forward<Argument>(argument));
         } &&
             requires(Argument && argument)
         {
@@ -944,7 +950,7 @@ TEST(LoggingTest, DiagnosticApisRequireNothrowLazyArguments) {
     };
     constexpr auto rejected = []<typename Argument>() {
         return !requires(Argument &&argument) {
-            log<LogLevel::LL_INFO>(null_log_receiver(), "{}", std::forward<Argument>(argument));
+            detail::log<LogLevel::LL_INFO>(null_log_receiver(), "{}", std::forward<Argument>(argument));
         } && !requires(Argument &&argument) { check(true, "{}", std::forward<Argument>(argument)); }
                && !requires(Argument &&argument) {
                       assert_check([] { return true; }, "{}", std::forward<Argument>(argument));

@@ -26,6 +26,7 @@
 #include <io.h>
 #include <windows.h>
 #else
+#include <string.h>
 #include <unistd.h>
 
 #include <sys/types.h>
