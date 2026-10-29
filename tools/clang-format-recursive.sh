@@ -93,9 +93,31 @@ snapshot_hash() {
     ) | sha256sum | awk '{print $1}'
 }
 
+# Report formatting differences without editing files; CI uses this mode.
+check_files() {
+    local clang_format=$1
+    shift
+    if (
+        cd "${REPO_ROOT}"
+        printf '%s\0' "$@" | xargs -0 "${clang_format}" --dry-run --Werror --style=file
+    ); then
+        echo "clang-format is clean."
+        return 0
+    fi
+    echo "clang-format reports issues; run tools/clang-format-recursive.sh to fix them." >&2
+    return 1
+}
+
 main() {
+    local mode=fix
+    if [[ "${1:-}" == "--check" ]]; then
+        mode=check
+        shift
+    fi
+
     local clang_format
     clang_format=$(resolve_clang_format)
+    "${clang_format}" --version
 
     parse_config
 
@@ -108,6 +130,11 @@ main() {
     if [[ ${#files[@]} -eq 0 ]]; then
         echo "No files matched for clang-format."
         return 0
+    fi
+
+    if [[ "${mode}" == "check" ]]; then
+        check_files "${clang_format}" "${files[@]}"
+        return
     fi
 
     local pass=1
