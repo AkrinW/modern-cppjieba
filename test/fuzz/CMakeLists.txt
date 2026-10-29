@@ -18,6 +18,7 @@ cppjieba_add_fuzzer(utf_decode_fuzzer utf_decode_fuzzer.cpp)
 cppjieba_add_fuzzer(main_dict_fuzzer main_dict_fuzzer.cpp)
 cppjieba_add_fuzzer(user_dict_fuzzer user_dict_fuzzer.cpp)
 cppjieba_add_fuzzer(hmm_model_fuzzer hmm_model_fuzzer.cpp)
+cppjieba_add_fuzzer(dict_snapshot_fuzzer dict_snapshot_fuzzer.cpp)
 
 # Compile the adapter into the fuzzer so it is instrumented without building the C ABI libraries.
 cppjieba_add_fuzzer(c_api_cut_fuzzer c_api_cut_fuzzer.cpp "${PROJECT_SOURCE_DIR}/api/src/neo_cppjieba.cpp")

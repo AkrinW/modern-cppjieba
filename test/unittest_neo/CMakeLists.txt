@@ -21,6 +21,7 @@ add_executable(test_neo.run
     tagging_test.cpp
     keyword_extractor_test.cpp
     dict_loading_test.cpp
+    dict_snapshot_test.cpp
     concurrency_test.cpp
 )
 

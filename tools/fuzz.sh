@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 
-readonly FUZZERS=(utf_decode main_dict user_dict hmm_model c_api_cut)
+readonly FUZZERS=(utf_decode main_dict user_dict hmm_model dict_snapshot c_api_cut)
 readonly FUZZ_SECONDS_DEFAULT=60
 
 usage() {
@@ -27,6 +27,7 @@ write_seeds() {
     # Keep 16 emission entries per state; the full model is too large for quick mutation.
     awk -F, '/^#/ || NF <= 16 { print; next } { line = $1; for (i = 2; i <= 16; ++i) line = line "," $i; print line }' \
         "${REPO_ROOT}/dict/hmm_model.utf8" > "${corpus}/hmm_model/hmm_model_head.utf8"
+    cp "${REPO_ROOT}"/test/testdata/snapshot/format_v*.bin "${corpus}/dict_snapshot/"
 
     # c_api_cut reads its mode from the first byte.
     local line mode index=0

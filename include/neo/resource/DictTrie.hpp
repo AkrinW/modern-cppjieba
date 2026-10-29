@@ -18,6 +18,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <iterator>
 #include <limits>
 #include <span>
 #include <string_view>
@@ -25,6 +27,64 @@
 #include <vector>
 
 namespace neo_cppjieba::detail {
+
+/// Bump when parsing, decoding or precedence rules change the dictionary text loading builds. Snapshots record
+/// it because their content cannot be rederived without the source text.
+inline constexpr auto kDictContentRules = std::uint32_t{1};
+
+/// Main-dictionary frequency statistics fixed at load time; every weight derives from them.
+struct FreqStats {
+    std::int64_t sum{0};
+    int min{0};
+    int max{0};
+    int median{0};
+
+    auto operator==(const FreqStats &) const noexcept -> bool = default;
+};
+
+/// The unweighted value of a level-order edge; frequency zero selects the user default weight.
+struct LevelOrderValue {
+    int freq{0};
+    PosTag tag{};
+
+    auto operator==(const LevelOrderValue &) const noexcept -> bool = default;
+};
+
+/// A dictionary in the canonical layout snapshots store: the trie shape, unweighted values in edge order and the
+/// statistics that weight them. Weights are derived on construction, so weight rules never need versioning.
+struct LevelOrderDict {
+    FreqStats stats;
+    UserWordWeightOption user_word_weight_opt{};
+    LevelOrderShape shape;
+    std::vector<LevelOrderValue> values;
+    std::vector<Rune> user_single_runes;
+
+    auto operator==(const LevelOrderDict &) const -> bool = default;
+};
+
+// Describe the first violation of the invariants DictTrie relies on when building from a level-order dictionary,
+// or return an empty view. Snapshot decoding reports it as invalid data.
+[[nodiscard]] inline auto level_order_dict_error(const LevelOrderDict &dict) -> std::string_view {
+    const auto &stats = dict.stats;
+    if (stats.min <= 0 || stats.min > stats.median || stats.median > stats.max || stats.max > stats.sum) {
+        return "frequency statistics are inconsistent";
+    }
+    if (const auto error = level_order_shape_error(dict.shape); !error.empty()) {
+        return error;
+    }
+    if (!std::cmp_equal(std::ranges::count_if(dict.shape.edges, &LevelOrderEdge::has_value), dict.values.size())) {
+        return "values do not match the valued edges";
+    }
+    if (std::ranges::any_of(dict.values, [](const LevelOrderValue &value) { return value.freq < 0; })) {
+        return "a word frequency is negative";
+    }
+    if (!std::ranges::all_of(dict.user_single_runes, is_unicode_scalar)
+        || std::ranges::adjacent_find(dict.user_single_runes, std::ranges::greater_equal{})
+               != dict.user_single_runes.end()) {
+        return "single-rune user words are not ascending Unicode scalars";
+    }
+    return {};
+}
 
 class DictTrie {
 public:
@@ -49,6 +109,49 @@ public:
                       UserWordWeightOption user_word_weight_opt) {
         check_user_word_weight_option(user_word_weight_opt);
         init(dict, user_dicts, user_word_weight_opt);
+    }
+
+    /// Construct from a canonical level-order dictionary, such as a decoded snapshot, with the lookups and
+    /// statistics text loading gives; weights are derived here under this build's rules.
+    /// External data must pass level_order_dict_error first.
+    explicit DictTrie(const LevelOrderDict &dict) {
+        check_user_word_weight_option(dict.user_word_weight_opt);
+        assert_check([&] { return level_order_dict_error(dict).empty(); }, "DictTrie: invalid level-order dictionary");
+        apply_stats(dict.stats, dict.user_word_weight_opt);
+        auto units = std::vector<DictUnit>{};
+        units.reserve(dict.values.size());
+        std::ranges::transform(dict.values, std::back_inserter(units), [this](const LevelOrderValue &value) {
+            return DictUnit{value.freq > 0 ? freq_weight(value.freq) : user_word_default_weight_, value.tag};
+        });
+        trie_.build_level_order(dict.shape, units);
+        user_dict_single_chinese_word_.insert(dict.user_single_runes.begin(), dict.user_single_runes.end());
+    }
+
+    /// Parse text sources with the rules construction applies, into the canonical layout snapshots store.
+    /// Equal words keep their last entry, as construction does.
+    [[nodiscard]] static auto level_order(const DictSource &dict, std::span<const DictSource> user_dicts,
+                                          UserWordWeightOption user_word_weight_opt) -> LevelOrderDict {
+        check_user_word_weight_option(user_word_weight_opt);
+        auto parsed = parse_sources(dict, user_dicts);
+        auto entries = sorted_last_entries(std::move(parsed.entries));
+        auto keys = std::vector<Unicode>{};
+        keys.reserve(entries.size());
+        for (auto &entry : entries) {
+            keys.push_back(std::move(entry.word));
+        }
+        auto layout = level_order_keys(keys);
+
+        auto result = LevelOrderDict{};
+        result.stats = parsed.stats;
+        result.user_word_weight_opt = user_word_weight_opt;
+        result.values.reserve(layout.value_keys.size());
+        for (const auto key : layout.value_keys) {
+            result.values.push_back(LevelOrderValue{entries[key].freq, entries[key].tag});
+        }
+        result.shape = std::move(layout.shape);
+        result.user_single_runes.assign(parsed.user_single_runes.begin(), parsed.user_single_runes.end());
+        std::ranges::sort(result.user_single_runes);
+        return result;
     }
 
     DictTrie(DictTrie &&) noexcept = default;
@@ -154,6 +257,27 @@ private:
         PosTag tag;
     };
 
+    /// Text entries in load order, with the main-dictionary statistics and the single-rune user words.
+    struct ParsedSources {
+        std::vector<RawEntry> entries;
+        FreqStats stats;
+        gtl::flat_hash_set<Rune> user_single_runes;
+    };
+
+    // Sort entries by word; the stable sort keeps load order among equal words, so keeping the last of each run
+    // applies the precedence Trie::build gives duplicates.
+    [[nodiscard]] static auto sorted_last_entries(std::vector<RawEntry> entries) -> std::vector<RawEntry> {
+        std::ranges::stable_sort(entries, std::ranges::less{}, &RawEntry::word);
+        auto last = std::vector<RawEntry>{};
+        last.reserve(entries.size());
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (i + 1 == entries.size() || entries[i + 1].word != entries[i].word) {
+                last.push_back(std::move(entries[i]));
+            }
+        }
+        return last;
+    }
+
     // Copying is reserved for clone(); Trie exposes its copy only through Trie::clone().
     DictTrie(const DictTrie &other)
         : trie_{other.trie_.clone()}, freq_sum_{other.freq_sum_}, min_weight_{other.min_weight_},
@@ -171,6 +295,18 @@ private:
         } else {
             return std::log(static_cast<double>(f)) - std::log(freq_sum_);
         }
+    }
+
+    // Fix the weight statistics of the main dictionary; text and level-order construction share this step.
+    auto apply_stats(const FreqStats &stats, UserWordWeightOption opt) -> void {
+        freq_sum_ = static_cast<detail::WordWeight>(stats.sum);
+        // Convert selected int frequencies to log-weights
+        min_weight_ = freq_weight(stats.min);
+        max_weight_ = freq_weight(stats.max);
+        median_weight_ = freq_weight(stats.median);
+        assert_check([&] { return min_weight_ <= median_weight_ && median_weight_ <= max_weight_; },
+                     "DictTrie: inconsistent weight statistics");
+        set_user_default_weight(opt);
     }
 
     // Public word arguments are validated here, so Trie::insert keeps only internal assertions.
@@ -191,51 +327,10 @@ private:
     // log() is strictly monotonic, so they equal CppJieba's sorted-weight results.
 
     auto init(const DictSource &dict, std::span<const DictSource> user_dicts, UserWordWeightOption opt) -> void {
-
-        // ── Phase 1: Load main dictionary ────────────────────────────────
-        auto entries = std::vector<RawEntry>{};
-        auto freqs = std::vector<int>{}; // parallel to entries (main dict only)
-        detail::with_source_text(
-            dict, [&](std::string_view text, std::string_view name) { load_main_dict(text, name, entries, freqs); });
-        check(!entries.empty(), "DictTrie: main dictionary is empty: {}", dict.name());
-        assert_check([&] { return entries.size() == freqs.size(); },
-                     "DictTrie: main dictionary entries and frequencies must have equal sizes");
-
-        // ── Phase 2: Compute statistics on integer frequencies ───────────
-        auto freq_sum = int64_t{0};
-        for (auto f : freqs) {
-            assert_check([=] { return f > 0; }, "DictTrie: unchecked main dictionary frequency {}", f);
-            check(f <= std::numeric_limits<int64_t>::max() - freq_sum,
-                  "DictTrie: frequency sum exceeds the supported range: {}", dict.name());
-            freq_sum += f;
-        }
-        assert_check([&] { return freq_sum > 0; }, "DictTrie: frequency sum must be positive");
-        freq_sum_ = static_cast<detail::WordWeight>(freq_sum);
-
-        // min / max — O(n), single pass
-        auto &&[min_it, max_it] = std::ranges::minmax_element(freqs);
-        auto min_freq = *min_it;
-        auto max_freq = *max_it;
-
-        // median — O(n) average via nth_element (mutates freqs, but we
-        // already extracted min/max values above)
-        auto mid = static_cast<std::ptrdiff_t>(freqs.size() / 2);
-        std::ranges::nth_element(freqs, freqs.begin() + mid);
-        auto median_freq = freqs[mid];
-
-        // Convert selected int frequencies to log-weights
-        min_weight_ = freq_weight(min_freq);
-        max_weight_ = freq_weight(max_freq);
-        median_weight_ = freq_weight(median_freq);
-        assert_check([&] { return min_weight_ <= median_weight_ && median_weight_ <= max_weight_; },
-                     "DictTrie: inconsistent weight statistics");
-        set_user_default_weight(opt);
-
-        // ── Phase 3: Load user dictionary entries ────────────────────────
-        for (const auto &user_dict : user_dicts) {
-            detail::with_source_text(user_dict,
-                                     [&](std::string_view text, std::string_view) { load_user_dict(text, entries); });
-        }
+        auto parsed = parse_sources(dict, user_dicts);
+        apply_stats(parsed.stats, opt);
+        user_dict_single_chinese_word_ = std::move(parsed.user_single_runes);
+        auto &entries = parsed.entries;
 
         // ── Phase 4: Build Trie from all entries ─────────────────────────
         //
@@ -257,13 +352,58 @@ private:
         trie_.build(keys, values);
     }
 
+    // Phases 1–3 of the pipeline, shared with level_order() so snapshots apply the same parsing rules.
+    [[nodiscard]] static auto parse_sources(const DictSource &dict, std::span<const DictSource> user_dicts)
+        -> ParsedSources {
+        auto parsed = ParsedSources{};
+        auto &entries = parsed.entries;
+
+        // ── Phase 1: Load main dictionary ────────────────────────────────
+        auto freqs = std::vector<int>{}; // parallel to entries (main dict only)
+        detail::with_source_text(
+            dict, [&](std::string_view text, std::string_view name) { load_main_dict(text, name, entries, freqs); });
+        check(!entries.empty(), "DictTrie: main dictionary is empty: {}", dict.name());
+        assert_check([&] { return entries.size() == freqs.size(); },
+                     "DictTrie: main dictionary entries and frequencies must have equal sizes");
+
+        // ── Phase 2: Compute statistics on integer frequencies ───────────
+        auto freq_sum = int64_t{0};
+        for (auto f : freqs) {
+            assert_check([=] { return f > 0; }, "DictTrie: unchecked main dictionary frequency {}", f);
+            check(f <= std::numeric_limits<int64_t>::max() - freq_sum,
+                  "DictTrie: frequency sum exceeds the supported range: {}", dict.name());
+            freq_sum += f;
+        }
+        assert_check([&] { return freq_sum > 0; }, "DictTrie: frequency sum must be positive");
+
+        // min / max — O(n), single pass
+        auto &&[min_it, max_it] = std::ranges::minmax_element(freqs);
+        auto min_freq = *min_it;
+        auto max_freq = *max_it;
+
+        // median — O(n) average via nth_element (mutates freqs, but we
+        // already extracted min/max values above)
+        auto mid = static_cast<std::ptrdiff_t>(freqs.size() / 2);
+        std::ranges::nth_element(freqs, freqs.begin() + mid);
+        auto median_freq = freqs[mid];
+        parsed.stats = FreqStats{freq_sum, min_freq, max_freq, median_freq};
+
+        // ── Phase 3: Load user dictionary entries ────────────────────────
+        for (const auto &user_dict : user_dicts) {
+            detail::with_source_text(user_dict, [&](std::string_view text, std::string_view) {
+                load_user_dict(text, entries, parsed.user_single_runes);
+            });
+        }
+        return parsed;
+    }
+
     // ── Main dictionary loading ──────────────────────────────────────────
     //
     // Each line has exactly 3 space-separated fields: "word freq tag"
     // e.g.  "AT&T 3 nz",  "我们 � r"
 
-    auto load_main_dict(std::string_view text, std::string_view path, std::vector<RawEntry> &entries,
-                        std::vector<int> &freqs) -> void {
+    static auto load_main_dict(std::string_view text, std::string_view path, std::vector<RawEntry> &entries,
+                               std::vector<int> &freqs) -> void {
         auto line = get_line_view(text);
         auto line_number = size_t{0};
 
@@ -307,17 +447,19 @@ private:
     ///   1 field  — "word"            → default weight, empty tag
     ///   2 fields — "word tag"        → default weight, explicit tag
     ///   3 fields — "word freq tag"   → weight from freq, explicit tag
-    auto load_user_dict(std::string_view text, std::vector<RawEntry> &entries) -> void {
+    static auto load_user_dict(std::string_view text, std::vector<RawEntry> &entries,
+                               gtl::flat_hash_set<Rune> &single_runes) -> void {
         auto line = get_line_view(text);
         for (auto &&one_line : line) {
             if (one_line.empty()) {
                 continue;
             }
-            parse_user_dict_line(one_line, entries);
+            parse_user_dict_line(one_line, entries, single_runes);
         }
     }
 
-    auto parse_user_dict_line(std::string_view line, std::vector<RawEntry> &entries) -> void {
+    static auto parse_user_dict_line(std::string_view line, std::vector<RawEntry> &entries,
+                                     gtl::flat_hash_set<Rune> &single_runes) -> void {
         auto sv = split_view{line, ' '};
         auto it = sv.begin();
         auto end = sv.end();
@@ -353,7 +495,7 @@ private:
         }
 
         if (word.size() == 1) {
-            user_dict_single_chinese_word_.insert(word[0]);
+            single_runes.insert(word[0]);
         }
 
         entries.push_back(RawEntry{std::move(word), freq, tag});
