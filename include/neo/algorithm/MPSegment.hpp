@@ -132,7 +132,7 @@ inline auto mp_emit_route(size_t n, const Emit &emit, const SegmentScratch &scra
 /// Append MP segmentation results at global offset pos, keeping separator runes as standalone tokens.
 inline auto mp_cut_append(const DictTrie &dict, std::span<const Rune> runes, RuneIndex pos, std::vector<WordRange> &out,
                           SegmentScratch &scratch) -> void {
-    assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
+    assert_check([&] { return runes.size() <= static_cast<RuneIndex>(std::numeric_limits<RuneIndex>::max() - pos); },
                  "MPSegment: global word offsets overflow");
     const auto appended_begin = out.size();
     for_each_separated(

@@ -214,6 +214,11 @@ release keep running. On Linux, functions added after 1.2.0 carry the
 `NEO_CPPJIEBA_C_1.1` symbol version: a program that uses them reports the missing
 version when loaded against an older library, before any call runs.
 
+Two checks keep that promise. `test/unittest_neo/c_api_abi_v1.c` freezes every v1
+type, layout, numeric value and function type at compile time on each platform, and
+`tools/check-c-abi.sh` runs libabigail's `abidiff` against the latest release on Linux,
+failing when a released symbol or public type changes.
+
 The macOS build searches beside the selected compiler, following the Homebrew LLVM
 layout in CI. Set `CPPJIEBA_C_API_LIBCXX`, `CPPJIEBA_C_API_LIBCXXABI` and
 `CPPJIEBA_C_API_LIBUNWIND` to matching PIC archives for other layouts.

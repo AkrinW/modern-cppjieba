@@ -100,7 +100,8 @@ namespace neo_cppjieba::detail {
             }
         }
     } else {
-        if (end < runes.size() && end + 1 < runes.size() && runes[end] == U'.' && is_python_decimal(runes[end + 1])) {
+        if (end < runes.size() && static_cast<size_t>(end + 1) < runes.size() && runes[end] == U'.'
+            && is_python_decimal(runes[end + 1])) {
             ++end;
             while (end < runes.size() && is_python_decimal(runes[end])) {
                 ++end;

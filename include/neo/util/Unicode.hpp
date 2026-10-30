@@ -77,6 +77,7 @@ constexpr auto as_code_units(T &&input) -> std::span<const resolve_char_type_t<T
     using CharT = resolve_char_type_t<T>;
     const auto &source = input;
 
+    // NOLINTNEXTLINE(bugprone-branch-clone): byte arrays keep every element, so they precede the array branch.
     if constexpr (ByteType<CharT>) {
         return {std::ranges::data(source), std::ranges::size(source)};
     } else if constexpr (std::is_array_v<std::remove_reference_t<T>>) {

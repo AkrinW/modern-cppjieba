@@ -62,8 +62,9 @@ inline auto mix_cut_append(const DictTrie &dict, const HMModel &model, std::span
     if constexpr (!hmm) {
         mp_cut_append(dict, runes, pos, out, scratch);
     } else {
-        assert_check([&] { return runes.size() <= std::numeric_limits<RuneIndex>::max() - pos; },
-                     "MixSegment: global word offsets overflow");
+        assert_check(
+            [&] { return runes.size() <= static_cast<RuneIndex>(std::numeric_limits<RuneIndex>::max() - pos); },
+            "MixSegment: global word offsets overflow");
         for_each_separated(
             runes,
             [&](std::span<const Rune> segment, RuneIndex offset) {
