@@ -117,6 +117,7 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 | libFuzzer | 以 `-DCPPJIEBA_BUILD_FUZZERS=ON` 构建，再运行 `tools/fuzz.sh <构建目录> [每个目标的秒数] [目标...]`；`--list` 列出目标 |
 | Fuzz 语料回放 | `BUILD_TESTING` 构建中运行 `ctest -R neo_fuzz_replay`，任意编译器均可 |
 | 覆盖率 | 以 `-fprofile-instr-generate -fcoverage-mapping` 构建，再运行 `tools/llvm-coverage.sh <构建目录> <输出目录>` |
+| 指令数 | `tools/instruction-counts.sh <工作目录> <基准修订>`，需要 Valgrind；见 [benchmark 指南](../benchmark/README.md#instruction-counts) |
 | C ABI 兼容性 | `tools/check-c-abi.sh <工作目录> [基准修订]`，需要 libabigail 的 `abidiff`；默认与最新的 `v*` 标签比较 |
 
 - clang-tidy 读取 `compile_commands.json`，构建目录需启用工作流中列出的全部可选组件。

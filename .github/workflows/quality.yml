@@ -148,6 +148,32 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Instruction counts are deterministic, unlike timings on shared runners; the report compares each phase.
+  instructions:
+    name: callgrind instruction counts
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The baseline is the pull request's target branch or the commit a push replaced.
+          fetch-depth: 0
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+      - name: Count instructions against the baseline
+        env:
+          CXX: g++-15
+          BASELINE: >-
+            ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref)
+            || github.event.before || 'HEAD~1' }}
+        run: tools/instruction-counts.sh build-instructions "$BASELINE"
+      - name: Publish the instruction counts
+        if: always()
+        run: |
+          if [ -f build-instructions/summary.md ]; then
+            cat build-instructions/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   coverage:
     name: llvm-cov
     runs-on: ubuntu-26.04
