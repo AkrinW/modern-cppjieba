@@ -112,6 +112,7 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 | --- | --- |
 | clang-format | `tools/clang-format-recursive.sh --check`；去掉 `--check` 即就地格式化 |
 | clang-tidy | `BUILD_DIR=build tools/clang-tidy-recursive.sh --check`；去掉 `--check` 即循环应用修复 |
+| clang 静态分析 | `CLANG_TIDY_CHECKS='-*,clang-analyzer-*,-clang-analyzer-cplusplus.Move,-clang-analyzer-optin.core.EnumCastOutOfRange' PER_FILE_TIMEOUT=900 BUILD_DIR=build tools/clang-tidy-recursive.sh --check` |
 | 头文件自足 | `tools/check-headers.sh`，`CLANG_CXX` 指定 Clang；`BUILD_TESTING` 构建同时编译 `neo_header_check` |
 | ASan + UBSan、TSan | 以 GCC 和工作流中的 `-fsanitize` 参数配置 Debug 构建，再运行 `ctest`；ASan + UBSan 另加 `-D_GLIBCXX_ASSERTIONS` |
 | libc++ 加固 | 以 Clang、`-stdlib=libc++` 和 `-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG` 配置 Debug 构建，`-DCMAKE_DISABLE_FIND_PACKAGE_GTest=ON` 让 GoogleTest 按同一标准库从源码构建，再运行 `ctest` |
@@ -123,6 +124,8 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 | C ABI 兼容性 | `tools/check-c-abi.sh <工作目录> [基准修订]`，需要 libabigail 的 `abidiff`；默认与最新的 `v*` 标签比较 |
 
 - clang-tidy 读取 `compile_commands.json`，构建目录需启用工作流中列出的全部可选组件。
+  `.clang-tidy` 启用 `bugprone-*`，并排除标出有意写法的几项；路径敏感的 `clang-analyzer-*` 比其他检查慢数倍，
+  由单独的 Quality 任务通过 `CLANG_TIDY_CHECKS` 运行。确属有意的个别写法用带理由的 `NOLINT` 注释标出。
   `CLANG_FORMAT`、`CLANG_TIDY` 指定工具路径；`GCC_TOOLCHAIN` 设为空值时使用编译器默认的 GCC。
 - Sanitizer 与覆盖率构建同时启用共享和静态 C ABI。GCC 的 sanitizer 运行库以动态库链接，满足共享库的 `-z defs`；
   sanitizer 会替换分配器，因此 sanitizer 任务跳过检查私有运行库的 `neo_c_api_symbols` 和 `neo_c_api_c_host`，

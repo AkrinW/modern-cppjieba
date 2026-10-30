@@ -264,6 +264,7 @@ inline auto style_python_full_block(const DictTrie &dict, std::span<const Rune> 
         }
     };
     auto &matches = scratch.full_matches;
+    // NOLINTNEXTLINE(bugprone-too-small-loop-variable): every entry point asserts the rune count fits RuneIndex.
     for (auto i = RuneIndex{0}; i < runes.size(); ++i) {
         if (!is_ascii_alphanumeric(runes[i])) {
             flush_english();

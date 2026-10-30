@@ -55,6 +55,32 @@ jobs:
           GCC_TOOLCHAIN: ""
         run: CLANG_TIDY="clang-tidy-$LLVM_VERSION" tools/clang-tidy-recursive.sh --check
 
+  # The path-sensitive analyzer is many times slower than the checks in .clang-tidy, so it runs here with a longer
+  # per-file timeout. Excluded: cplusplus.Move reports tests that reuse moved-from workspaces on purpose, which
+  # bugprone-use-after-move checks locally; optin.core.EnumCastOutOfRange reports deliberately invalid enum inputs.
+  analyzer:
+    name: clang-analyzer
+    runs-on: ubuntu-26.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+      - name: Initialize comparison dependencies
+        run: git submodule update --init deps/cppjieba deps/limonp deps/jieba-rs
+      - name: Configure the compilation database
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER="clang-$LLVM_VERSION" -DCMAKE_CXX_COMPILER="clang++-$LLVM_VERSION"
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON -DCPPJIEBA_BUILD_LEGACY_TESTS=ON
+          -DCPPJIEBA_BUILD_BENCHMARKS=ON -DCPPJIEBA_BUILD_RUST_BENCHMARKS=ON
+          -DCPPJIEBA_BUILD_EXAMPLES=ON -DCPPJIEBA_BUILD_FUZZERS=ON
+      - name: Run the clang static analyzer
+        env:
+          BUILD_DIR: ${{ github.workspace }}/build
+          GCC_TOOLCHAIN: ""
+          CLANG_TIDY_CHECKS: -*,clang-analyzer-*,-clang-analyzer-cplusplus.Move,-clang-analyzer-optin.core.EnumCastOutOfRange
+          PER_FILE_TIMEOUT: "900"
+        run: CLANG_TIDY="clang-tidy-$LLVM_VERSION" tools/clang-tidy-recursive.sh --check
+
   sanitizers:
     name: GCC ${{ matrix.name }}
     runs-on: ubuntu-26.04

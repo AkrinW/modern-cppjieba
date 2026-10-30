@@ -218,6 +218,7 @@ struct NonConstantSourceLocationConfig {
     using Exception = ProjectError;
 };
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): runtime initialization is what this config tests.
 const bool NonConstantSourceLocationConfig::show_source_location =
     runtime_config_value(LogConfig::show_source_location);
 
@@ -266,6 +267,7 @@ struct NonConstantLogLevelConfig {
     using Exception = ProjectError;
 };
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): runtime initialization is what this config tests.
 const LogLevel NonConstantLogLevelConfig::min_level = runtime_config_value(LogConfig::min_level);
 
 // A log record needs at least one byte for its terminating newline.
@@ -284,6 +286,7 @@ struct NonConstantBufferLogConfig {
     using Exception = ProjectError;
 };
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): runtime initialization is what this config tests.
 const std::size_t NonConstantBufferLogConfig::buffer_size = runtime_config_value(LogConfig::buffer_size);
 
 // Owned copy of a delivered record, because receivers only borrow the message.

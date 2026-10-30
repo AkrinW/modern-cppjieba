@@ -346,7 +346,7 @@ TEST_F(FileBufferTest, MoveSemantics) {
     EXPECT_EQ(file2.size(), size1);
     EXPECT_EQ(file2.content(), content1);
     // Moved-from should be empty
-    EXPECT_EQ(file1.size(), 0u);
+    EXPECT_EQ(file1.size(), 0u); // NOLINT(bugprone-use-after-move): checks the moved-from state.
     EXPECT_FALSE(file1.is_open());
 }
 
@@ -480,7 +480,7 @@ TEST_F(FileBufferTest, MoveAssignmentTransfersBufferAndEmptiesSource) {
     EXPECT_TRUE(destination.is_open());
     EXPECT_EQ(destination.content(), "source content");
     EXPECT_EQ(destination.content().data(), content.data());
-    EXPECT_FALSE(source.is_open());
+    EXPECT_FALSE(source.is_open()); // NOLINT(bugprone-use-after-move): checks the moved-from state.
     EXPECT_EQ(source.size(), 0u);
     EXPECT_TRUE(source.content().empty());
 }
