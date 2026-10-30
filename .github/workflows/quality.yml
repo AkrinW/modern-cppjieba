@@ -135,6 +135,32 @@ jobs:
       - name: Test unit, C ABI and fuzz corpus replays
         run: ctest --test-dir build -E "$CTEST_EXCLUDE" --no-tests=error --output-on-failure --parallel 4
 
+  # libc++ debug hardening checks bounds, iterator validity and preconditions that libstdc++ assertions do not.
+  libcxx-hardening:
+    name: Clang libc++ hardening
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      LIBCXX_FLAGS: -O1 -g -stdlib=libc++ -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install libc++
+        run: sudo apt-get update && sudo apt-get install -y "libc++-$LLVM_VERSION-dev" "libc++abi-$LLVM_VERSION-dev"
+      # GoogleTest is built from source against libc++. The shared C ABI bundles the GNU C++ runtime on Linux,
+      # so the static C ABI library carries the C ABI tests here.
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER="clang-$LLVM_VERSION" -DCMAKE_CXX_COMPILER="clang++-$LLVM_VERSION"
+          "-DCMAKE_CXX_FLAGS=$LIBCXX_FLAGS" -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++
+          -DCMAKE_DISABLE_FIND_PACKAGE_GTest=ON
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON
+          -DCPPJIEBA_C_API_BUILD_SHARED=OFF -DCPPJIEBA_C_API_BUILD_STATIC=ON
+      - name: Build
+        run: cmake --build build --parallel 4
+      - name: Test unit, C ABI and fuzz corpus replays
+        run: ctest --test-dir build -E "$CTEST_EXCLUDE" --no-tests=error --output-on-failure --parallel 4
+
   fuzz:
     name: libFuzzer
     runs-on: ubuntu-26.04
