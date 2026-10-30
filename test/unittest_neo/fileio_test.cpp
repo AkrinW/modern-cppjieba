@@ -90,6 +90,15 @@ TEST(StringUtilTest, EmptySeparatorInputResetsOutputToEndSentinel) {
     EXPECT_EQ(get_pre_filter_separators(runes), expected);
 }
 
+// The benchmark times three separator predicates; they must classify every rune alike to compare equal work.
+TEST(StringUtilTest, SeparatorVariantsAgreeOnEveryRune) {
+    for (auto rune = char32_t{0}; rune <= char32_t{0x110000}; ++rune) {
+        const auto expected = is_default_separator(rune);
+        ASSERT_EQ(is_default_separator_unlikely(rune), expected) << static_cast<std::uint32_t>(rune);
+        ASSERT_EQ(is_default_separator_branchless(rune), expected) << static_cast<std::uint32_t>(rune);
+    }
+}
+
 // ─── lines_view tests ────────────────────────────────────────────────────────
 
 TEST(LinesViewTest, BasicLines) {
@@ -183,6 +192,14 @@ TEST(LinesViewTest, OnlyNewlines) {
     EXPECT_EQ(result[1], "");
 }
 
+TEST(LinesViewTest, PostfixIncrementReturnsThePreviousLine) {
+    const auto lines = get_line_view(std::string_view{"first\nsecond\n"});
+    auto it = lines.begin();
+    const auto previous = it++;
+    EXPECT_EQ(*previous, "first");
+    EXPECT_EQ(*it, "second");
+}
+
 // ─── split_view tests ───────────────────────────────────────────────────────
 
 TEST(SplitViewTest, BasicSplit) {
@@ -262,6 +279,14 @@ TEST(SplitViewTest, DictLineFormat) {
     EXPECT_EQ(result[0], "你好");
     EXPECT_EQ(result[1], "12345");
     EXPECT_EQ(result[2], "v");
+}
+
+TEST(SplitViewTest, PostfixIncrementReturnsThePreviousField) {
+    const auto fields = get_split_view(std::string_view{"word 12 n"}, ' ');
+    auto it = fields.begin();
+    const auto previous = it++;
+    EXPECT_EQ(*previous, "word");
+    EXPECT_EQ(*it, "12");
 }
 
 // ─── FileBuffer tests ────────────────────────────────────────────────────────
