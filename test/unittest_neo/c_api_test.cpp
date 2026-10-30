@@ -1,69 +1,20 @@
 #include "neo/Jieba.hpp"
 
+#include "CApiTestSupport.hpp"
 #include "neo_cppjieba.h"
 #include "test_paths.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <memory>
-#include <string>
-#include <string_view>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+namespace c_api_test {
 namespace {
-
-constexpr auto paths = neo_jieba_paths_v1{DICT_DIR "/jieba.dict.utf8", DICT_DIR "/hmm_model.utf8", ""};
-using EngineOwner = std::unique_ptr<neo_jieba_engine_v1, decltype(&neo_jieba_v1_engine_destroy)>;
-using TokensOwner = std::unique_ptr<neo_jieba_tokens_v1, decltype(&neo_jieba_v1_tokens_destroy)>;
-
-// A shared engine amortizes dictionary loading; every test owns its diagnostics and results.
-class CApiTest : public testing::Test {
-protected:
-    static void SetUpTestSuite() {
-        auto storage = std::array<char, 512>{};
-        auto diagnostic = neo_jieba_error_buffer_v1{storage.data(), storage.size(), 0};
-        neo_jieba_engine_v1 *created = nullptr;
-        ASSERT_EQ(neo_jieba_v1_engine_create(&paths, &created, &diagnostic), NEO_JIEBA_V1_OK) << storage.data();
-        engine.reset(created);
-    }
-
-    static void TearDownTestSuite() {
-        engine.reset();
-    }
-
-    auto cut(std::string_view input, neo_jieba_mode_v1 mode) -> TokensOwner {
-        neo_jieba_tokens_v1 *created = nullptr;
-        EXPECT_EQ(neo_jieba_v1_cut_utf8_owned(engine.get(), input.data(), input.size(), mode, &created, &error),
-                  NEO_JIEBA_V1_OK)
-            << error_storage.data();
-        return TokensOwner{created, neo_jieba_v1_tokens_destroy};
-    }
-
-    auto borrow(const TokensOwner &tokens) -> neo_jieba_borrowed_tokens_v1 {
-        auto data = neo_jieba_borrowed_tokens_v1{};
-        EXPECT_EQ(neo_jieba_v1_tokens_borrow_data(tokens.get(), &data, &error), NEO_JIEBA_V1_OK);
-        return data;
-    }
-
-    inline static auto engine = EngineOwner{nullptr, neo_jieba_v1_engine_destroy};
-    std::array<char, 512> error_storage{};
-    neo_jieba_error_buffer_v1 error{error_storage.data(), error_storage.size(), 0};
-};
-
-// Copy words only in the test harness; the public result itself contains byte ranges.
-auto words(const neo_jieba_borrowed_tokens_v1 &data) -> std::vector<std::string> {
-    auto result = std::vector<std::string>{};
-    result.reserve(data.count);
-    for (uint64_t index = 0; index < data.count; ++index) {
-        const auto &range = data.ranges[index];
-        result.emplace_back(data.utf8_data + range.byte_offset, range.byte_length);
-    }
-    return result;
-}
 
 TEST_F(CApiTest, AllModesPreserveCppSegmentationAndByteRanges) {
     // Each mapping exercises the frozen C value against the independently typed C++ API.
@@ -164,6 +115,36 @@ TEST_F(CApiTest, LaterCallsDoNotInvalidateEarlierBorrowedData) {
         ASSERT_NE(second, nullptr);
     }
     EXPECT_EQ(words(borrowed), (std::vector<std::string>{"中国科学院"}));
+}
+
+TEST_F(CApiTest, ConcurrentCutsSharingAnEngineMatchSerialCuts) {
+    const auto *shared = engine.get();
+    const auto expected = cut_all(shared);
+    ASSERT_TRUE(std::ranges::none_of(expected, [](const auto &tokens) { return tokens.empty(); }));
+
+    for (const auto &result : run_workers([shared] { return cut_all(shared); })) {
+        EXPECT_EQ(result, expected);
+    }
+}
+
+TEST_F(CApiTest, ConcurrentBorrowsOfOneResultSeeTheSameStorage) {
+    const auto owned = cut("小明硕士毕业于中国科学院计算所", NEO_JIEBA_V1_SEARCH);
+    ASSERT_NE(owned, nullptr);
+    const auto expected = borrow(owned);
+    const auto *shared = owned.get();
+
+    // A failed borrow zeroes its descriptor, so the comparisons below also catch failures.
+    const auto borrow_shared = [shared] {
+        auto data = neo_jieba_borrowed_tokens_v1{};
+        neo_jieba_v1_tokens_borrow_data(shared, &data, nullptr);
+        return data;
+    };
+    for (const auto &data : run_workers(borrow_shared)) {
+        EXPECT_EQ(data.utf8_data, expected.utf8_data);
+        EXPECT_EQ(data.utf8_size, expected.utf8_size);
+        EXPECT_EQ(data.ranges, expected.ranges);
+        EXPECT_EQ(data.count, expected.count);
+    }
 }
 
 TEST_F(CApiTest, InvalidUtf8ReturnsAnErrorWithoutPublishingAResult) {
@@ -271,6 +252,12 @@ TEST_F(CApiTest, InvalidDiagnosticBufferDoesNotPublishAnOwner) {
 TEST(CApiLifetimeTest, DestroyAcceptsNullHandles) {
     neo_jieba_v1_engine_destroy(nullptr);
     neo_jieba_v1_tokens_destroy(nullptr);
+    neo_jieba_v1_workspace_destroy(nullptr);
+    neo_jieba_v1_ranges_destroy(nullptr);
+    neo_jieba_v1_tfidf_destroy(nullptr);
+    neo_jieba_v1_textrank_destroy(nullptr);
+    neo_jieba_v1_keywords_destroy(nullptr);
 }
 
 } // namespace
+} // namespace c_api_test

@@ -5,3 +5,28 @@ EXPORTS
     neo_jieba_v1_cut_utf8_owned
     neo_jieba_v1_tokens_borrow_data
     neo_jieba_v1_tokens_destroy
+    neo_jieba_v1_workspace_create
+    neo_jieba_v1_workspace_destroy
+    neo_jieba_v1_ranges_create
+    neo_jieba_v1_ranges_destroy
+    neo_jieba_v1_cut_utf8_into
+    neo_jieba_v1_ranges_borrow_data
+    neo_jieba_v1_engine_create_from_sources
+    neo_jieba_v1_engine_create_from_snapshot
+    neo_jieba_v1_write_dict_snapshot
+    neo_jieba_v1_cut_utf8_tagged_into
+    neo_jieba_v1_lookup_tag
+    neo_jieba_v1_engine_clone
+    neo_jieba_v1_engine_add_word
+    neo_jieba_v1_engine_add_word_with_freq
+    neo_jieba_v1_engine_remove_word
+    neo_jieba_v1_engine_compact
+    neo_jieba_v1_tfidf_create
+    neo_jieba_v1_tfidf_destroy
+    neo_jieba_v1_textrank_create
+    neo_jieba_v1_textrank_destroy
+    neo_jieba_v1_keywords_create
+    neo_jieba_v1_keywords_destroy
+    neo_jieba_v1_tfidf_extract_into
+    neo_jieba_v1_textrank_extract_into
+    neo_jieba_v1_keywords_borrow_data
