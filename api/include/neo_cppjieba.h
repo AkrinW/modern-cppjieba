@@ -44,6 +44,7 @@ enum {
     NEO_JIEBA_V1_MP = 7
 };
 
+/* Where a neo_jieba_source_v1 reads its contents from. */
 typedef uint32_t neo_jieba_source_kind_v1;
 enum { NEO_JIEBA_V1_SOURCE_FILE = 1, NEO_JIEBA_V1_SOURCE_MEMORY = 2 };
 
@@ -70,7 +71,7 @@ typedef struct neo_jieba_textrank_v1 neo_jieba_textrank_v1;
 /* Owns reusable keyword and occurrence arrays for the input of the extraction that last filled it. */
 typedef struct neo_jieba_keywords_v1 neo_jieba_keywords_v1;
 
-/* Non-null, NUL-terminated native file paths borrowed only during engine_create.
+/* Non-null, NUL-terminated UTF-8 file paths borrowed only during engine_create.
  * Dictionary/model paths must be nonempty; an empty user_dict_path disables the user dictionary. */
 typedef struct neo_jieba_paths_v1 {
     const char *dict_path;
@@ -79,8 +80,8 @@ typedef struct neo_jieba_paths_v1 {
 } neo_jieba_paths_v1;
 
 /* One dictionary, model or snapshot input, borrowed only during the call that reads it; reserved must be zero.
- * FILE data holds a nonempty path of size bytes without NUL, read like engine_create paths; MEMORY data holds the
- * contents such a file would have. NULL data is accepted exactly when size is zero. */
+ * FILE data holds a nonempty UTF-8 path of size bytes without NUL; MEMORY data holds the contents such a file
+ * would have. NULL data is accepted exactly when size is zero. */
 typedef struct neo_jieba_source_v1 {
     neo_jieba_source_kind_v1 kind;
     uint32_t reserved;
@@ -134,8 +135,8 @@ typedef struct neo_jieba_tfidf_options_v1 {
     uint64_t allowed_tag_count;
 } neo_jieba_tfidf_options_v1;
 
-/* Each candidate links to the next window - 1 candidates; iterations rounds run with damping in [0, 1].
- * CppJieba uses window 5, iterations 10 and damping 0.85. allowed_tags filters as in neo_jieba_tfidf_options_v1. */
+/* Each candidate links to the next window - 1 candidates, none when window is 0 or 1; iterations rounds run with
+ * damping in [0, 1]. CppJieba uses window 5, iterations 10 and damping 0.85. allowed_tags filters as for TF-IDF. */
 typedef struct neo_jieba_textrank_options_v1 {
     uint64_t window;
     uint64_t iterations;
@@ -166,14 +167,70 @@ typedef struct neo_jieba_borrowed_keywords_v1 {
 /* Returns a conservative byte limit for this build's source/rune indices; allocation can still fail. */
 NEO_CPPJIEBA_C_API uint64_t neo_jieba_v1_max_input_bytes(void);
 
+/* ---- Engines ---------------------------------------------------------------------------------------------------- */
+
 /* On success transfers one engine to out_owned_engine; on failure sets it to NULL.
  * The output slot must not hold an unreleased owner. File/format failures return OPERATION_FAILED. */
 NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_create(const neo_jieba_paths_v1 *paths,
                                                                   neo_jieba_engine_v1 **out_owned_engine,
                                                                   neo_jieba_error_buffer_v1 *error);
 
+/* Loads the main dictionary, the HMM model and user dictionaries in order; a repeated user word takes the last entry.
+ * user_dicts may be NULL exactly when user_dict_count is zero. Every source is checked before loading starts.
+ * Transfers one engine on success, otherwise sets out_owned_engine to NULL. Load failures return OPERATION_FAILED. */
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_create_from_sources(
+    const neo_jieba_source_v1 *dict, const neo_jieba_source_v1 *model, const neo_jieba_source_v1 *user_dicts,
+    uint64_t user_dict_count, neo_jieba_engine_v1 **out_owned_engine, neo_jieba_error_buffer_v1 *error);
+
+/* Loads the dictionary from a snapshot made by write_dict_snapshot and the HMM model from model; the engine cuts
+ * exactly as one built from the snapshot's sources. Snapshots from earlier releases stay readable. */
+NEO_CPPJIEBA_C_API neo_jieba_status_v1
+neo_jieba_v1_engine_create_from_snapshot(const neo_jieba_source_v1 *dict_snapshot, const neo_jieba_source_v1 *model,
+                                         neo_jieba_engine_v1 **out_owned_engine, neo_jieba_error_buffer_v1 *error);
+
+/* Encodes the dictionary engine_create_from_sources would build from dict and user_dicts and publishes it at the path
+ * of path_size bytes atomically: readers see the previous file or the complete snapshot, never a partial write. */
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_write_dict_snapshot(const neo_jieba_source_v1 *dict,
+                                                                        const neo_jieba_source_v1 *user_dicts,
+                                                                        uint64_t user_dict_count, const char *path,
+                                                                        uint64_t path_size,
+                                                                        neo_jieba_error_buffer_v1 *error);
+
+/* Copies engine into an independent engine for copy-on-write edits; it only reads engine, so it may overlap reads.
+ * On success transfers the copy to out_owned_engine; on failure sets it to NULL. */
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_clone(const neo_jieba_engine_v1 *engine,
+                                                                 neo_jieba_engine_v1 **out_owned_engine,
+                                                                 neo_jieba_error_buffer_v1 *error);
+
 /* Releases an engine; NULL is accepted. Existing token and ranges results remain valid. */
 NEO_CPPJIEBA_C_API void neo_jieba_v1_engine_destroy(neo_jieba_engine_v1 *owned_engine);
+
+/* ---- Engine edits: each needs exclusive access to its engine ---------------------------------------------------- */
+
+/* Adds or replaces a nonempty UTF-8 word as a user word with the default user weight; an all-zero tag is empty.
+ * Tags must be NUL-padded. Needs exclusive access to engine; existing results stay valid. */
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_add_word(neo_jieba_engine_v1 *engine, const char *word,
+                                                                    uint64_t word_size, const neo_jieba_pos_tag_v1 *tag,
+                                                                    neo_jieba_error_buffer_v1 *error);
+
+/* Like engine_add_word, weighted by a positive frequency against the main dictionary total fixed at load time. */
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_add_word_with_freq(neo_jieba_engine_v1 *engine,
+                                                                              const char *word, uint64_t word_size,
+                                                                              int32_t freq,
+                                                                              const neo_jieba_pos_tag_v1 *tag,
+                                                                              neo_jieba_error_buffer_v1 *error);
+
+/* Removes a main or user dictionary word without restoring an earlier weight; needs exclusive access to engine.
+ * out_removed receives 1 when the word was present and 0 otherwise, including on failure. */
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_remove_word(neo_jieba_engine_v1 *engine, const char *word,
+                                                                       uint64_t word_size, uint32_t *out_removed,
+                                                                       neo_jieba_error_buffer_v1 *error);
+
+/* Reclaims storage left by edits without changing any result; needs exclusive access to engine. */
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_compact(neo_jieba_engine_v1 *engine,
+                                                                   neo_jieba_error_buffer_v1 *error);
+
+/* ---- Owned tokens: each result keeps its own copy of the input -------------------------------------------------- */
 
 /* Borrows input only during this call; NULL is accepted exactly when input_size is zero.
  * On success transfers an independent result to out_owned_tokens; on failure sets it to NULL.
@@ -192,6 +249,8 @@ NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_tokens_borrow_data(const neo
 /* Releases a result and invalidates all its borrowed pointers; NULL is accepted.
  * Release all handles before unloading their library. Internal invariant failures remain fatal. */
 NEO_CPPJIEBA_C_API void neo_jieba_v1_tokens_destroy(neo_jieba_tokens_v1 *owned_tokens);
+
+/* ---- Reusable segmentation: ranges index the caller's input ----------------------------------------------------- */
 
 /* On success transfers one workspace to out_owned_workspace; on failure sets it to NULL.
  * Scratch capacity grows with use and is retained until workspace_destroy. */
@@ -217,37 +276,16 @@ NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_cut_utf8_into(const neo_jieb
                                                                   neo_jieba_ranges_v1 *ranges,
                                                                   neo_jieba_error_buffer_v1 *error);
 
-/* Copies a borrowed descriptor into caller storage; a valid output is zeroed on failure. */
-NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_ranges_borrow_data(const neo_jieba_ranges_v1 *ranges,
-                                                                       neo_jieba_borrowed_ranges_v1 *out_borrowed,
-                                                                       neo_jieba_error_buffer_v1 *error);
-
-/* Loads the main dictionary, the HMM model and user dictionaries in order; a repeated user word takes the last entry.
- * user_dicts may be NULL exactly when user_dict_count is zero. Every source is checked before loading starts.
- * Transfers one engine on success, otherwise sets out_owned_engine to NULL. Load failures return OPERATION_FAILED. */
-NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_create_from_sources(
-    const neo_jieba_source_v1 *dict, const neo_jieba_source_v1 *model, const neo_jieba_source_v1 *user_dicts,
-    uint64_t user_dict_count, neo_jieba_engine_v1 **out_owned_engine, neo_jieba_error_buffer_v1 *error);
-
-/* Loads the dictionary from a snapshot made by write_dict_snapshot and the HMM model from model; the engine cuts
- * exactly as one built from the snapshot's sources. Snapshots from earlier releases stay readable. */
-NEO_CPPJIEBA_C_API neo_jieba_status_v1
-neo_jieba_v1_engine_create_from_snapshot(const neo_jieba_source_v1 *dict_snapshot, const neo_jieba_source_v1 *model,
-                                         neo_jieba_engine_v1 **out_owned_engine, neo_jieba_error_buffer_v1 *error);
-
-/* Encodes the dictionary engine_create_from_sources would build from dict and user_dicts and publishes it at the path
- * of path_size bytes atomically: readers see the previous file or the complete snapshot, never a partial write. */
-NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_write_dict_snapshot(const neo_jieba_source_v1 *dict,
-                                                                        const neo_jieba_source_v1 *user_dicts,
-                                                                        uint64_t user_dict_count, const char *path,
-                                                                        uint64_t path_size,
-                                                                        neo_jieba_error_buffer_v1 *error);
-
 /* Like cut_utf8_into, and also fills one tag per range without changing segmentation: the word's dictionary tag,
  * otherwise CppJieba's rule ("m" for digits, "eng" for other ASCII, else "x"). Any failure leaves both arrays empty. */
 NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_cut_utf8_tagged_into(
     const neo_jieba_engine_v1 *engine, const char *input, uint64_t input_size, neo_jieba_mode_v1 mode,
     neo_jieba_workspace_v1 *workspace, neo_jieba_ranges_v1 *ranges, neo_jieba_error_buffer_v1 *error);
+
+/* Copies a borrowed descriptor into caller storage; a valid output is zeroed on failure. */
+NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_ranges_borrow_data(const neo_jieba_ranges_v1 *ranges,
+                                                                       neo_jieba_borrowed_ranges_v1 *out_borrowed,
+                                                                       neo_jieba_error_buffer_v1 *error);
 
 /* Tags one complete UTF-8 word without segmenting it, exactly as a tagged fill would tag that word. NULL is accepted
  * exactly when word_size is zero. Invalid UTF-8 returns OPERATION_FAILED; a valid out_tag is zeroed on failure. */
@@ -255,34 +293,7 @@ NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_lookup_tag(const neo_jieba_e
                                                                uint64_t word_size, neo_jieba_pos_tag_v1 *out_tag,
                                                                neo_jieba_error_buffer_v1 *error);
 
-/* Copies engine into an independent engine for copy-on-write edits; it only reads engine, so it may overlap reads.
- * On success transfers the copy to out_owned_engine; on failure sets it to NULL. */
-NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_clone(const neo_jieba_engine_v1 *engine,
-                                                                 neo_jieba_engine_v1 **out_owned_engine,
-                                                                 neo_jieba_error_buffer_v1 *error);
-
-/* Adds or replaces a nonempty UTF-8 word as a user word with the default user weight; an all-zero tag is empty.
- * Tags must be NUL-padded. Needs exclusive access to engine; existing results stay valid. */
-NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_add_word(neo_jieba_engine_v1 *engine, const char *word,
-                                                                    uint64_t word_size, const neo_jieba_pos_tag_v1 *tag,
-                                                                    neo_jieba_error_buffer_v1 *error);
-
-/* Like engine_add_word, weighted by a positive frequency against the main dictionary total fixed at load time. */
-NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_add_word_with_freq(neo_jieba_engine_v1 *engine,
-                                                                              const char *word, uint64_t word_size,
-                                                                              int32_t freq,
-                                                                              const neo_jieba_pos_tag_v1 *tag,
-                                                                              neo_jieba_error_buffer_v1 *error);
-
-/* Removes a main or user dictionary word without restoring an earlier weight; needs exclusive access to engine.
- * out_removed receives 1 when the word was present and 0 otherwise, including on failure. */
-NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_remove_word(neo_jieba_engine_v1 *engine, const char *word,
-                                                                       uint64_t word_size, uint32_t *out_removed,
-                                                                       neo_jieba_error_buffer_v1 *error);
-
-/* Reclaims storage left by edits without changing any result; needs exclusive access to engine. */
-NEO_CPPJIEBA_C_API neo_jieba_status_v1 neo_jieba_v1_engine_compact(neo_jieba_engine_v1 *engine,
-                                                                   neo_jieba_error_buffer_v1 *error);
+/* ---- Keywords: extractors hold only their resources and take an engine per call -------------------------------- */
 
 /* Loads an IDF table and stop words; words missing from the table use its average IDF. On success transfers one
  * extractor to out_owned_extractor; on failure sets it to NULL. Load failures return OPERATION_FAILED. */

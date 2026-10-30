@@ -28,24 +28,19 @@
 - 新增构建选项 `CPPJIEBA_BUILD_FUZZERS`（要求 Clang），构建 UTF 解码、主词典 / 用户词典 / HMM 模型解析和
   `neo_jieba_v1_cut_utf8_owned` 的 libFuzzer 目标；CI 增加格式、clang-tidy、sanitizer、fuzz 和覆盖率检查。
   见 [质量检查](docs/building.md#质量检查)。
-- C ABI v1 新增可复用的 workspace 和只含字节区间的结果：`neo_jieba_v1_cut_utf8_into` 把分词结果写成
-  调用方原文中的字节区间，不复制原文，并复用 workspace 的临时存储和结果容量；配套
-  `workspace_create` / `workspace_destroy`、`ranges_create` / `ranges_destroy` 和 `ranges_borrow_data`。
-  见 [C ABI](api/README.md#calls-and-ownership)。
-- C ABI v1 新增 `neo_jieba_source_v1`：主词典、HMM 模型和任意数量的用户词典可从文件或内存加载
-  （`neo_jieba_v1_engine_create_from_sources`），路径带显式长度；`neo_jieba_v1_write_dict_snapshot` 原子地写出
-  词典快照，`neo_jieba_v1_engine_create_from_snapshot` 从文件或内存加载快照。
-  见 [C ABI](api/README.md#calls-and-ownership)。
-- C ABI v1 新增词性标注：`neo_jieba_v1_cut_utf8_tagged_into` 在字节区间之外给出平行的 `neo_jieba_pos_tag_v1`
-  数组，`neo_jieba_v1_lookup_tag` 标注单个完整词语；规则与 C++ 的 `Tagging::Pos` 和 `lookup_tag` 相同。
-  见 [C ABI](api/README.md#calls-and-ownership)。
-- C ABI v1 新增运行时增删词：`neo_jieba_v1_engine_add_word`、`engine_add_word_with_freq`、`engine_remove_word`
-  和 `engine_compact` 需要独占 engine，库内部不加锁；`neo_jieba_v1_engine_clone` 只读原 engine，
-  用于写时复制。见 [C ABI](api/README.md#calls-and-ownership)。
-- C ABI v1 新增关键词提取：`neo_jieba_v1_tfidf_create` / `neo_jieba_v1_textrank_create` 从文件或内存加载资源，
-  `tfidf_extract_into` / `textrank_extract_into` 复用 workspace 和 `neo_jieba_keywords_v1` 结果，
-  每个关键词给出权重、词性和原文中全部出现位置的字节区间，不复制原文；结果与 C++ 提取器一致。
-  见 [C ABI](api/README.md#calls-and-ownership)。
+- C ABI v1 新增 25 个函数，已有符号、结构布局和函数语义不变。见 [C ABI](api/README.md#calls-and-ownership)。
+  - 可复用的 workspace 和只含字节区间的结果：`neo_jieba_v1_cut_utf8_into` 把分词结果写成调用方原文中的
+    字节区间，不复制原文，并复用 workspace 的临时存储和结果容量。
+  - `neo_jieba_source_v1`：主词典、HMM 模型和任意数量的用户词典可从文件或内存加载
+    （`engine_create_from_sources`），路径带显式长度；`write_dict_snapshot` 原子地写出词典快照，
+    `engine_create_from_snapshot` 从文件或内存加载快照。
+  - 词性标注：`cut_utf8_tagged_into` 在字节区间之外给出平行的 `neo_jieba_pos_tag_v1` 数组，
+    `lookup_tag` 标注单个完整词语；规则与 C++ 的 `Tagging::Pos` 和 `lookup_tag` 相同。
+  - 运行时增删词：`engine_add_word`、`engine_add_word_with_freq`、`engine_remove_word` 和 `engine_compact`
+    需要独占 engine，库内部不加锁；`engine_clone` 只读原 engine，用于写时复制。
+  - 关键词提取：`tfidf_create` / `textrank_create` 从文件或内存加载资源，`tfidf_extract_into` /
+    `textrank_extract_into` 复用 workspace 和 `neo_jieba_keywords_v1` 结果，每个关键词给出权重、词性和
+    原文中全部出现位置的字节区间，不复制原文；结果与 C++ 提取器一致。
 
 ### Changed
 
