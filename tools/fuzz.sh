@@ -5,8 +5,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 
-readonly FUZZERS=(utf_decode main_dict user_dict hmm_model dict_snapshot c_api_cut c_api_ranges c_api_sources c_api_edit
-    c_api_keyword)
+readonly FUZZERS=(utf_decode main_dict user_dict hmm_model dict_snapshot snapshot_roundtrip keyword utf_cut c_api_cut
+    c_api_ranges c_api_sources c_api_edit c_api_keyword)
 readonly FUZZ_SECONDS_DEFAULT=60
 
 usage() {
@@ -30,13 +30,14 @@ write_seeds() {
         "${REPO_ROOT}/dict/hmm_model.utf8" > "${corpus}/hmm_model/hmm_model_head.utf8"
     cp "${REPO_ROOT}"/test/testdata/snapshot/format_v*.bin "${corpus}/dict_snapshot/"
 
-    # c_api_cut reads its mode from the first byte.
+    # c_api_cut and utf_cut read their mode from the first byte.
     # c_api_ranges also reads fill flags, here tagging both fills, then two inputs split at a 0xFF byte.
     # c_api_keyword reads the ranker order, top_n, window, iterations, a damping choice and a tag count first.
     local line mode index=0
     while IFS= read -r line; do
         for mode in 0 1 2 3 4 5 6; do
             printf "\\$(printf '%03o' "${mode}")%s" "${line}" > "${corpus}/c_api_cut/line${index}_mode${mode}"
+            printf "\\$(printf '%03o' "${mode}")%s" "${line}" > "${corpus}/utf_cut/line${index}_mode${mode}"
             printf "\\$(printf '%03o' "${mode}")\\003%s\\377%s" "${line}" "${line}" \
                 > "${corpus}/c_api_ranges/line${index}_mode${mode}"
         done
@@ -51,6 +52,27 @@ write_seeds() {
             > "${corpus}/c_api_sources/${user_dict##*/}"
     done
     { printf '\001'; cat "${testdata}/snapshot/format_v1.bin"; } > "${corpus}/c_api_sources/format_v1.bin"
+
+    # keyword reads top_n, then an IDF table, stop words and the input split at 0xFF bytes.
+    local idf_head stop_head
+    idf_head=$(head -n 200 "${REPO_ROOT}/dict/idf.utf8")
+    stop_head=$(head -n 40 "${REPO_ROOT}/dict/stop_words.utf8")
+    index=0
+    while IFS= read -r line; do
+        printf '\012%s\n\377%s\n\377%s' "${idf_head}" "${stop_head}" "${line}" > "${corpus}/keyword/line${index}"
+        index=$((index + 1))
+    done < "${REPO_ROOT}/test/testdata/testlines.utf8"
+
+    # snapshot_roundtrip reads a flag byte: 0 adds user dictionaries to the small dictionary, 1 fuzzes the main one.
+    for user_dict in "${testdata}"/userdict* "${testdata}/snapshot/user.dict.utf8"; do
+        { printf '\000'; cat "${user_dict}"; } > "${corpus}/snapshot_roundtrip/${user_dict##*/}"
+    done
+    {
+        printf '\001'
+        cat "${testdata}/snapshot/main.dict.utf8"
+        printf '\377'
+        cat "${testdata}/snapshot/user.dict.utf8"
+    } > "${corpus}/snapshot_roundtrip/main_and_user"
 
     # c_api_edit reads a diagnostic byte, then edits of a kind, a word length and word, a tag and a frequency byte:
     # add 杭研 tagged nz, add 云计算 with frequency 112, remove 大学, and compact.

@@ -4,6 +4,7 @@
 ///   - require : abort when a harness property fails, so libFuzzer keeps the input
 ///   - as_text : view fuzz bytes as UTF-8 text without copying
 ///   - ByteReader, split_parts : decode structured requests from fuzz bytes
+///   - small_dict, small_model : tiny sources for harnesses that build or clone an engine per input
 
 #include <cstddef>
 #include <cstdint>
@@ -72,3 +73,18 @@ inline auto split_parts(std::string_view text, std::size_t max_parts) -> std::ve
     parts.push_back(text);
     return parts;
 }
+
+// A tiny main dictionary keeps per-input engine builds and clones cheap.
+inline constexpr auto small_dict =
+    std::string_view{"北京 2000 ns\n清华大学 800 nt\n大学 1500 n\n来到 1200 v\n我 9000 r\n"};
+
+// CppJieba's start and transition rows with emissions for a few characters; others take the model's floor.
+inline constexpr auto small_model = std::string_view{"-0.26268660809250016 -3.14e+100 -3.14e+100 -1.4652633398537678\n"
+                                                     "-3.14e+100 -0.510825623765990 -0.916290731874155 -3.14e+100\n"
+                                                     "-0.5897149736854513 -3.14e+100 -3.14e+100 -0.8085250474669937\n"
+                                                     "-3.14e+100 -0.33344856811948514 -1.2603623820268226 -3.14e+100\n"
+                                                     "-0.7211965654669841 -3.14e+100 -3.14e+100 -0.6658631448798212\n"
+                                                     "北:-8.4,京:-10.1,大:-6.9,学:-9.3\n"
+                                                     "北:-10.6,京:-8.2,大:-9.1,学:-7.4\n"
+                                                     "北:-11.2,京:-10.4,大:-8.8,学:-9.9\n"
+                                                     "北:-9.7,京:-9.6,大:-7.2,学:-11.3\n"};

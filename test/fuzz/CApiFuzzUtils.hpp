@@ -3,7 +3,6 @@
 /// Shared helpers for C ABI harnesses:
 ///   - modes, tiles_input : the cut modes and which of them tile their input
 ///   - repository_engine  : the repository dictionaries, loaded once per process
-///   - small_dict, small_model : tiny sources for harnesses that build or clone an engine per input
 ///   - ErrorProbe : diagnostic storage that checks the error-buffer contract of each call
 ///   - borrowed : view a borrowed C array, which is NULL exactly when it is empty
 
@@ -46,21 +45,6 @@ inline auto repository_engine() -> const neo_jieba_engine_v1 * {
     }();
     return owned;
 }
-
-// A tiny main dictionary keeps per-input engine builds and clones cheap.
-inline constexpr auto small_dict =
-    std::string_view{"北京 2000 ns\n清华大学 800 nt\n大学 1500 n\n来到 1200 v\n我 9000 r\n"};
-
-// CppJieba's start and transition rows with emissions for a few characters; others take the model's floor.
-inline constexpr auto small_model = std::string_view{"-0.26268660809250016 -3.14e+100 -3.14e+100 -1.4652633398537678\n"
-                                                     "-3.14e+100 -0.510825623765990 -0.916290731874155 -3.14e+100\n"
-                                                     "-0.5897149736854513 -3.14e+100 -3.14e+100 -0.8085250474669937\n"
-                                                     "-3.14e+100 -0.33344856811948514 -1.2603623820268226 -3.14e+100\n"
-                                                     "-0.7211965654669841 -3.14e+100 -3.14e+100 -0.6658631448798212\n"
-                                                     "北:-8.4,京:-10.1,大:-6.9,学:-9.3\n"
-                                                     "北:-10.6,京:-8.2,大:-9.1,学:-7.4\n"
-                                                     "北:-11.2,京:-10.4,大:-8.8,学:-9.9\n"
-                                                     "北:-9.7,京:-9.6,大:-7.2,学:-11.3\n"};
 
 // Describe borrowed contents as a C memory source.
 inline auto memory_source(std::string_view text) -> neo_jieba_source_v1 {
