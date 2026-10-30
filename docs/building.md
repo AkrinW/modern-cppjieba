@@ -115,6 +115,7 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 | 头文件自足 | `tools/check-headers.sh`，`CLANG_CXX` 指定 Clang；`BUILD_TESTING` 构建同时编译 `neo_header_check` |
 | ASan + UBSan、TSan | 以 GCC 和工作流中的 `-fsanitize` 参数配置 Debug 构建，再运行 `ctest` |
 | libFuzzer | 以 `-DCPPJIEBA_BUILD_FUZZERS=ON` 构建，再运行 `tools/fuzz.sh <构建目录> [每个目标的秒数] [目标...]` |
+| Fuzz 语料回放 | `BUILD_TESTING` 构建中运行 `ctest -R neo_fuzz_replay`，任意编译器均可 |
 | 覆盖率 | 以 `-fprofile-instr-generate -fcoverage-mapping` 构建，再运行 `tools/llvm-coverage.sh <构建目录> <输出目录>` |
 
 - clang-tidy 读取 `compile_commands.json`，构建目录需启用工作流中列出的全部可选组件。
@@ -123,6 +124,9 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
   sanitizer 会替换分配器，因此 sanitizer 任务跳过检查私有运行库的 `neo_c_api_symbols` 和 `neo_c_api_c_host`，
   二者由 C API 工作流在常规构建中运行。
 - Fuzz 目标在 Debug 下构建以保留库断言，导致崩溃的输入写入 `<构建目录>/fuzz-run/artifacts/`。
+- `test/fuzz/corpus/<目标>/` 保存按边覆盖精简的语料，`tools/fuzz.sh` 只读取它，新输入写入 `<构建目录>/fuzz-run/corpus/`。
+  运行 `<构建目录>/fuzz/<目标>_fuzzer -set_cover_merge=1 -use_counters=0 test/fuzz/corpus/<目标> <构建目录>/fuzz-run/corpus/<目标>`
+  把带来新覆盖的输入并入语料；修复崩溃后把复现输入放入对应目录，作为回归测试。
 
 ## 仓库布局
 

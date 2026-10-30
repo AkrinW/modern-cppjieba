@@ -40,14 +40,16 @@ write_seeds() {
 }
 
 # The library logs every rejected input, so target output is closed; libFuzzer still reports crashes.
+# New inputs go to the working corpus; the checked-in corpus is read only.
 run_fuzzer() {
     local binary=$1
     local corpus=$2
-    local artifacts=$3
-    local seconds=$4
+    local checked_in=$3
+    local artifacts=$4
+    local seconds=$5
 
     echo "--- ${binary##*/}: ${seconds}s ---"
-    "${binary}" "${corpus}" \
+    "${binary}" "${corpus}" "${checked_in}" \
         -max_total_time="${seconds}" -timeout=10 -rss_limit_mb=2048 \
         -close_fd_mask=3 -print_final_stats=1 -artifact_prefix="${artifacts}/"
 }
@@ -71,7 +73,8 @@ main() {
 
     local name
     for name in "${fuzzers[@]}"; do
-        run_fuzzer "${build_dir}/fuzz/${name}_fuzzer" "${work}/corpus/${name}" "${work}/artifacts" "${seconds}"
+        run_fuzzer "${build_dir}/fuzz/${name}_fuzzer" "${work}/corpus/${name}" "${REPO_ROOT}/test/fuzz/corpus/${name}" \
+            "${work}/artifacts" "${seconds}"
     done
 }
 
