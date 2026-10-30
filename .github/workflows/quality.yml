@@ -108,7 +108,7 @@ jobs:
   fuzz:
     name: libFuzzer
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       # Debug keeps library assertions fatal; -O1 keeps the execution rate useful.
@@ -119,8 +119,23 @@ jobs:
           -DBUILD_TESTING=OFF -DCPPJIEBA_BUILD_FUZZERS=ON
       - name: Build
         run: cmake --build build --parallel 4
-      - name: Fuzz each target for 60 seconds
-        run: tools/fuzz.sh build 60
+      # Start from the corpus the latest master or nightly run kept; pull requests only read it.
+      - name: Restore the fuzz corpus
+        uses: actions/cache/restore@v6
+        with:
+          path: build/fuzz-run/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+      - name: Fuzz each target for 30 seconds
+        env:
+          FUZZ_MINIMIZE: ${{ github.event_name != 'pull_request' && '1' || '' }}
+        run: tools/fuzz.sh build 30
+      - name: Save the fuzz corpus
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v6
+        with:
+          path: build/fuzz-run/corpus
+          key: fuzz-corpus-${{ github.run_id }}
       - name: Upload crash reproducers
         if: failure()
         uses: actions/upload-artifact@v7

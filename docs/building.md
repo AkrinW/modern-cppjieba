@@ -114,7 +114,7 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 | clang-tidy | `BUILD_DIR=build tools/clang-tidy-recursive.sh --check`；去掉 `--check` 即循环应用修复 |
 | 头文件自足 | `tools/check-headers.sh`，`CLANG_CXX` 指定 Clang；`BUILD_TESTING` 构建同时编译 `neo_header_check` |
 | ASan + UBSan、TSan | 以 GCC 和工作流中的 `-fsanitize` 参数配置 Debug 构建，再运行 `ctest` |
-| libFuzzer | 以 `-DCPPJIEBA_BUILD_FUZZERS=ON` 构建，再运行 `tools/fuzz.sh <构建目录> [每个目标的秒数] [目标...]` |
+| libFuzzer | 以 `-DCPPJIEBA_BUILD_FUZZERS=ON` 构建，再运行 `tools/fuzz.sh <构建目录> [每个目标的秒数] [目标...]`；`--list` 列出目标 |
 | Fuzz 语料回放 | `BUILD_TESTING` 构建中运行 `ctest -R neo_fuzz_replay`，任意编译器均可 |
 | 覆盖率 | 以 `-fprofile-instr-generate -fcoverage-mapping` 构建，再运行 `tools/llvm-coverage.sh <构建目录> <输出目录>` |
 
@@ -127,6 +127,11 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 - `test/fuzz/corpus/<目标>/` 保存按边覆盖精简的语料，`tools/fuzz.sh` 只读取它，新输入写入 `<构建目录>/fuzz-run/corpus/`。
   运行 `<构建目录>/fuzz/<目标>_fuzzer -set_cover_merge=1 -use_counters=0 test/fuzz/corpus/<目标> <构建目录>/fuzz-run/corpus/<目标>`
   把带来新覆盖的输入并入语料；修复崩溃后把复现输入放入对应目录，作为回归测试。
+- `tools/fuzz.sh` 按输入格式为每个目标选用 `test/fuzz/dict/` 中的 libFuzzer 字典。`FUZZ_FORK=<n>` 为每个目标运行 n 个
+  fuzz 进程，`FUZZ_MINIMIZE=1` 在每个目标结束后把工作语料合并为带来覆盖的输入。
+- Quality 工作流对每个目标 fuzz 30 秒，从缓存的语料出发；PR 只读取缓存，master 的推送精简后保存。
+  [Nightly fuzz 工作流](../.github/workflows/fuzz-nightly.yml)每天为每个目标开一个任务，以 4 个进程 fuzz 10 分钟，
+  再把各目标精简后的语料合并存入同一缓存；手动触发时可指定每个目标的秒数。
 - 覆盖率脚本把 `summary.md` 写入输出目录，CI 将它发布为 job summary：总计、各目录和覆盖最少的文件按行和分支统计，
   任一测试程序或模板实例到达即算覆盖。llvm-cov 把返回语句之后不可达的块尾（如 `case` 末尾的 `}`）记为 0，
   因此只含右花括号的行在其前一可执行行被覆盖时计为覆盖。设置 `COVERAGE_BASE=<修订>` 时另列相对该修订改动行的覆盖，

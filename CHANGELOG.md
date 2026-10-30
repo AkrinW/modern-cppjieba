@@ -36,6 +36,8 @@
 - 新增 C++ fuzz 目标：`keyword` 从变异的 IDF 表和停用词构建提取器并检查结果，`snapshot_roundtrip` 检查快照编码确定，
   且在全部模式下与源词典分词、标注一致，`utf_cut` 检查同一文本的 UTF-8 / UTF-16 / UTF-32 输入分词、标注一致，
   源偏移落在各自的码元上。
+- Fuzz CI 在运行之间缓存并精简语料，并按输入格式使用 libFuzzer 字典；PR 与 master 每个目标 fuzz 30 秒，
+  新增的 Nightly fuzz 工作流每天为每个目标并行 fuzz 10 分钟。`tools/fuzz.sh` 增加 `--list`、`FUZZ_FORK` 和 `FUZZ_MINIMIZE`。
 - 覆盖率任务在 job summary 中按行和分支汇总总计、各目录和覆盖最少的文件，PR 另报告改动行的覆盖；
   统计取所有测试程序和模板实例的并集，只含右花括号的行随其前一可执行行计入，HTML 报告显示分支计数，
   构建目录中生成的头文件不再计入。

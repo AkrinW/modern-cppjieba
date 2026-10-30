@@ -11,7 +11,19 @@ readonly FUZZ_SECONDS_DEFAULT=60
 
 usage() {
     echo "usage: $0 <build-dir> [seconds-per-fuzzer] [fuzzer...]" >&2
+    echo "       $0 --list" >&2
     echo "fuzzers: ${FUZZERS[*]}" >&2
+    echo "FUZZ_FORK=<n> runs n fuzzing processes per target; FUZZ_MINIMIZE=1 merges each working corpus afterwards." >&2
+}
+
+# The libFuzzer dictionary for each target's input format, under test/fuzz/dict.
+dictionary_for() {
+    case $1 in
+        main_dict | user_dict | snapshot_roundtrip | keyword | c_api_sources) echo dictionary ;;
+        hmm_model) echo hmm_model ;;
+        dict_snapshot) echo dict_snapshot ;;
+        *) echo text ;;
+    esac
 }
 
 # Seed each corpus from repository data so mutations start from well-formed inputs.
@@ -88,17 +100,39 @@ run_fuzzer() {
     local checked_in=$3
     local artifacts=$4
     local seconds=$5
+    local dictionary=$6
 
+    local -a parallel=()
+    if [[ ${FUZZ_FORK:-1} -gt 1 ]]; then
+        parallel=(-fork="${FUZZ_FORK}")
+    fi
     echo "--- ${binary##*/}: ${seconds}s ---"
-    "${binary}" "${corpus}" "${checked_in}" \
+    "${binary}" "${corpus}" "${checked_in}" "${parallel[@]}" -dict="${dictionary}" \
         -max_total_time="${seconds}" -timeout=10 -rss_limit_mb=2048 \
         -close_fd_mask=3 -print_final_stats=1 -artifact_prefix="${artifacts}/"
+}
+
+# Keep the inputs of a working corpus that add coverage, so a cached corpus stays small between runs.
+minimize_corpus() {
+    local binary=$1
+    local corpus=$2
+
+    local merged="${corpus}.merged"
+    rm -rf "${merged}"
+    mkdir -p "${merged}"
+    "${binary}" -merge=1 -close_fd_mask=3 "${merged}" "${corpus}" 2>&1 | grep -E '^MERGE-OUTER: [0-9]+ new files' || true
+    rm -rf "${corpus}"
+    mv "${merged}" "${corpus}"
 }
 
 main() {
     if [[ $# -lt 1 ]]; then
         usage
         return 2
+    fi
+    if [[ $1 == --list ]]; then
+        printf '%s\n' "${FUZZERS[@]}"
+        return 0
     fi
 
     local build_dir=$1
@@ -112,10 +146,14 @@ main() {
     write_seeds "${work}/corpus"
     mkdir -p "${work}/artifacts"
 
-    local name
+    local name binary
     for name in "${fuzzers[@]}"; do
-        run_fuzzer "${build_dir}/fuzz/${name}_fuzzer" "${work}/corpus/${name}" "${REPO_ROOT}/test/fuzz/corpus/${name}" \
-            "${work}/artifacts" "${seconds}"
+        binary="${build_dir}/fuzz/${name}_fuzzer"
+        run_fuzzer "${binary}" "${work}/corpus/${name}" "${REPO_ROOT}/test/fuzz/corpus/${name}" "${work}/artifacts" \
+            "${seconds}" "${REPO_ROOT}/test/fuzz/dict/$(dictionary_for "${name}").dict"
+        if [[ ${FUZZ_MINIMIZE:-} == 1 ]]; then
+            minimize_corpus "${binary}" "${work}/corpus/${name}"
+        fi
     done
 }
 
