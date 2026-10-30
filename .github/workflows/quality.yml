@@ -136,6 +136,11 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Changed-line coverage diffs a pull request against the merge base with its target branch.
+          fetch-depth: 0
+      - name: Check the coverage summary script
+        run: python3 -B -m unittest discover -s tools -p 'coverage_summary_test.py' -v
       # The shared C ABI links the profile runtime privately and writes its own profile, so both variants count.
       - name: Configure
         run: >-
@@ -148,18 +153,13 @@ jobs:
       - name: Build
         run: cmake --build build --parallel 4
       - name: Measure coverage
+        env:
+          COVERAGE_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
         run: >-
           LLVM_PROFDATA="llvm-profdata-$LLVM_VERSION" LLVM_COV="llvm-cov-$LLVM_VERSION"
           tools/llvm-coverage.sh build coverage
       - name: Publish coverage summary
-        run: |
-          {
-            printf '## Coverage of include/neo and the C ABI adapter\n\n'
-            printf 'Report only; no threshold is enforced. HTML and lcov reports are in the coverage artifact.\n\n'
-            printf '```text\n'
-            cat coverage/summary.txt
-            printf '```\n'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: cat coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage reports
         uses: actions/upload-artifact@v7
         with:
@@ -167,6 +167,7 @@ jobs:
           path: |
             coverage/html/
             coverage/coverage.lcov
+            coverage/summary.md
             coverage/summary.txt
           if-no-files-found: error
           retention-days: 14
