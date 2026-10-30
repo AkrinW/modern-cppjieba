@@ -1,23 +1,62 @@
+# Symbols added after the 1.2.0 release carry the NEO_CPPJIEBA_C_1.1 version node on Linux.
+set(expected_1_1
+    neo_jieba_v1_workspace_create
+    neo_jieba_v1_workspace_destroy
+    neo_jieba_v1_ranges_create
+    neo_jieba_v1_ranges_destroy
+    neo_jieba_v1_cut_utf8_into
+    neo_jieba_v1_ranges_borrow_data
+    neo_jieba_v1_engine_create_from_sources
+    neo_jieba_v1_engine_create_from_snapshot
+    neo_jieba_v1_write_dict_snapshot
+    neo_jieba_v1_cut_utf8_tagged_into
+    neo_jieba_v1_lookup_tag
+    neo_jieba_v1_engine_clone
+    neo_jieba_v1_engine_add_word
+    neo_jieba_v1_engine_add_word_with_freq
+    neo_jieba_v1_engine_remove_word
+    neo_jieba_v1_engine_compact
+    neo_jieba_v1_tfidf_create
+    neo_jieba_v1_tfidf_destroy
+    neo_jieba_v1_textrank_create
+    neo_jieba_v1_textrank_destroy
+    neo_jieba_v1_keywords_create
+    neo_jieba_v1_keywords_destroy
+    neo_jieba_v1_tfidf_extract_into
+    neo_jieba_v1_textrank_extract_into
+    neo_jieba_v1_keywords_borrow_data)
 set(expected
     neo_jieba_v1_max_input_bytes
     neo_jieba_v1_engine_create
     neo_jieba_v1_engine_destroy
     neo_jieba_v1_cut_utf8_owned
     neo_jieba_v1_tokens_borrow_data
-    neo_jieba_v1_tokens_destroy)
+    neo_jieba_v1_tokens_destroy
+    ${expected_1_1})
 set(actual)
 if(PLATFORM STREQUAL "Linux")
     execute_process(COMMAND "${NM}" -D --defined-only --format=posix "${LIBRARY}"
         OUTPUT_VARIABLE definitions COMMAND_ERROR_IS_FATAL ANY)
     string(REPLACE "\n" ";" lines "${definitions}")
     foreach(line IN LISTS lines)
-        if(line STREQUAL "" OR line MATCHES "^NEO_CPPJIEBA_C_1\\.0(@@NEO_CPPJIEBA_C_1\\.0)? A ")
+        if(line STREQUAL "" OR line MATCHES "^NEO_CPPJIEBA_C_1\\.[01](@@NEO_CPPJIEBA_C_1\\.[01])? A ")
             continue()
         endif()
-        if(NOT line MATCHES "^(neo_jieba_v1_[a-z0-9_]+)@@NEO_CPPJIEBA_C_1\\.0 T ")
+        if(NOT line MATCHES "^(neo_jieba_v1_[a-z0-9_]+)@@NEO_CPPJIEBA_C_(1\\.[01]) T ")
             message(FATAL_ERROR "Unexpected dynamic definition: ${line}")
         endif()
-        list(APPEND actual "${CMAKE_MATCH_1}")
+        set(symbol "${CMAKE_MATCH_1}")
+        set(node "${CMAKE_MATCH_2}")
+        # Released symbols keep their original node so existing binaries still resolve them.
+        set(expected_node "1.0")
+        list(FIND expected_1_1 "${symbol}" added_index)
+        if(NOT added_index EQUAL -1)
+            set(expected_node "1.1")
+        endif()
+        if(NOT node STREQUAL expected_node)
+            message(FATAL_ERROR "${symbol} has version node ${node}, expected ${expected_node}")
+        endif()
+        list(APPEND actual "${symbol}")
     endforeach()
 
     execute_process(COMMAND "${NM}" -D --undefined-only --format=posix "${LIBRARY}"

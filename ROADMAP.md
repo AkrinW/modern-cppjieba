@@ -1,7 +1,7 @@
 # Roadmap
 
 本文记录 neo-cppjieba 在 1.2.0 之后的计划方向。版本划分表示优先级，不承诺发布日期；
-各项完成后移入 [CHANGELOG](CHANGELOG.md)。
+各项完成后移入 [CHANGELOG](CHANGELOG.md)。1.3 与 1.4 的内容合并为 2.0.0 发布。
 
 ## 现状
 
@@ -53,13 +53,13 @@
 
 只新增符号，不改变已有 v1 结构布局和函数语义。
 
-- [ ] **明确并发契约。** 头文件要求同一 engine 的调用串行，而 C++ 的 `Jieba::cut*` 是 `const`，
+- [x] **明确并发契约。** 头文件要求同一 engine 的调用串行，而 C++ 的 `Jieba::cut*` 是 `const`，
   且每次调用使用独立 `Workspace`。确认 `Logging` 等静态状态无数据竞争后，将契约放宽为同一 engine
   可并发分词，并增加 TSan 测试。这决定语言绑定能否在分词时释放 GIL 或跨线程共享 engine。
-- [ ] 增加可复用的 workspace 和结果对象，例如 `neo_jieba_v1_workspace_create` 与 `cut_utf8_into`，
+- [x] 增加可复用的 workspace 和结果对象，例如 `neo_jieba_v1_workspace_create` 与 `cut_utf8_into`，
   避免每次调用重新分配和复制原文；提供只返回字节区间、不复制原文的变体。
-- [ ] 从内存创建 engine（依赖 1.3 的内存加载）。
-- [ ] 1.3 的 C++ 接口稳定后，暴露词性和关键词提取。
+- [x] 从内存创建 engine（依赖 1.3 的内存加载），以及词典快照的加载和写出。
+- [x] 1.3 的 C++ 接口稳定后，暴露词性和关键词提取，以及运行时增删词和写时复制。
 - [ ] 日志回调，与下文的日志策略一致。
 
 ## 1.5 — 库的健壮性
@@ -69,7 +69,7 @@
 [Quality 工作流](.github/workflows/quality.yml) 运行以下检查，本地命令见 [质量检查](docs/building.md#质量检查)。
 
 - [x] ASan + UBSan 任务，覆盖单元测试和共享、静态两种 C ABI 测试。
-- [x] TSan 任务，覆盖 C++ 并发分词、关键词提取和 `clone()` 写时复制；C ABI 并发测试随 1.4 的并发契约加入。
+- [x] TSan 任务，覆盖 C++ 并发分词、关键词提取和 `clone()` 写时复制，以及 C ABI 共享 engine 和共享结果的并发调用。
 - [x] libFuzzer 目标：UTF 解码、主词典 / 用户词典 / HMM 模型解析、`neo_jieba_v1_cut_utf8_owned`。
 - [x] clang-format 与 clang-tidy 检查。
 - [x] 启用 `misc-include-cleaner`：门面头文件以 `// IWYU pragma: export` 标注转出的角色头文件，其余代码直接 include。
