@@ -63,9 +63,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # libstdc++ assertions bounds-check containers, spans and views without changing the library ABI.
           - name: ASan + UBSan
             artifact: asan-ubsan
-            flags: -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+            flags: >-
+              -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+              -D_GLIBCXX_ASSERTIONS
           - name: TSan
             artifact: tsan
             flags: -O1 -g -fsanitize=thread -fno-omit-frame-pointer
