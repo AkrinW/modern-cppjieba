@@ -2,7 +2,8 @@
 
 # Exercise the same ownership and error contract through each enabled library variant.
 function(cppjieba_add_c_api_tests name library)
-    add_executable(test_${name}.run ../gtest_main.cpp c_api_test.cpp)
+    add_executable(test_${name}.run ../gtest_main.cpp c_api_test.cpp c_api_ranges_test.cpp c_api_sources_test.cpp
+        c_api_edit_test.cpp c_api_keyword_test.cpp)
     target_link_libraries(test_${name}.run PRIVATE
         ${library} neo_cppjieba::neo_cppjieba cppjieba_test_support)
     add_test(NAME neo_${name}_tests COMMAND test_${name}.run)
