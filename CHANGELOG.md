@@ -41,6 +41,9 @@
 - ASan + UBSan 任务启用 `-D_GLIBCXX_ASSERTIONS`，检查标准库容器、span 和视图的越界访问。
 - C ABI 兼容性检查：`c_api_abi_v1.c` 在各平台编译期冻结 v1 的类型、布局、数值和函数类型；C API 工作流用
   `tools/check-c-abi.sh` 调用 libabigail 的 `abidiff` 与最新发布版比较，已发布符号或公开类型变化时失败。
+- Quality 工作流新增 GCC 警告即错误任务（`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow`）。
+  为此 `TfIdfOptions` / `TextRankOptions` 的 `allowed_tags` 增加默认成员初始化，指定初始化不再触发
+  `-Wmissing-field-initializers`；`uint128_t` 别名标为 `__extension__`，`-Wpedantic` 下不再告警。
 - clang-tidy 增加 `bugprone-*` 检查，另有 `clang-analyzer` 任务运行 Clang 静态分析器；`tools/clang-tidy-recursive.sh`
   支持用 `CLANG_TIDY_CHECKS` 覆盖检查集。有意的写法以带理由的 `NOLINT` 标出，测试中的乘法改为显式宽度。
 - Quality 工作流新增 Clang + libc++ 任务，以 `_LIBCPP_HARDENING_MODE_DEBUG` 运行单元测试、C ABI 测试和 fuzz 语料回放，

@@ -56,12 +56,6 @@ auto read_text(std::string_view path) -> std::string {
     return {std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
 }
 
-auto read_bytes(std::string_view path) -> std::vector<std::byte> {
-    const auto text = read_text(path);
-    const auto bytes = std::as_bytes(std::span{text});
-    return {bytes.begin(), bytes.end()};
-}
-
 // Split text into its nonempty lines.
 auto lines_of(std::string_view text) -> std::vector<std::string_view> {
     auto lines = std::vector<std::string_view>{};
@@ -253,7 +247,7 @@ TEST(SnapshotChecksumTest, MatchesReferenceXxh64) {
     };
     EXPECT_EQ(hash(""), 0xEF46DB3751D8E999);
     EXPECT_EQ(hash("a"), 0xD24EC4F1A98C6E5B);
-    EXPECT_EQ(hash("abc"), 0x44BC2CF5AD770999);
+    EXPECT_EQ(hash("abc"), 0x44BC2CF5AD770999ULL);
     // 39 bytes: one 32-byte stripe, then a 4-byte word and three single bytes.
     EXPECT_EQ(hash("Nobody inspects the spammish repetition"), 0xFBCEA83C8A378BF1);
 }

@@ -134,6 +134,31 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Every target treats warnings as errors except the 8- and 16-bit capacity variants, which opt out in
+  # test/cmake/ConfigVariantTests.cmake because integer promotion makes each narrowing back to them warn.
+  warnings:
+    name: GCC warnings as errors
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      # Tests compare double weights at float precision through EXPECT_FLOAT_EQ on purpose.
+      WARNING_FLAGS: -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wno-float-conversion
+    steps:
+      - uses: actions/checkout@v7
+      # GoogleTest builds from source, so its templates are checked where our tests instantiate them.
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=gcc-15 -DCMAKE_CXX_COMPILER=g++-15
+          "-DCMAKE_C_FLAGS=$WARNING_FLAGS" "-DCMAKE_CXX_FLAGS=$WARNING_FLAGS" -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+          -DCMAKE_DISABLE_FIND_PACKAGE_GTest=ON
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON
+          -DCPPJIEBA_C_API_BUILD_SHARED=ON -DCPPJIEBA_C_API_BUILD_STATIC=ON
+      - name: Build
+        run: cmake --build build --parallel 4
+      - name: Test unit, C ABI and fuzz corpus replays
+        run: ctest --test-dir build -E "$CTEST_EXCLUDE" --no-tests=error --output-on-failure --parallel 4
+
   # Truncating or sign-changing implicit integer conversions in this repository's code abort the test reaching them.
   implicit-conversions:
     name: Clang implicit conversions

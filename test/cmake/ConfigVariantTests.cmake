@@ -50,6 +50,10 @@ endforeach()
 # Existing regression fixtures require more capacity than the narrow variants provide.
 target_include_directories(test_neo.run BEFORE PRIVATE "${PROJECT_BINARY_DIR}/generated/capacity/32")
 cppjieba_add_capacity_test(mixed "std::uint8_t" "std::uint16_t" "std::uint32_t" "std::uint64_t" capacity_test.cpp)
+# Arithmetic on 8- and 16-bit capacities promotes to int, so -Wconversion reports every narrowing back to the
+# capacity type; those warnings stay visible but do not fail builds that set CMAKE_COMPILE_WARNING_AS_ERROR.
+set_target_properties(test_capacity_8.run test_capacity_16.run test_capacity_mixed.run
+    PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
 
 include(CheckCXXSourceCompiles)
 check_cxx_source_compiles("int main() { unsigned __int128 value = 0; return static_cast<int>(value); }"

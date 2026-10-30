@@ -575,7 +575,7 @@ TEST(HMMSegmentTest, SingleCharacter) {
     auto runes = decode(std::string_view{"我"});
     auto result = cut<HMMSegment>(unused_dict(), model, runes);
     auto words = to_strings(runes, result);
-    ASSERT_EQ(words.size(), 1);
+    ASSERT_EQ(words.size(), 1U);
     EXPECT_EQ(words[0], "我");
 }
 

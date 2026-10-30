@@ -34,7 +34,8 @@ inline constexpr auto is_debug_build = true;
 
 #if defined(__SIZEOF_INT128__)
 // Native 128-bit capacity storage on supporting targets; C++23 has no std::uint128_t.
-using uint128_t = unsigned __int128;
+// __extension__ marks the GNU type as intended, so -Wpedantic builds stay quiet.
+__extension__ using uint128_t = unsigned __int128;
 #endif
 
 namespace detail {
