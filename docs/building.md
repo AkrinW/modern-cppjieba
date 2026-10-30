@@ -115,7 +115,7 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 | clang 静态分析 | `CLANG_TIDY_CHECKS='-*,clang-analyzer-*,-clang-analyzer-cplusplus.Move,-clang-analyzer-optin.core.EnumCastOutOfRange' PER_FILE_TIMEOUT=900 BUILD_DIR=build tools/clang-tidy-recursive.sh --check` |
 | 头文件自足 | `tools/check-headers.sh`，`CLANG_CXX` 指定 Clang；`BUILD_TESTING` 构建同时编译 `neo_header_check` |
 | ASan + UBSan、TSan | 以 GCC 和工作流中的 `-fsanitize` 参数配置 Debug 构建，再运行 `ctest`；ASan + UBSan 另加 `-D_GLIBCXX_ASSERTIONS` |
-| 警告即错误 | 以 GCC、`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wno-float-conversion` 和 `-DCMAKE_COMPILE_WARNING_AS_ERROR=ON` 配置 Debug 构建 |
+| 警告即错误 | 以 GCC 或 Clang、`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wno-float-conversion`（Clang 另加 `-Wno-implicit-float-conversion`）和 `-DCMAKE_COMPILE_WARNING_AS_ERROR=ON` 配置 Debug 构建 |
 | libc++ 加固 | 以 Clang、`-stdlib=libc++` 和 `-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG` 配置 Debug 构建，`-DCMAKE_DISABLE_FIND_PACKAGE_GTest=ON` 让 GoogleTest 按同一标准库从源码构建，再运行 `ctest` |
 | 隐式整数转换 | 以 Clang、`-fsanitize=implicit-conversion` 和 `-fsanitize-ignorelist=tools/implicit-conversion.ignorelist` 配置 Debug 构建，再运行 `ctest` |
 | libFuzzer | 以 `-DCPPJIEBA_BUILD_FUZZERS=ON` 构建，再运行 `tools/fuzz.sh <构建目录> [每个目标的秒数] [目标...]`；`--list` 列出目标 |
@@ -128,8 +128,9 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
   `.clang-tidy` 启用 `bugprone-*`，并排除标出有意写法的几项；路径敏感的 `clang-analyzer-*` 比其他检查慢数倍，
   由单独的 Quality 任务通过 `CLANG_TIDY_CHECKS` 运行。确属有意的个别写法用带理由的 `NOLINT` 注释标出。
   `CLANG_FORMAT`、`CLANG_TIDY` 指定工具路径；`GCC_TOOLCHAIN` 设为空值时使用编译器默认的 GCC。
-- 警告即错误任务中，8 位和 16 位容量变体的测试目标关闭 `COMPILE_WARNING_AS_ERROR`：整数提升使每次缩回容量类型都产生
-  `-Wconversion` 警告，这些警告仍会输出。Clang 的 `-Wconversion` 还会报告 128 位变体中的转换，目前只用 GCC 把关。
+- 警告即错误任务覆盖全部容量变体。窄容量类型的运算经整数提升变为 `int`，库代码在原本隐式缩回的位置写出显式转换，
+  `-O3` 下生成的机器码与改写前逐函数一致。128 位变体用 Clang 构建时关闭 `-Wimplicit-int-conversion`：
+  每次以 128 位 `RuneIndex` 下标访问都会转换为 `size_t`，而下标不超过被访问 span 的长度。
 - Sanitizer 与覆盖率构建同时启用共享和静态 C ABI。GCC 的 sanitizer 运行库以动态库链接，满足共享库的 `-z defs`；
   sanitizer 会替换分配器，因此 sanitizer 任务跳过检查私有运行库的 `neo_c_api_symbols` 和 `neo_c_api_c_host`，
   二者由 C API 工作流在常规构建中运行。

@@ -193,7 +193,8 @@ inline auto style_emit_search_word(std::span<const Rune> runes, WordRange word, 
                                    std::span<const SearchSubwords> subwords, std::vector<WordRange> &out) -> void {
     assert(word.begin < word.end && word.end <= runes.size());
     // Emitted ranges are global; membership rows belong to the current dictionary block.
-    assert(word.size() <= 2 || (word.begin >= block_begin && word.end - block_begin <= subwords.size()));
+    assert(word.size() <= 2
+           || (word.begin >= block_begin && static_cast<RuneIndex>(word.end - block_begin) <= subwords.size()));
     if constexpr (compile_config::segmentation_style == SegmentationStyle::RUST) {
         style_emit_compound_parts(runes, word, out);
     }
