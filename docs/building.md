@@ -114,6 +114,7 @@ GoogleTest 按父项目目标、本地安装、源码下载的顺序查找；使
 | clang-tidy | `BUILD_DIR=build tools/clang-tidy-recursive.sh --check`；去掉 `--check` 即循环应用修复 |
 | 头文件自足 | `tools/check-headers.sh`，`CLANG_CXX` 指定 Clang；`BUILD_TESTING` 构建同时编译 `neo_header_check` |
 | ASan + UBSan、TSan | 以 GCC 和工作流中的 `-fsanitize` 参数配置 Debug 构建，再运行 `ctest`；ASan + UBSan 另加 `-D_GLIBCXX_ASSERTIONS` |
+| 隐式整数转换 | 以 Clang、`-fsanitize=implicit-conversion` 和 `-fsanitize-ignorelist=tools/implicit-conversion.ignorelist` 配置 Debug 构建，再运行 `ctest` |
 | libFuzzer | 以 `-DCPPJIEBA_BUILD_FUZZERS=ON` 构建，再运行 `tools/fuzz.sh <构建目录> [每个目标的秒数] [目标...]`；`--list` 列出目标 |
 | Fuzz 语料回放 | `BUILD_TESTING` 构建中运行 `ctest -R neo_fuzz_replay`，任意编译器均可 |
 | 覆盖率 | 以 `-fprofile-instr-generate -fcoverage-mapping` 构建，再运行 `tools/llvm-coverage.sh <构建目录> <输出目录>` |

@@ -108,6 +108,33 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Truncating or sign-changing implicit integer conversions in this repository's code abort the test reaching them.
+  implicit-conversions:
+    name: Clang implicit conversions
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+      # The ignorelist skips standard library templates, which convert between char types and sizes on purpose.
+      SANITIZE_FLAGS: >-
+        -O1 -g -fsanitize=implicit-conversion -fno-sanitize-recover=all -fno-omit-frame-pointer
+        -fsanitize-ignorelist=${{ github.workspace }}/tools/implicit-conversion.ignorelist
+    steps:
+      - uses: actions/checkout@v7
+      # Clang links the sanitizer runtime only into executables, which the shared C ABI's -z defs rejects,
+      # so the static C ABI library carries the C ABI tests here.
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER="clang-$LLVM_VERSION" -DCMAKE_CXX_COMPILER="clang++-$LLVM_VERSION"
+          "-DCMAKE_C_FLAGS=$SANITIZE_FLAGS" "-DCMAKE_CXX_FLAGS=$SANITIZE_FLAGS"
+          -DBUILD_TESTING=ON -DCPPJIEBA_BUILD_C_API=ON
+          -DCPPJIEBA_C_API_BUILD_SHARED=OFF -DCPPJIEBA_C_API_BUILD_STATIC=ON
+      - name: Build
+        run: cmake --build build --parallel 4
+      - name: Test unit, C ABI and fuzz corpus replays
+        run: ctest --test-dir build -E "$CTEST_EXCLUDE" --no-tests=error --output-on-failure --parallel 4
+
   fuzz:
     name: libFuzzer
     runs-on: ubuntu-26.04

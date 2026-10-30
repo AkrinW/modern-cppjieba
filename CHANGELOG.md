@@ -41,6 +41,8 @@
 - ASan + UBSan 任务启用 `-D_GLIBCXX_ASSERTIONS`，检查标准库容器、span 和视图的越界访问。
 - C ABI 兼容性检查：`c_api_abi_v1.c` 在各平台编译期冻结 v1 的类型、布局、数值和函数类型；C API 工作流用
   `tools/check-c-abi.sh` 调用 libabigail 的 `abidiff` 与最新发布版比较，已发布符号或公开类型变化时失败。
+- Quality 工作流新增 Clang 隐式整数转换检查：单元测试、C ABI 测试和 fuzz 语料回放在 `-fsanitize=implicit-conversion` 下运行，
+  本仓库代码中改变数值的截断或符号转换会使测试失败；标准库模板经 `tools/implicit-conversion.ignorelist` 排除。
 - 新增 `instruction_workload` 与 `tools/instruction-counts.sh`：用 callgrind 分别统计加载、快照加载、分词、标注和关键词提取的
   指令数，Quality 工作流在 job summary 中报告与基准修订的差异。
 - 覆盖率任务在 job summary 中按行和分支汇总总计、各目录和覆盖最少的文件，PR 另报告改动行的覆盖；
