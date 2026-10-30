@@ -62,6 +62,13 @@ class CoverageSummaryTest(unittest.TestCase):
         branches = self.files["include/neo/A.hpp"].branches
         self.assertEqual(branches, {(2, "0", "0"): True, (2, "0", "1"): False})
 
+    def test_closing_brace_after_a_covered_line_counts_as_covered(self):
+        lcov = "SF:/repo/a.hpp\nDA:1,2\nDA:2,0\nDA:3,0\nDA:4,0\nDA:5,0\nend_of_record\n"
+        files = summary.parse_lcov(lcov.splitlines(), ROOT)
+        source = ["    return x;", "    }", "    call();", "    }", "};"]
+        summary.credit_closing_braces(files, lambda path: source)
+        self.assertEqual(files["a.hpp"].lines, {1: 2, 2: 2, 3: 0, 4: 0, 5: 0})
+
     def test_diff_maps_added_lines_and_ignores_pure_removals(self):
         self.assertEqual(summary.parse_diff(DIFF), {"include/neo/A.hpp": {2, 3, 11}})
 

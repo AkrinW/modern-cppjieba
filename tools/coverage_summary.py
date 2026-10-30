@@ -12,6 +12,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 WEAKEST_FILES = 12
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+CLOSING_BRACES = {"}", "};"}
 
 
 @dataclass
@@ -49,6 +50,27 @@ def parse_lcov(lines, root):
             key = (int(number), block, branch)
             current.branches[key] = current.branches.get(key, False) or (taken != "-" and int(taken) > 0)
     return dict(files)
+
+
+def credit_closing_braces(files, sources):
+    """Count a zero-count line holding only a closing brace as covered when the executable line before it is.
+
+    llvm-cov gives the unreachable end of a block that returns, such as a switch case, its own zero-count region.
+    """
+    for path, item in files.items():
+        text = sources(path)
+        previous = 0
+        for number in sorted(item.lines):
+            brace = number <= len(text) and text[number - 1].strip() in CLOSING_BRACES
+            if item.lines[number] == 0 and previous > 0 and brace:
+                item.lines[number] = previous
+            previous = item.lines[number]
+
+
+def read_source(path):
+    """Source lines of a repository-relative path; a missing file has none."""
+    file = ROOT / path
+    return file.read_text(encoding="utf-8", errors="replace").splitlines() if file.is_file() else []
 
 
 def parse_diff(text):
@@ -154,7 +176,8 @@ def render(files, changed, base):
     """The whole Markdown summary; changed lines appear only when a base is given."""
     out = ["## Coverage of include/neo and the C ABI adapter", "",
            "Report only; no threshold is enforced. A line or branch counts as covered when any test binary or "
-           "template instantiation reaches it. HTML and lcov reports are in the coverage artifact.", ""]
+           "template instantiation reaches it, and a closing-brace line when the line before it is covered. "
+           "HTML and lcov reports are in the coverage artifact.", ""]
     out += render_totals(files) + [""]
     if base:
         out += render_changed(files, changed, base) + [""]
@@ -170,6 +193,7 @@ def run():
     args = parser.parse_args()
     with args.lcov.open(encoding="utf-8") as lcov:
         files = parse_lcov(lcov, ROOT)
+    credit_closing_braces(files, read_source)
     changed = changed_lines(args.base, sorted(files)) if args.base else {}
     sys.stdout.write(render(files, changed, args.base))
 
