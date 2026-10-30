@@ -38,6 +38,9 @@
   源偏移落在各自的码元上。
 - Fuzz CI 在运行之间缓存并精简语料，并按输入格式使用 libFuzzer 字典；PR 与 master 每个目标 fuzz 30 秒，
   新增的 Nightly fuzz 工作流每天为每个目标并行 fuzz 10 分钟。`tools/fuzz.sh` 增加 `--list`、`FUZZ_FORK` 和 `FUZZ_MINIMIZE`。
+- ASan + UBSan 任务启用 `-D_GLIBCXX_ASSERTIONS`，检查标准库容器、span 和视图的越界访问。
+- C ABI 兼容性检查：`c_api_abi_v1.c` 在各平台编译期冻结 v1 的类型、布局、数值和函数类型；C API 工作流用
+  `tools/check-c-abi.sh` 调用 libabigail 的 `abidiff` 与最新发布版比较，已发布符号或公开类型变化时失败。
 - 覆盖率任务在 job summary 中按行和分支汇总总计、各目录和覆盖最少的文件，PR 另报告改动行的覆盖；
   统计取所有测试程序和模板实例的并集，只含右花括号的行随其前一可执行行计入，HTML 报告显示分支计数，
   构建目录中生成的头文件不再计入。
