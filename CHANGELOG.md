@@ -30,6 +30,9 @@
   见 [质量检查](docs/building.md#质量检查)。
 - 每个 fuzz 目标在 `BUILD_TESTING` 下另建 `neo_fuzz_replay_<目标>` 测试，用任意编译器回放 `test/fuzz/corpus/` 中
   按边覆盖精简的语料，sanitizer 和覆盖率任务因此也运行这些输入；`tools/fuzz.sh` 从该语料出发。
+- 新增 C ABI fuzz 目标：`c_api_ranges` 对照独立结果和 `lookup_tag` 检查复用存储的区间与标注，
+  `c_api_sources` 对照 C++ API 检查内存源和快照的加载与分词，`c_api_edit` 在克隆引擎上随机增删词并 `compact`，
+  `c_api_keyword` 检查两种排序的参数校验、顺序、出现位置和标注；每次调用都检查错误缓冲区契约。
 - C ABI v1 新增 25 个函数，已有符号、结构布局和函数语义不变。见 [C ABI](api/README.md#calls-and-ownership)。
   - 可复用的 workspace 和只含字节区间的结果：`neo_jieba_v1_cut_utf8_into` 把分词结果写成调用方原文中的
     字节区间，不复制原文，并复用 workspace 的临时存储和结果容量。

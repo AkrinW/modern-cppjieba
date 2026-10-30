@@ -5,7 +5,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 
-readonly FUZZERS=(utf_decode main_dict user_dict hmm_model dict_snapshot c_api_cut)
+readonly FUZZERS=(utf_decode main_dict user_dict hmm_model dict_snapshot c_api_cut c_api_ranges c_api_sources c_api_edit
+    c_api_keyword)
 readonly FUZZ_SECONDS_DEFAULT=60
 
 usage() {
@@ -30,13 +31,31 @@ write_seeds() {
     cp "${REPO_ROOT}"/test/testdata/snapshot/format_v*.bin "${corpus}/dict_snapshot/"
 
     # c_api_cut reads its mode from the first byte.
+    # c_api_ranges also reads fill flags, here tagging both fills, then two inputs split at a 0xFF byte.
+    # c_api_keyword reads the ranker order, top_n, window, iterations, a damping choice and a tag count first.
     local line mode index=0
     while IFS= read -r line; do
         for mode in 0 1 2 3 4 5 6; do
             printf "\\$(printf '%03o' "${mode}")%s" "${line}" > "${corpus}/c_api_cut/line${index}_mode${mode}"
+            printf "\\$(printf '%03o' "${mode}")\\003%s\\377%s" "${line}" "${line}" \
+                > "${corpus}/c_api_ranges/line${index}_mode${mode}"
         done
+        printf '\000\005\005\012\002\000%s' "${line}" > "${corpus}/c_api_keyword/line${index}"
         index=$((index + 1))
     done < "${REPO_ROOT}/test/testdata/testlines.utf8"
+
+    # c_api_sources reads a flag byte: 0 loads dictionaries split at 0xFF bytes, 1 loads a snapshot.
+    local testdata="${REPO_ROOT}/test/testdata" user_dict
+    for user_dict in "${testdata}"/userdict* "${testdata}/snapshot/user.dict.utf8"; do
+        { printf '\000'; cat "${testdata}/snapshot/main.dict.utf8"; printf '\377'; cat "${user_dict}"; } \
+            > "${corpus}/c_api_sources/${user_dict##*/}"
+    done
+    { printf '\001'; cat "${testdata}/snapshot/format_v1.bin"; } > "${corpus}/c_api_sources/format_v1.bin"
+
+    # c_api_edit reads a diagnostic byte, then edits of a kind, a word length and word, a tag and a frequency byte:
+    # add 杭研 tagged nz, add 云计算 with frequency 112, remove 大学, and compact.
+    printf '\004\000\006杭研\002\000\001\011云计算\002\200\002\006大学\000\000\003\000\000\000' \
+        > "${corpus}/c_api_edit/add_remove_compact"
 }
 
 # The library logs every rejected input, so target output is closed; libFuzzer still reports crashes.
