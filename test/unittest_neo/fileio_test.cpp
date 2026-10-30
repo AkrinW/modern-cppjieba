@@ -9,13 +9,16 @@
 
 #include "test_paths.h"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <ios>
 #include <iterator>
@@ -338,8 +341,29 @@ TEST_F(FileBufferTest, MissingFileReportsPathAndSystemError) {
     } catch (const LogConfig::Exception &error) {
         const auto message = std::string_view{error.what()};
         EXPECT_NE(message.find(path), std::string_view::npos);
-        EXPECT_NE(message.find(std::error_code{ENOENT, std::generic_category()}.message()), std::string_view::npos);
+        EXPECT_NE(message.find(std::format("{}", platform::ErrorMessage{platform::ErrorCategory::Generic, ENOENT})),
+                  std::string_view::npos);
     }
+}
+
+TEST(ErrorMessageTest, GenericCodeFormatsStandardErrorText) {
+    const auto text = std::format("{}", platform::ErrorMessage{platform::ErrorCategory::Generic, ENOENT});
+    const auto expected = std::error_code{ENOENT, std::generic_category()}.message();
+    // Standard library category text may differ from the C library text in letter case.
+    EXPECT_TRUE(std::ranges::equal(text, expected, [](char left, char right) {
+        return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right));
+    })) << text;
+}
+
+TEST(ErrorMessageTest, SystemCodeFormatsSingleLineText) {
+    const auto code = test_platform::missing_file_system_error();
+    const auto text = std::format("{}", platform::ErrorMessage{platform::ErrorCategory::System, code});
+    EXPECT_FALSE(text.empty());
+    EXPECT_EQ(text.find_first_of("\r\n"), std::string::npos);
+}
+
+TEST(ErrorMessageTest, UnknownCodeStillFormatsText) {
+    EXPECT_FALSE(std::format("{}", platform::ErrorMessage{platform::ErrorCategory::Generic, 987654}).empty());
 }
 
 TEST_F(FileBufferTest, RejectsEmbeddedNullInsteadOfOpeningPathPrefix) {
@@ -385,6 +409,25 @@ TEST_F(FileBufferTest, RejectingDirectoryClosesDescriptor) {
 
 TEST_F(FileBufferTest, RejectsFifoWithoutWaitingForWriter) {
     test_platform::expect_fifo_rejected_without_waiting(directory_ / "fifo");
+}
+
+TEST_F(FileBufferTest, OpenForReadingReportsMissingFileAsStatus) {
+    const auto opened = platform::open_for_reading(platform::native_path(file_path("missing")));
+    EXPECT_EQ(opened.fd, -1);
+    EXPECT_FALSE(opened.status.succeeded);
+    EXPECT_EQ(opened.status.error.category, platform::ErrorCategory::Generic);
+    EXPECT_EQ(opened.status.error.code, ENOENT);
+}
+
+TEST_F(FileBufferTest, ReadSomeReportsEndOfFileAsZeroBytes) {
+    ASSERT_NO_FATAL_FAILURE(write_file("empty", ""));
+    const auto opened = platform::open_for_reading(platform::native_path(file_path("empty")));
+    ASSERT_TRUE(opened.status.succeeded);
+    auto buffer = std::array<char, 8>{};
+    const auto result = platform::read_some(opened.fd, buffer);
+    EXPECT_EQ(platform::close_file_descriptor(opened.fd), 0);
+    EXPECT_TRUE(result.status.succeeded);
+    EXPECT_EQ(result.bytes, 0u);
 }
 
 TEST_F(FileBufferTest, AtomicReplacementPreservesLoadedContent) {
